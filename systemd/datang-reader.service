@@ -1,0 +1,39 @@
+[Unit]
+Description=Datang Reader Attendance Service
+Documentation=https://github.com/your-repo/datang-reader-linux
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=datang
+Group=datang
+WorkingDirectory=/opt/datang-reader
+ExecStart=/usr/bin/python3 /opt/datang-reader/datang_reader.py --gui
+Restart=always
+RestartSec=10
+
+# Environment variables (optional - can also be set in config.py)
+#Environment="DATANG_API_URL=https://datang.my/api/reader/v1"
+#Environment="DATANG_DEVICE_ID=linux-reader-001"
+#Environment="DATANG_SERIAL_PORT=/dev/ttyUSB0"
+#Environment="DATANG_FULLSCREEN=true"
+#Environment="DATANG_LOG_LEVEL=INFO"
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/home/datang/.datang_reader_token /home/datang/.datang_reader_queue.db /home/datang/.datang_reader.log
+
+# Allow access to USB devices
+SupplementaryGroups=dialout plugdev
+
+# Standard output/error logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=datang-reader
+
+[Install]
+WantedBy=graphical.target
