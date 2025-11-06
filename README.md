@@ -2,10 +2,6 @@
 
 A cross-platform port of the Datang Reader Android attendance system. Works on Windows, Linux, and macOS with HID keyboard-emulating RFID readers.
 
-> **📢 API Status**: ✅ **Integration Complete** (Nov 2, 2025)
-> Real API endpoints have been captured and integrated. See `API_ENDPOINTS_CAPTURED.md` for details.
-> **Current Phase**: Ready for hardware testing and deployment.
-
 ## Features
 
 - **HID Keyboard RFID Reader**: Reads 125kHz RFID cards via HID keyboard-emulating readers (no drivers needed)
@@ -48,9 +44,76 @@ The system consists of several components:
 
 ## Installation
 
-### Quick Install
+### Prerequisites
 
-Run the automated installation script:
+Ensure you have Python 3.8 or higher installed:
+
+```bash
+# Check Python version
+python --version  # or python3 --version
+```
+
+### Windows Installation
+
+1. **Install Python** (if not already installed):
+   - Download Python 3.8+ from [python.org](https://www.python.org/downloads/)
+   - During installation, check "Add Python to PATH"
+   - Verify installation: `python --version`
+
+2. **Install dependencies**:
+
+```cmd
+# Navigate to project directory
+cd C:\path\to\Datang-Reader
+
+# Install Python packages
+pip install -r requirements.txt
+```
+
+3. **Configure credentials**:
+   - Edit `src\config.py` with your reader credentials
+   - Or set environment variables (see Configuration section)
+
+4. **Connect RFID reader**:
+   - Plug in USB HID keyboard RFID reader
+   - No drivers needed - Windows recognizes it as a keyboard
+   - Test by opening Notepad and scanning a card
+
+### macOS Installation
+
+1. **Install Python** (if not already installed):
+
+```bash
+# Using Homebrew (recommended)
+brew install python@3.11
+
+# Or download from python.org
+# Verify installation
+python3 --version
+```
+
+2. **Install dependencies**:
+
+```bash
+# Navigate to project directory
+cd ~/path/to/Datang-Reader
+
+# Install Python packages
+pip3 install -r requirements.txt
+```
+
+3. **Configure credentials**:
+   - Edit `src/config.py` with your reader credentials
+   - Or set environment variables (see Configuration section)
+
+4. **Connect RFID reader**:
+   - Plug in USB HID keyboard RFID reader
+   - macOS recognizes it automatically
+   - Test in TextEdit by scanning a card
+
+### Linux Installation (Ubuntu/Debian)
+
+#### Quick Install (Automated)
 
 ```bash
 sudo bash install.sh
@@ -63,18 +126,19 @@ This will:
 - Install Python dependencies
 - Set up systemd service
 
-### Manual Installation
+#### Manual Installation
 
 1. **Install dependencies**:
 
 ```bash
 # Ubuntu/Debian
+sudo apt-get update
 sudo apt-get install python3 python3-pip python3-pyqt5
 
 # Fedora/RHEL
 sudo dnf install python3 python3-pip python3-qt5
 
-# Arch
+# Arch Linux
 sudo pacman -S python python-pip python-pyqt5
 ```
 
@@ -84,16 +148,18 @@ sudo pacman -S python python-pip python-pyqt5
 pip3 install -r requirements.txt
 ```
 
-3. **Plug in HID keyboard RFID reader**:
-   - Simply connect via USB - no configuration needed
-   - Reader will work like a keyboard automatically
-   - Test by opening Notepad and scanning a card - the ID should appear
+3. **Configure credentials**:
+   - Edit `src/config.py` with your reader credentials
+   - Or set environment variables (see Configuration section)
+
+4. **Connect RFID reader**:
+   - Plug in USB HID keyboard RFID reader
+   - No drivers needed - Linux recognizes it automatically
+   - Test by opening a text editor and scanning a card
 
 ## Configuration
 
-### Step 1: API Endpoints (✅ Already Done)
-
-**Good news**: API endpoints have been captured and integrated! You don't need to do network interception.
+### Step 1: API Endpoints
 
 The following are pre-configured in `src/config.py`:
 - API Base URL: `https://datang.my/api/reader/v1`
@@ -101,8 +167,6 @@ The following are pre-configured in `src/config.py`:
 - Attendance endpoint: `/scan`
 - API Version: `1`
 - Authentication: Token in request body (body-based, not headers)
-
-For technical details, see `API_ENDPOINTS_CAPTURED.md`.
 
 ### Step 2: Configure Your Credentials
 
@@ -230,92 +294,743 @@ sudo systemctl status datang-reader
 sudo journalctl -u datang-reader -f
 ```
 
-## Kiosk Setup
+## Deployment
 
-For a dedicated attendance kiosk:
+### Windows Deployment
 
-1. **Auto-login**: Configure your display manager to auto-login
+#### Option 1: Run on Startup (User Login)
 
-2. **Full-screen mode**: Set in `config.py`:
+1. **Create a batch file** `start_datang_reader.bat`:
+
+```batch
+@echo off
+cd C:\path\to\Datang-Reader
+python datang_reader.py --gui
+```
+
+2. **Add to Startup folder**:
+   - Press `Win + R`, type `shell:startup`, press Enter
+   - Copy the batch file to the Startup folder
+   - The service will start automatically when you log in
+
+#### Option 2: Run as Windows Service
+
+1. **Install NSSM** (Non-Sucking Service Manager):
+   - Download from [nssm.cc](https://nssm.cc/download)
+   - Extract `nssm.exe` to `C:\Windows\System32`
+
+2. **Install service**:
+
+```cmd
+# Open Command Prompt as Administrator
+nssm install DatangReader "C:\path\to\python.exe" "C:\path\to\Datang-Reader\datang_reader.py --console"
+
+# Start service
+nssm start DatangReader
+
+# Service will now run on boot
+```
+
+3. **Manage service**:
+
+```cmd
+# Stop service
+nssm stop DatangReader
+
+# Remove service
+nssm remove DatangReader confirm
+```
+
+#### Option 3: Task Scheduler (Recommended for Kiosk)
+
+1. Open Task Scheduler (`taskschd.msc`)
+2. Create Basic Task:
+   - **Name**: Datang Reader
+   - **Trigger**: At startup or At log on
+   - **Action**: Start a program
+   - **Program**: `C:\path\to\python.exe`
+   - **Arguments**: `C:\path\to\Datang-Reader\datang_reader.py --gui`
+   - **Start in**: `C:\path\to\Datang-Reader`
+3. Check "Run with highest privileges"
+
+### macOS Deployment
+
+#### Option 1: Launch Agent (User Login)
+
+1. **Create launch agent** `~/Library/LaunchAgents/com.datang.reader.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.datang.reader</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/python3</string>
+        <string>/path/to/Datang-Reader/datang_reader.py</string>
+        <string>--gui</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/datang-reader.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/datang-reader-error.log</string>
+    <key>WorkingDirectory</key>
+    <string>/path/to/Datang-Reader</string>
+</dict>
+</plist>
+```
+
+2. **Load the agent**:
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.datang.reader.plist
+launchctl start com.datang.reader
+```
+
+3. **Manage the service**:
+
+```bash
+# Stop
+launchctl stop com.datang.reader
+
+# Unload
+launchctl unload ~/Library/LaunchAgents/com.datang.reader.plist
+```
+
+#### Option 2: Login Items
+
+1. Open **System Preferences** > **Users & Groups**
+2. Select your user, go to **Login Items**
+3. Click **+** and add a script that launches the reader
+4. Create a simple shell script `start_datang.sh`:
+
+```bash
+#!/bin/bash
+cd /path/to/Datang-Reader
+/usr/local/bin/python3 datang_reader.py --gui
+```
+
+5. Make it executable: `chmod +x start_datang.sh`
+
+### Linux Deployment
+
+#### Option 1: Systemd Service (System-wide)
+
+1. **Edit the systemd service file** `systemd/datang-reader.service`:
+
+```ini
+[Unit]
+Description=Datang RFID Reader Service
+After=network.target
+
+[Service]
+Type=simple
+User=datang-reader
+Group=datang-reader
+WorkingDirectory=/opt/datang-reader
+ExecStart=/usr/bin/python3 /opt/datang-reader/datang_reader.py --console
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+2. **Install and enable**:
+
+```bash
+# Copy service file
+sudo cp systemd/datang-reader.service /etc/systemd/system/
+
+# Reload systemd
+sudo systemctl daemon-reload
+
+# Enable and start
+sudo systemctl enable datang-reader
+sudo systemctl start datang-reader
+```
+
+3. **Manage service**:
+
+```bash
+# Check status
+sudo systemctl status datang-reader
+
+# View logs
+sudo journalctl -u datang-reader -f
+
+# Restart
+sudo systemctl restart datang-reader
+
+# Stop
+sudo systemctl stop datang-reader
+```
+
+#### Option 2: User Systemd Service (No root required)
+
+1. **Create user service** `~/.config/systemd/user/datang-reader.service`:
+
+```ini
+[Unit]
+Description=Datang RFID Reader Service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Datang-Reader
+ExecStart=/usr/bin/python3 %h/Datang-Reader/datang_reader.py --gui
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+```
+
+2. **Enable and start**:
+
+```bash
+# Reload user systemd
+systemctl --user daemon-reload
+
+# Enable and start
+systemctl --user enable datang-reader
+systemctl --user start datang-reader
+
+# Enable lingering (service runs even when not logged in)
+loginctl enable-linger $USER
+```
+
+#### Option 3: Desktop Autostart
+
+1. **Create autostart entry** `~/.config/autostart/datang-reader.desktop`:
+
+```ini
+[Desktop Entry]
+Type=Application
+Name=Datang Reader
+Exec=/usr/bin/python3 /path/to/Datang-Reader/datang_reader.py --gui
+Terminal=false
+X-GNOME-Autostart-enabled=true
+```
+
+2. Make it executable:
+
+```bash
+chmod +x ~/.config/autostart/datang-reader.desktop
+```
+
+### Kiosk Mode Setup
+
+For a dedicated attendance kiosk terminal:
+
+#### All Platforms
+
+1. **Enable full-screen mode** in `src/config.py`:
+
 ```python
 FULLSCREEN = True
 ```
 
-3. **Auto-start on boot**: Enable systemd service:
-```bash
-sudo systemctl enable datang-reader
-```
+2. **Configure auto-login**:
+   - **Windows**: Settings > Accounts > Sign-in options > Require sign-in (Never)
+   - **macOS**: System Preferences > Users & Groups > Login Options > Automatic login
+   - **Linux**: Configure your display manager (GDM, LightDM, etc.)
 
-4. **Disable screen sleep**:
+#### Linux-specific Kiosk Settings
+
+3. **Disable screen sleep**:
+
 ```bash
-# Add to ~/.xinitrc or desktop session startup
+# Add to ~/.xinitrc or startup script
 xset s off
 xset -dpms
 xset s noblank
 ```
 
-5. **Hide cursor** (optional):
+4. **Hide cursor** (optional):
+
 ```bash
 sudo apt-get install unclutter
+# Add to startup
 unclutter -idle 0.1 &
+```
+
+5. **Disable Alt+F4 and other shortcuts** (GNOME):
+
+```bash
+gsettings set org.gnome.desktop.wm.keybindings close "[]"
 ```
 
 ## Troubleshooting
 
-### RFID Reader Not Working
+### Installation Issues
 
-1. **Verify it's an HID keyboard reader**:
-   - Open any text editor (Notepad, TextEdit, etc.)
-   - Scan a card - it should type the card ID automatically
-   - If nothing happens, your reader may not be HID keyboard type
+#### Windows
 
-2. **Focus issues in GUI mode**:
-   - Make sure the GUI window is in focus
-   - Don't click outside the input field while scanning
-   - The GUI automatically refocuses every 2 seconds
+**Python not found:**
+```cmd
+# Verify Python installation
+where python
 
-3. **Console mode not reading**:
-   - Make sure terminal window is active
-   - Try typing a card ID manually to test
-   - Check that Enter is being pressed after the card ID
-
-### Authentication Failed
-
-1. Verify credentials are correct (from Datang Dashboard)
-2. Check API endpoint URL is correct
-3. Test network connectivity:
-```bash
-curl https://datang.my/api/reader/v1/
+# If not found, reinstall Python and check "Add Python to PATH"
 ```
-4. Review captured API traffic to verify request format
 
-### Cards Not Scanning
+**pip not found:**
+```cmd
+# Use python -m pip instead
+python -m pip install -r requirements.txt
+```
 
-1. **Test reader in a text editor first**:
-   - Open Notepad/TextEdit/any text editor
-   - Scan a card
-   - Verify card ID appears as text
+**PyQt5 installation fails:**
+```cmd
+# Try upgrading pip first
+python -m pip install --upgrade pip
 
-2. **Check card format**: Must match reader frequency (125kHz)
+# Install PyQt5 separately
+python -m pip install PyQt5
+```
 
-3. **For GUI mode**: Ensure the window has focus
-4. **For console mode**: Ensure terminal is active
+**Permission errors:**
+- Run Command Prompt as Administrator
+- Or install packages for current user only:
+```cmd
+pip install --user -r requirements.txt
+```
 
-5. **Review logs for errors**:
+#### macOS
+
+**Python not found:**
 ```bash
+# Install Homebrew first
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Install Python
+brew install python@3.11
+```
+
+**PyQt5 installation fails:**
+```bash
+# Install Qt dependencies first
+brew install qt@5
+
+# Then install PyQt5
+pip3 install PyQt5
+```
+
+**"python3" command not found:**
+```bash
+# Add to ~/.zshrc or ~/.bash_profile
+export PATH="/usr/local/opt/python@3.11/bin:$PATH"
+
+# Reload shell
+source ~/.zshrc
+```
+
+**Permission denied errors:**
+```bash
+# Don't use sudo with pip, use --user flag instead
+pip3 install --user -r requirements.txt
+```
+
+#### Linux
+
+**apt-get update fails:**
+```bash
+# Run with sudo
+sudo apt-get update
+
+# If repository issues, check /etc/apt/sources.list
+```
+
+**python3-pyqt5 not found (older distros):**
+```bash
+# Install via pip instead
+pip3 install PyQt5
+```
+
+**systemd service fails to start:**
+```bash
+# Check service status
+sudo systemctl status datang-reader
+
+# Check logs
+sudo journalctl -u datang-reader -n 50
+
+# Common issues:
+# 1. Incorrect Python path in service file
+# 2. Missing permissions
+# 3. Wrong working directory
+```
+
+### RFID Reader Issues
+
+#### General (All Platforms)
+
+**Reader not detected:**
+1. Verify it's a USB HID keyboard-emulating reader
+2. Try different USB port
+3. Test in a text editor first (Notepad, TextEdit, etc.)
+4. Scan a card - it should type the ID automatically
+
+**Cards scan too slowly:**
+- Some readers have adjustable beep/delay settings
+- Check reader manual for configuration
+- Card may need to be held closer/longer
+
+**Card IDs appear garbled:**
+1. Check keyboard layout settings (should be US English)
+2. Reader may be in wrong output format
+3. Try different reader if possible
+
+#### Windows-specific
+
+**Reader not working after system update:**
+```cmd
+# Unplug and replug the reader
+# Check Device Manager for driver issues
+devmgmt.msc
+
+# Look under "Keyboards" - should appear as HID Keyboard Device
+```
+
+**GUI window doesn't capture scans:**
+1. Disable any keyboard filter software
+2. Check if antivirus is blocking input
+3. Run as Administrator
+4. Make sure no other application has keyboard focus
+
+#### macOS-specific
+
+**Reader requires permission:**
+1. System Preferences > Security & Privacy > Privacy
+2. Grant Input Monitoring permission to Terminal or Python
+3. May need to restart application
+
+**Keyboard input not captured:**
+```bash
+# Check if reader is recognized
+system_profiler SPUSBDataType | grep -i keyboard
+```
+
+#### Linux-specific
+
+**Permission denied accessing input device:**
+```bash
+# Add user to input group
+sudo usermod -a -G input $USER
+
+# Log out and log back in for changes to take effect
+```
+
+**Reader works in text editor but not in application:**
+```bash
+# Check if running in correct terminal/environment
+# Make sure X11 or Wayland session is active
+echo $DISPLAY
+```
+
+### Authentication Issues
+
+**Login fails with "Invalid credentials":**
+1. Verify credentials in `src/config.py`
+2. Ensure no extra spaces in username/password
+3. Check if reader account is active in Datang Dashboard
+4. Credentials format: `{org_id}_reader{number}`
+
+**Token expired:**
+```bash
+# Re-authenticate
+python datang_reader.py --login
+
+# Token is stored in ~/.datang_reader_token
+# If corrupted, delete and re-login
+```
+
+**Network timeout:**
+1. Check internet connectivity:
+```bash
+# Windows
+ping datang.my
+
+# macOS/Linux
+curl -I https://datang.my
+```
+2. Check firewall settings
+3. Verify proxy settings if behind corporate firewall
+
+**SSL certificate errors:**
+```bash
+# Update certificates
+# Windows: Update Windows
+# macOS: Update system
+# Linux:
+sudo apt-get install ca-certificates
+sudo update-ca-certificates
+```
+
+### GUI Application Issues
+
+#### Windows
+
+**GUI doesn't start:**
+1. Check if PyQt5 is installed: `pip list | findstr PyQt5`
+2. Run in console mode to see errors: `python datang_reader.py --console`
+3. Check for conflicting Qt installations
+
+**Window appears off-screen:**
+- Delete config file (if any) and restart
+- Try windowed mode first, then switch to fullscreen
+
+**Display scaling issues:**
+1. Right-click python.exe > Properties > Compatibility
+2. Check "Override high DPI scaling behavior"
+3. Select "System" in dropdown
+
+#### macOS
+
+**GUI window unresponsive:**
+```bash
+# Make sure running in main thread
+# May need to use pythonw instead of python3
+# Install and use:
+pythonw datang_reader.py --gui
+```
+
+**Application not showing in Dock:**
+- This is normal for Python GUI apps
+- Can create an .app bundle for proper integration
+
+#### Linux
+
+**No display / DISPLAY not set:**
+```bash
+# If running over SSH, enable X11 forwarding
+ssh -X user@host
+
+# Or set DISPLAY manually
+export DISPLAY=:0
+```
+
+**GUI crashes on start:**
+```bash
+# Check Qt platform plugin
+export QT_DEBUG_PLUGINS=1
+python3 datang_reader.py --gui
+
+# May need to install additional packages
+sudo apt-get install libxcb-xinerama0
+```
+
+**Font rendering issues:**
+```bash
+# Install font configuration
+sudo apt-get install fontconfig
+fc-cache -fv
+```
+
+### Scanning/Attendance Issues
+
+**Cards scan but not recorded:**
+1. Check logs:
+```bash
+# Windows
+type %USERPROFILE%\.datang_reader.log
+
+# macOS/Linux
 tail -f ~/.datang_reader.log
 ```
+2. Verify API connection: `python datang_reader.py --status`
+3. Check offline queue: `python datang_reader.py --status`
 
-### Network/Sync Issues
-
-1. Check internet connectivity
-2. View offline queue:
+**Duplicate scans:**
+- Service may be running multiple times
+- Check for duplicate processes:
 ```bash
-python3 datang_reader.py --status
+# Windows
+tasklist | findstr python
+
+# macOS/Linux
+ps aux | grep datang_reader
 ```
-3. Manually trigger sync:
+
+**Offline queue not syncing:**
 ```bash
-python3 datang_reader.py --sync
+# Manually trigger sync
+python datang_reader.py --sync
+
+# Check queue database
+# Windows: %USERPROFILE%\.datang_reader_queue.db
+# macOS/Linux: ~/.datang_reader_queue.db
+```
+
+**API returns error:**
+1. Check if card ID format is correct
+2. Verify reader is assigned to correct organization
+3. Check if card is registered in system
+4. Review API response in logs
+
+### Performance Issues
+
+**High CPU usage:**
+1. Check if multiple instances are running
+2. Reduce polling frequency in config
+3. Use console mode instead of GUI if not needed
+
+**Memory leaks:**
+1. Restart service periodically via systemd/Task Scheduler
+2. Update to latest PyQt5: `pip install --upgrade PyQt5`
+
+**Slow startup:**
+1. Check network connectivity (API check on startup)
+2. Clear old logs if very large
+3. Optimize SQLite database:
+```python
+# In Python console
+from src.offline_queue import AttendanceQueue
+queue = AttendanceQueue()
+queue.conn.execute("VACUUM")
+```
+
+### Deployment/Service Issues
+
+#### Windows Service (NSSM)
+
+**Service won't start:**
+```cmd
+# Check service status
+nssm status DatangReader
+
+# View service output
+# Open Event Viewer > Windows Logs > Application
+eventvwr.msc
+```
+
+**Service starts but doesn't work:**
+1. Check working directory is set correctly
+2. Verify Python path in service configuration
+3. Check environment variables are accessible to service
+
+#### macOS Launch Agent
+
+**Launch agent won't load:**
+```bash
+# Check for syntax errors
+plutil -lint ~/Library/LaunchAgents/com.datang.reader.plist
+
+# View agent status
+launchctl list | grep datang
+```
+
+**Agent loads but app doesn't run:**
+```bash
+# Check logs
+tail -f /tmp/datang-reader-error.log
+
+# Verify Python path
+which python3
+```
+
+#### Linux Systemd
+
+**Service fails to start:**
+```bash
+# Check detailed status
+systemctl status datang-reader -l
+
+# View recent logs
+journalctl -u datang-reader -n 100
+
+# Common issues:
+# - User doesn't exist
+# - Permissions on files
+# - Incorrect paths in .service file
+```
+
+**Service starts but crashes:**
+```bash
+# Enable debug logging in config.py
+# Then restart and check logs
+sudo systemctl restart datang-reader
+sudo journalctl -u datang-reader -f
+```
+
+### Database Issues
+
+**Queue database corrupted:**
+```bash
+# Windows
+del %USERPROFILE%\.datang_reader_queue.db
+
+# macOS/Linux
+rm ~/.datang_reader_queue.db
+
+# Restart service - database will be recreated
+```
+
+**Unable to write to database:**
+1. Check file permissions
+2. Check disk space
+3. Verify database location is writable
+
+### Network Issues
+
+**Intermittent connection:**
+1. Check network stability
+2. Increase retry attempts in config
+3. Verify no proxy/firewall interference
+
+**Works locally but not from remote site:**
+1. Check if API is geolocked
+2. Verify DNS resolution
+3. Test with different network
+
+### Getting Help
+
+If issues persist:
+
+1. **Collect logs:**
+```bash
+# Windows
+type %USERPROFILE%\.datang_reader.log > debug_log.txt
+
+# macOS/Linux
+cat ~/.datang_reader.log > debug_log.txt
+```
+
+2. **Check system info:**
+```bash
+# Windows
+systeminfo
+python --version
+
+# macOS/Linux
+uname -a
+python3 --version
+lsusb  # For USB device info
+```
+
+3. **Test components individually:**
+```bash
+# Test authentication
+python datang_reader.py --login
+
+# Test status check
+python datang_reader.py --status
+
+# Test with mock API
+python datang_reader.py --console --mock-api
+```
+
+4. **Enable debug mode** in `src/config.py`:
+```python
+DEBUG = True
+LOG_LEVEL = "DEBUG"
 ```
 
 ## File Structure
@@ -405,9 +1120,10 @@ Use responsibly and in accordance with Datang's terms of service.
 ## Support
 
 For issues and questions:
-- Check `NETWORK_INTERCEPTION_GUIDE.md` for API capture help
-- Review logs: `~/.datang_reader.log`
+- Review the comprehensive Troubleshooting section above
+- Check logs: `~/.datang_reader.log` (Linux/macOS) or `%USERPROFILE%\.datang_reader.log` (Windows)
 - Test components individually before reporting issues
+- Enable debug mode in `src/config.py` for detailed logging
 
 ## Changelog
 
