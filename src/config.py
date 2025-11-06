@@ -37,8 +37,10 @@ class Config:
 
     # Reader credentials (get from Datang Dashboard)
     # Format: {organization_id}_reader{number}
-    READER_USERNAME = os.getenv("DATANG_READER_USERNAME", "30370_reader78")
-    READER_PASSWORD = os.getenv("DATANG_READER_PASSWORD", "30370_reader78_zb39")
+    # SECURITY: These MUST be set via environment variables - no defaults provided
+    # Set DATANG_READER_USERNAME and DATANG_READER_PASSWORD before running
+    READER_USERNAME = os.getenv("DATANG_READER_USERNAME")
+    READER_PASSWORD = os.getenv("DATANG_READER_PASSWORD")
 
     # Device identification (not currently used by API, but kept for future use)
     DEVICE_ID = os.getenv("DATANG_DEVICE_ID", "linux-reader-001")
@@ -209,8 +211,18 @@ class Config:
         if not cls.API_BASE_URL:
             errors.append("API_BASE_URL is not set")
 
-        if not cls.READER_USERNAME or not cls.READER_PASSWORD:
-            errors.append("READER_USERNAME and READER_PASSWORD must be set")
+        if not cls.READER_USERNAME:
+            errors.append(
+                "READER_USERNAME is not set. "
+                "Set the DATANG_READER_USERNAME environment variable with your reader username "
+                "(format: {organization_id}_reader{number})"
+            )
+
+        if not cls.READER_PASSWORD:
+            errors.append(
+                "READER_PASSWORD is not set. "
+                "Set the DATANG_READER_PASSWORD environment variable with your reader password"
+            )
 
         if not cls.DEVICE_ID:
             errors.append("DEVICE_ID is not set")
@@ -230,8 +242,9 @@ CONFIG_TEMPLATE = {
     },
     "AUTH_HEADER_FORMAT": "Bearer {token}",  # NOT USED - token goes in body
     "AUTH_HEADER_NAME": "Authorization",  # NOT USED - token goes in body
-    "READER_USERNAME": "your_reader_username_here",
-    "READER_PASSWORD": "your_reader_password_here",
+    # SECURITY: Do NOT put credentials in config files - use environment variables instead
+    # "READER_USERNAME": "use_environment_variable_instead",
+    # "READER_PASSWORD": "use_environment_variable_instead",
     "DEVICE_ID": "linux-reader-001",
     "SERIAL_PORT": "/dev/ttyUSB0",
     "SERIAL_BAUD_RATE": 9600
