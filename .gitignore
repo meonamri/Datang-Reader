@@ -183,3 +183,11 @@ cython_debug/
 # Claude Code agents
 .claude/
 CLAUDE.md
+
+# Serena agents
+.serena/
+SERENA.md
+
+# Windows nul file
+null
+nul
