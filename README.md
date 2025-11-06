@@ -70,9 +70,10 @@ cd C:\path\to\Datang-Reader
 pip install -r requirements.txt
 ```
 
-3. **Configure credentials**:
-   - Edit `src\config.py` with your reader credentials
-   - Or set environment variables (see Configuration section)
+3. **Configure credentials** (REQUIRED):
+   - Set environment variables with your reader credentials
+   - See Configuration section for detailed instructions
+   - Credentials are NOT stored in source code for security
 
 4. **Connect RFID reader**:
    - Plug in USB HID keyboard RFID reader
@@ -102,9 +103,10 @@ cd ~/path/to/Datang-Reader
 pip3 install -r requirements.txt
 ```
 
-3. **Configure credentials**:
-   - Edit `src/config.py` with your reader credentials
-   - Or set environment variables (see Configuration section)
+3. **Configure credentials** (REQUIRED):
+   - Set environment variables with your reader credentials
+   - See Configuration section for detailed instructions
+   - Credentials are NOT stored in source code for security
 
 4. **Connect RFID reader**:
    - Plug in USB HID keyboard RFID reader
@@ -148,9 +150,10 @@ sudo pacman -S python python-pip python-pyqt5
 pip3 install -r requirements.txt
 ```
 
-3. **Configure credentials**:
-   - Edit `src/config.py` with your reader credentials
-   - Or set environment variables (see Configuration section)
+3. **Configure credentials** (REQUIRED):
+   - Set environment variables with your reader credentials
+   - See Configuration section for detailed instructions
+   - Credentials are NOT stored in source code for security
 
 4. **Connect RFID reader**:
    - Plug in USB HID keyboard RFID reader
@@ -168,22 +171,50 @@ The following are pre-configured in `src/config.py`:
 - API Version: `1`
 - Authentication: Token in request body (body-based, not headers)
 
-### Step 2: Configure Your Credentials
+### Step 2: Configure Your Credentials (REQUIRED)
 
-Edit `src/config.py` and set your reader credentials:
+**IMPORTANT SECURITY NOTICE**: For security reasons, credentials MUST be set via environment variables. They are NOT stored in source code.
 
-```python
-# Reader Credentials (REQUIRED - get from Datang Dashboard)
-READER_USERNAME = "your_reader_username_here"  # Format: {org_id}_reader{number}
-READER_PASSWORD = "your_reader_password_here"
-```
+Get your reader credentials from the Datang Dashboard, then set environment variables:
 
-Or set via environment variables:
-
+**Linux/macOS**:
 ```bash
-export DATANG_READER_USERNAME="your_reader_username"
-export DATANG_READER_PASSWORD="your_reader_password"
+# Set environment variables (add to ~/.bashrc or ~/.zshrc for persistence)
+export DATANG_READER_USERNAME="30370_reader78"  # Format: {org_id}_reader{number}
+export DATANG_READER_PASSWORD="your_password_here"
 ```
+
+**Windows (Command Prompt)**:
+```cmd
+# Set environment variables temporarily (current session only)
+set DATANG_READER_USERNAME=30370_reader78
+set DATANG_READER_PASSWORD=your_password_here
+```
+
+**Windows (PowerShell)**:
+```powershell
+# Set environment variables temporarily (current session only)
+$env:DATANG_READER_USERNAME="30370_reader78"
+$env:DATANG_READER_PASSWORD="your_password_here"
+```
+
+**Windows (Permanent - System Environment Variables)**:
+```cmd
+# Run as Administrator to set system-wide
+setx DATANG_READER_USERNAME "30370_reader78"
+setx DATANG_READER_PASSWORD "your_password_here"
+
+# Or use GUI: Control Panel > System > Advanced > Environment Variables
+```
+
+**For systemd services** (add to service file):
+```ini
+[Service]
+Environment="DATANG_READER_USERNAME=30370_reader78"
+Environment="DATANG_READER_PASSWORD=your_password_here"
+```
+
+The application will fail to start with a clear error message if credentials are not set.
 
 ### Step 3: Hardware Setup
 
@@ -737,11 +768,19 @@ echo $DISPLAY
 
 ### Authentication Issues
 
+**"READER_USERNAME is not set" or "READER_PASSWORD is not set" error:**
+1. Credentials MUST be set via environment variables (not in config.py)
+2. Set `DATANG_READER_USERNAME` and `DATANG_READER_PASSWORD` environment variables
+3. See Configuration section for platform-specific instructions
+4. For systemd services, add Environment= lines to service file
+5. For Windows services, set system environment variables before starting
+
 **Login fails with "Invalid credentials":**
-1. Verify credentials in `src/config.py`
+1. Verify credentials are correct (get from Datang Dashboard)
 2. Ensure no extra spaces in username/password
 3. Check if reader account is active in Datang Dashboard
 4. Credentials format: `{org_id}_reader{number}`
+5. Verify environment variables are set: `echo $DATANG_READER_USERNAME` (Linux/macOS) or `echo %DATANG_READER_USERNAME%` (Windows)
 
 **Token expired:**
 ```bash
@@ -1098,10 +1137,13 @@ stats = queue.sync_with_api(api)
 
 ## Security Notes
 
-- Authentication tokens are stored in `~/.datang_reader_token` with restricted permissions (0600)
-- Database file `~/.datang_reader_queue.db` contains attendance records
-- Logs may contain card IDs - secure log file permissions
-- Run service as dedicated user (not root) for security
+- **Credentials**: MUST be set via environment variables only - never hardcoded in source code
+- **Authentication tokens**: Stored in `~/.datang_reader_token` with restricted permissions (0600 on Unix)
+- **Database file**: `~/.datang_reader_queue.db` contains attendance records - secure file permissions
+- **Logs**: May contain card IDs - ensure log file permissions are restricted
+- **Service user**: Run service as dedicated user (not root/administrator) for security
+- **Environment variables**: For production deployments, use secure methods to set credentials (systemd Environment, Windows service environment, etc.)
+- **Git**: Never commit credentials to version control - they belong in environment variables only
 
 ## Contributing
 
