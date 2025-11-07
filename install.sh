@@ -119,12 +119,19 @@ chmod +x "$INSTALL_DIR/datang_reader.py"
 
 print_msg "$GREEN" "✓ Service files installed"
 
+# Create virtual environment
+print_header "Creating Virtual Environment"
+
+print_msg "$YELLOW" "Creating virtual environment..."
+python3 -m venv "$INSTALL_DIR/venv"
+print_msg "$GREEN" "✓ Virtual environment created"
+
 # Install Python dependencies
 print_header "Installing Python Dependencies"
 
-print_msg "$YELLOW" "Installing via pip..."
-python3 -m pip install --upgrade pip
-python3 -m pip install -r "$INSTALL_DIR/requirements.txt"
+print_msg "$YELLOW" "Installing via pip in virtual environment..."
+"$INSTALL_DIR/venv/bin/pip" install --upgrade pip
+"$INSTALL_DIR/venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt"
 
 print_msg "$GREEN" "✓ Python dependencies installed"
 
@@ -164,10 +171,10 @@ echo "   export DATANG_READER_USERNAME=\"your_username_here\""
 echo "   export DATANG_READER_PASSWORD=\"your_password_here\""
 echo ""
 echo "3. Test RFID reader:"
-echo "   sudo -u $SERVICE_USER python3 $INSTALL_DIR/datang_reader.py --test-reader"
+echo "   sudo -u $SERVICE_USER $INSTALL_DIR/venv/bin/python3 $INSTALL_DIR/datang_reader.py --test-reader"
 echo ""
 echo "4. Login and save authentication token:"
-echo "   sudo -u $SERVICE_USER python3 $INSTALL_DIR/datang_reader.py --login"
+echo "   sudo -u $SERVICE_USER $INSTALL_DIR/venv/bin/python3 $INSTALL_DIR/datang_reader.py --login"
 echo ""
 echo "SECURITY NOTE: Never hardcode credentials in config.py - use environment variables only!"
 echo ""
@@ -183,9 +190,9 @@ echo "  View status:        sudo systemctl status datang-reader"
 echo "  View logs:          sudo journalctl -u datang-reader -f"
 echo ""
 echo "Manual testing:"
-echo "  Console mode:  sudo -u $SERVICE_USER python3 $INSTALL_DIR/datang_reader.py --console"
-echo "  GUI mode:      sudo -u $SERVICE_USER python3 $INSTALL_DIR/datang_reader.py --gui"
-echo "  Show status:   sudo -u $SERVICE_USER python3 $INSTALL_DIR/datang_reader.py --status"
+echo "  Console mode:  sudo -u $SERVICE_USER $INSTALL_DIR/venv/bin/python3 $INSTALL_DIR/datang_reader.py --console"
+echo "  GUI mode:      sudo -u $SERVICE_USER $INSTALL_DIR/venv/bin/python3 $INSTALL_DIR/datang_reader.py --gui"
+echo "  Show status:   sudo -u $SERVICE_USER $INSTALL_DIR/venv/bin/python3 $INSTALL_DIR/datang_reader.py --status"
 echo ""
 print_msg "$GREEN" "Installation successful!"
 echo ""

@@ -9,7 +9,7 @@ Type=simple
 User=datang
 Group=datang
 WorkingDirectory=/opt/datang-reader
-ExecStart=/usr/bin/python3 /opt/datang-reader/datang_reader.py --gui
+ExecStart=/opt/datang-reader/venv/bin/python3 /opt/datang-reader/datang_reader.py --gui
 Restart=always
 RestartSec=10
 
