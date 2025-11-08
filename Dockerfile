@@ -2,7 +2,7 @@
 # Multi-stage build for optimized image size
 
 # Stage 1: Builder
-FROM python:3.8-slim as builder
+FROM python:3.10-slim as builder
 
 WORKDIR /build
 
@@ -22,7 +22,7 @@ RUN python -m venv /opt/venv && \
 
 
 # Stage 2: Runtime
-FROM python:3.8-slim
+FROM python:3.10-slim
 
 # Set labels for metadata
 LABEL maintainer="Datang Reader Team" \
