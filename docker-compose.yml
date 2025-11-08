@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  datang-reader:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: datang-reader:latest
+    container_name: datang-reader
+
+    # Port mapping: host:container
+    ports:
+      - "8080:8080"
+
+    # Environment variables for configuration
+    # IMPORTANT: Set these values or use .env file
+    environment:
+      # API Configuration
+      - DATANG_API_BASE_URL=${DATANG_API_BASE_URL}
+
+      # Reader Credentials
+      - DATANG_READER_USERNAME=${DATANG_READER_USERNAME}
+      - DATANG_READER_PASSWORD=${DATANG_READER_PASSWORD}
+
+      # Device Identification
+      - DATANG_DEVICE_ID=${DATANG_DEVICE_ID:-docker-reader}
+
+      # Optional: Mock API mode for testing (true/false)
+      - DATANG_MOCK_API=${DATANG_MOCK_API:-false}
+
+    # Volume mounts for persistent data
+    volumes:
+      # Authentication token (persists across container restarts)
+      - ./docker-data/token:/root/.datang_reader_token
+
+      # Offline queue database (critical - stores pending attendance records)
+      - ./docker-data/queue.db:/root/.datang_reader_queue.db
+
+      # Logs (optional, for debugging)
+      - ./docker-data/logs:/data/logs
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Health check (uses built-in Dockerfile HEALTHCHECK)
+    # Docker will monitor /health endpoint and restart if unhealthy
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Resource limits (optional, adjust based on your needs)
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '0.5'
+    #       memory: 256M
+    #     reservations:
+    #       cpus: '0.25'
+    #       memory: 128M
+
+# Networks (using default bridge network)
+networks:
+  default:
+    driver: bridge

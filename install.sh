@@ -4,6 +4,15 @@
 #
 # This script installs the Datang Reader service on a Linux system.
 # It must be run with sudo privileges.
+#
+# NOTE: For Docker deployment (recommended for production), use:
+#   ./deploy-docker.sh
+#
+# This native installation script is for:
+# - Systems where Docker is not available
+# - Development/testing environments
+# - Users who prefer native installation
+#
 
 set -e  # Exit on error
 
@@ -42,6 +51,26 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 print_header "Datang Reader Linux Service - Installation"
+
+# Offer Docker deployment option
+echo "This script will install Datang Reader natively using systemd."
+echo ""
+echo "Alternative: Docker deployment is recommended for production."
+echo "  - Easier deployment and updates"
+echo "  - Better isolation and resource management"
+echo "  - Consistent across different Linux distributions"
+echo ""
+echo "To use Docker instead, run: ./deploy-docker.sh"
+echo ""
+read -p "Continue with native installation? (y/N): " -n 1 -r
+echo
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    print_msg "$YELLOW" "Installation cancelled."
+    echo ""
+    print_msg "$GREEN" "For Docker deployment, run: ./deploy-docker.sh"
+    exit 0
+fi
+echo ""
 
 # Detect distribution
 if [ -f /etc/os-release ]; then

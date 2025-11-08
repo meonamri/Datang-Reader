@@ -327,6 +327,206 @@ sudo journalctl -u datang-reader -f
 
 ## Deployment
 
+### Docker Deployment (Recommended for Production)
+
+Docker deployment uses a split architecture for reliable RFID reader access:
+- **Host Input Client**: Lightweight Python script that captures HID keyboard input from RFID reader
+- **Docker Container**: Runs the main application (API client, queue, sync, authentication)
+
+This approach combines the benefits of Docker (easy deployment, isolation, portability) with reliable hardware access.
+
+#### Prerequisites
+
+- Docker and Docker Compose installed
+- Linux host machine (for production deployment with RFID reader)
+- RFID reader connected to host (HID keyboard mode)
+
+#### Quick Start
+
+1. **Configure environment variables**:
+
+```bash
+# Copy example .env file
+cp .env.example .env
+
+# Edit .env and set your credentials
+nano .env
+```
+
+Set these required variables in `.env`:
+```env
+DATANG_API_BASE_URL=https://datang.my/api/reader/v1
+DATANG_READER_USERNAME=30370_reader78
+DATANG_READER_PASSWORD=your_password_here
+DATANG_DEVICE_ID=docker-reader-01
+DATANG_MOCK_API=false
+```
+
+2. **Deploy with the automated script**:
+
+```bash
+# Make script executable
+chmod +x deploy-docker.sh
+
+# Run deployment
+./deploy-docker.sh
+```
+
+This will:
+- Build the Docker image
+- Create persistent data directories
+- Start the container with docker-compose
+- Show next steps
+
+3. **Start the input client** (on host):
+
+```bash
+# Test manually first
+python3 input_client.py
+
+# Or install as systemd service for auto-start
+sudo cp systemd/input-client.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl start input-client
+sudo systemctl enable input-client
+```
+
+#### Manual Docker Deployment
+
+If you prefer manual control:
+
+```bash
+# Build image
+docker-compose build
+
+# Start container
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Check health
+curl http://localhost:8080/health
+
+# Test card submission
+curl -X POST http://localhost:8080/card \
+  -H "Content-Type: application/json" \
+  -d '{"card_id": "1234567890"}'
+```
+
+#### Architecture
+
+```
+┌─────────────────────┐
+│   RFID Reader       │ (USB HID Keyboard)
+│   Types Card ID     │
+└──────────┬──────────┘
+           │
+           ↓
+┌─────────────────────┐
+│   Host Machine      │
+│  ┌───────────────┐  │
+│  │ Input Client  │  │ (Python script on host)
+│  │ Captures input│  │
+│  └───────┬───────┘  │
+│          │ HTTP     │
+│          ↓          │
+│  ┌───────────────┐  │
+│  │ Docker        │  │
+│  │ Container     │  │
+│  │ - HTTP Server │  │
+│  │ - API Client  │  │
+│  │ - Queue       │  │
+│  │ - Auth        │  │
+│  └───────────────┘  │
+└─────────────────────┘
+```
+
+#### Container Management
+
+```bash
+# View container status
+docker-compose ps
+
+# View logs
+docker-compose logs -f datang-reader
+
+# Restart container
+docker-compose restart
+
+# Stop and remove
+docker-compose down
+
+# Stop but keep data
+docker-compose stop
+
+# Manual queue sync
+curl -X POST http://localhost:8080/sync
+
+# Check service status
+curl http://localhost:8080/status
+```
+
+#### Input Client Management
+
+```bash
+# View input client logs
+sudo journalctl -u input-client -f
+
+# Status
+sudo systemctl status input-client
+
+# Restart
+sudo systemctl restart input-client
+
+# Stop
+sudo systemctl stop input-client
+```
+
+#### Persistent Data
+
+Data persists across container restarts in `./docker-data/`:
+- `token` - Authentication token
+- `queue.db` - Offline queue database
+- `logs/` - Application logs
+
+**Important**: Back up `docker-data/queue.db` regularly to prevent data loss.
+
+#### Troubleshooting Docker Deployment
+
+**Container won't start:**
+```bash
+# Check .env file is configured
+cat .env
+
+# Check Docker logs
+docker-compose logs datang-reader
+
+# Verify container is running
+docker-compose ps
+```
+
+**Input client can't connect:**
+```bash
+# Check if container is running
+curl http://localhost:8080/health
+
+# Check input client logs
+python3 input_client.py --debug
+```
+
+**RFID reader not working:**
+- Ensure reader is plugged into the **host** machine (not container)
+- Test by opening a text editor and scanning - should type the card ID
+- Input client must run on host with access to keyboard input
+
+**Port 8080 already in use:**
+```bash
+# Edit docker-compose.yml, change port mapping:
+ports:
+  - "8081:8080"  # Use different host port
+```
+
 ### Windows Deployment
 
 #### Option 1: Run on Startup (User Login)
