@@ -10,7 +10,7 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 from .config import Config
 from .rfid_reader import RFIDReader
-from .api_client import DatangAPIClient, MockAPIClient, NetworkError, AuthenticationError
+from .api_client import DatangAPIClient, MockAPIClient, NetworkError, AuthenticationError, AttendanceSubmissionError
 from .auth_manager import AuthManager
 from .offline_queue import AttendanceQueue
 
@@ -153,11 +153,23 @@ class ServiceManager:
                         "message": "Attendance recorded!",
                         "data": response
                     }
+                except AttendanceSubmissionError as retry_error:
+                    # API validation error on retry - don't queue
+                    logger.error(f"Retry rejected by API: {retry_error}")
+                    return {
+                        "success": False,
+                        "online": True,
+                        "message": str(retry_error)
+                    }
+                except NetworkError as retry_error:
+                    # Network error on retry - queue it
+                    logger.error(f"Network error on retry: {retry_error}")
+                    # Fall through to queue
                 except Exception as retry_error:
                     logger.error(f"Retry failed: {retry_error}")
-                    # Fall through to queue
+                    # Fall through to queue for other errors
 
-            # Queue the record
+            # Queue the record (only reached if re-auth failed or retry had network error)
             logger.info("Queueing attendance for later sync")
             entry_id = self.queue.enqueue(card_id, timestamp, temperature)
 
@@ -180,6 +192,15 @@ class ServiceManager:
                 "queued": True,
                 "queue_id": entry_id,
                 "message": "Recorded offline (will sync later)"
+            }
+
+        except AttendanceSubmissionError as e:
+            # API validation error (e.g., card not found) - don't queue, return error
+            logger.error(f"Attendance submission rejected: {e}")
+            return {
+                "success": False,
+                "online": True,
+                "message": str(e)
             }
 
         except Exception as e:

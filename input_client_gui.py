@@ -51,7 +51,7 @@ class InputClient:
         except Exception:
             return False
 
-    def get_container_status(self) -> Optional[dict]:
+    def get_container_status(self) -> dict:
         """Get container status information"""
         try:
             response = requests.get(self.status_endpoint, timeout=REQUEST_TIMEOUT)
@@ -59,50 +59,44 @@ class InputClient:
                 return response.json()
         except Exception:
             pass
-        return None
+        return {}
 
-    def send_card_scan(self, card_id: str) -> tuple[bool, str, bool]:
+    def send_card_scan(self, card_id: str) -> tuple[bool, str, bool, dict]:
         """
         Send card scan to Docker container
 
+        Args:
+            card_id: RFID card ID to scan
+
         Returns:
-            (success: bool, message: str, online: bool)
+            (success: bool, message: str, online: bool, data: dict)
         """
-        payload = {"card_id": card_id}
+        try:
+            payload = {"card_id": card_id}
+            response = requests.post(
+                self.card_endpoint,
+                json=payload,
+                timeout=REQUEST_TIMEOUT
+            )
 
-        for attempt in range(1, MAX_RETRIES + 1):
-            try:
-                response = requests.post(
-                    self.card_endpoint,
-                    json=payload,
-                    timeout=REQUEST_TIMEOUT
-                )
-
-                if response.status_code == 200:
-                    result = response.json()
-                    if result.get('success'):
-                        online = result.get('online', False)
-                        message = result.get('message', 'Recorded')
-                        return True, message, online
-                    else:
-                        return False, result.get('message', 'Unknown error'), False
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('success'):
+                    online = result.get('online', False)
+                    message = result.get('message', 'Recorded')
+                    data = result.get('data', {})  # Extract data field
+                    return True, message, online, data
                 else:
-                    return False, f"Server error {response.status_code}", False
+                    return False, result.get('message', 'Unknown error'), False, {}
+            else:
+                return False, f"HTTP {response.status_code}", False, {}
 
-            except requests.exceptions.ConnectionError:
-                if attempt >= MAX_RETRIES:
-                    return False, "Container unreachable", False
-                time.sleep(RETRY_DELAY)
-
-            except requests.exceptions.Timeout:
-                if attempt >= MAX_RETRIES:
-                    return False, "Request timeout", False
-                time.sleep(RETRY_DELAY)
-
-            except Exception as e:
-                return False, f"Error: {str(e)}", False
-
-        return False, "Failed after retries", False
+        except requests.exceptions.Timeout:
+            return False, "Request timeout - container not responding", False, {}
+        except requests.exceptions.ConnectionError:
+            return False, "Cannot connect to container", False, {}
+        except Exception as e:
+            return False, f"Error: {str(e)}", False, {}
 
     @staticmethod
     def validate_card_id(card_id: str) -> tuple[bool, str]:
@@ -134,6 +128,9 @@ class HealthCheckThread(QThread):
         while self.running:
             is_healthy = self.client.check_container_health()
             status_data = self.client.get_container_status() if is_healthy else {}
+            # Ensure status_data is never None (race condition when network drops)
+            if status_data is None:
+                status_data = {}
             self.health_status.emit(is_healthy, status_data)
             time.sleep(5)  # Check every 5 seconds
 
@@ -341,6 +338,22 @@ class AttendanceApp(QMainWindow):
         self.sub_message_label.setStyleSheet("color: #9399b2;")
         layout.addWidget(self.sub_message_label)
 
+        # Attendee Name Label
+        self.name_label = QLabel("")
+        self.name_label.setFont(QFont("Arial", 28, QFont.Bold))
+        self.name_label.setAlignment(Qt.AlignCenter)
+        self.name_label.setStyleSheet("color: #89b4fa; margin-top: 10px;")
+        self.name_label.setVisible(False)  # Hidden by default
+        layout.addWidget(self.name_label)
+
+        # Section Label
+        self.section_label = QLabel("")
+        self.section_label.setFont(QFont("Arial", 18))
+        self.section_label.setAlignment(Qt.AlignCenter)
+        self.section_label.setStyleSheet("color: #a6adc8; margin-top: 5px;")
+        self.section_label.setVisible(False)  # Hidden by default
+        layout.addWidget(self.section_label)
+
         return display
 
     def create_footer(self) -> QWidget:
@@ -509,7 +522,11 @@ class AttendanceApp(QMainWindow):
 
         # Send to container
         QApplication.processEvents()  # Update UI
-        success, message, online = self.client.send_card_scan(card_id)
+        success, message, online, data = self.client.send_card_scan(card_id)
+
+        # Extract name and section from data
+        name = data.get('name', '') if data else ''
+        section = data.get('section', '') if data else ''
 
         # Update statistics
         self.total_scans += 1
@@ -521,7 +538,7 @@ class AttendanceApp(QMainWindow):
         self.last_scan_time = timestamp
 
         # Show result
-        self.show_scan_result(success, message, card_id, online)
+        self.show_scan_result(success, message, card_id, online, name, section)
         self.update_status_bar()
 
         # Update last scan label
@@ -537,7 +554,8 @@ class AttendanceApp(QMainWindow):
         # Reset display after 3 seconds
         QTimer.singleShot(3000, self.reset_display)
 
-    def show_scan_result(self, success: bool, message: str, card_id: str, online: bool = False):
+    def show_scan_result(self, success: bool, message: str, card_id: str, 
+                         online: bool = False, name: str = "", section: str = ""):
         """Show scan result on main display"""
         if success:
             self.status_icon.setText("✅")
@@ -545,11 +563,28 @@ class AttendanceApp(QMainWindow):
             self.message_label.setStyleSheet("color: #a6e3a1;")
             mode = "ONLINE" if online else "QUEUED"
             self.sub_message_label.setText(f"{mode} - {message}")
+            
+            # Display name if available
+            if name:
+                self.name_label.setText(name)
+                self.name_label.setVisible(True)
+            else:
+                self.name_label.setVisible(False)
+            
+            # Display section if available
+            if section:
+                self.section_label.setText(f"Section: {section}")
+                self.section_label.setVisible(True)
+            else:
+                self.section_label.setVisible(False)
         else:
             self.status_icon.setText("❌")
             self.message_label.setText("Error")
             self.message_label.setStyleSheet("color: #f38ba8;")
             self.sub_message_label.setText(message)
+            # Hide name and section on error
+            self.name_label.setVisible(False)
+            self.section_label.setVisible(False)
 
     def reset_display(self):
         """Reset main display to ready state"""
@@ -557,6 +592,10 @@ class AttendanceApp(QMainWindow):
         self.message_label.setText("Ready to Scan")
         self.message_label.setStyleSheet("color: #cdd6f4;")
         self.sub_message_label.setText("Please scan your RFID card")
+        
+        # Hide name and section labels
+        self.name_label.setVisible(False)
+        self.section_label.setVisible(False)
 
     def closeEvent(self, event):
         """Handle window close"""
