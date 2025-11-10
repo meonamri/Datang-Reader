@@ -232,11 +232,14 @@ docker logs datang-reader --tail=50
 
 ### GUI Client Issues
 
-**PyQt5 not found:**
+**PyQt5 not found / Build errors on Raspberry Pi:**
 ```bash
-# Reinstall dependencies
+# Reinstall dependencies (uses requirements-gui.txt automatically)
 rm -rf venv
 ./install.sh
+
+# Note: If you see PyQt5 build errors with Docker, the issue is fixed
+# in this version - Docker now uses requirements-docker.txt (no PyQt5)
 ```
 
 **Can't connect to container:**
@@ -375,7 +378,9 @@ datang-reader/
 ├── datang_reader.py          # Main application
 ├── input_client.py           # Console input client
 ├── input_client_gui.py       # GUI input client
-├── requirements.txt          # Python dependencies
+├── requirements-docker.txt   # Docker container dependencies (Flask, requests)
+├── requirements-gui.txt      # GUI client dependencies (PyQt5, requests)
+├── requirements.txt          # (Deprecated - kept for compatibility)
 ├── src/                      # Source code
 │   ├── config.py
 │   ├── api_client.py
@@ -388,6 +393,24 @@ datang-reader/
     ├── queue.db
     └── logs/
 ```
+
+### Python Dependencies
+
+The project uses **separate requirements files** for different components:
+
+- **`requirements-docker.txt`** - Used by Docker container (HTTP server only)
+  - Flask (HTTP server)
+  - requests (API client)
+  - pytest (testing)
+
+- **`requirements-gui.txt`** - Used by GUI client on host
+  - PyQt5 (GUI framework)
+  - requests (communicates with container)
+  - pystray/Pillow (system tray support)
+
+- **`requirements.txt`** - Deprecated (kept for backward compatibility)
+
+**Why split?** The Docker container doesn't need PyQt5, and on ARM devices (like Raspberry Pi), PyQt5 compilation can fail. Splitting keeps builds faster and more reliable.
 
 ---
 

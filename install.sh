@@ -87,8 +87,8 @@ install_user_mode() {
     print_msg "$YELLOW" "Upgrading pip..."
     "$VENV_DIR/bin/pip" install --upgrade pip -q
 
-    print_msg "$YELLOW" "Installing dependencies from requirements.txt..."
-    "$VENV_DIR/bin/pip" install -r "$SCRIPT_DIR/requirements.txt" -q
+    print_msg "$YELLOW" "Installing dependencies from requirements-gui.txt..."
+    "$VENV_DIR/bin/pip" install -r "$SCRIPT_DIR/requirements-gui.txt" -q
 
     print_msg "$GREEN" "✓ All dependencies installed"
 
@@ -300,7 +300,7 @@ print_msg "$YELLOW" "Copying service files..."
 
 cp -r "$SCRIPT_DIR/src" "$INSTALL_DIR/"
 cp "$SCRIPT_DIR/datang_reader.py" "$INSTALL_DIR/"
-cp "$SCRIPT_DIR/requirements.txt" "$INSTALL_DIR/"
+cp "$SCRIPT_DIR/requirements-gui.txt" "$INSTALL_DIR/"
 
 # Make main script executable
 chmod +x "$INSTALL_DIR/datang_reader.py"
@@ -319,7 +319,7 @@ print_header "Installing Python Dependencies"
 
 print_msg "$YELLOW" "Installing via pip in virtual environment..."
 "$INSTALL_DIR/venv/bin/pip" install --upgrade pip
-"$INSTALL_DIR/venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt"
+"$INSTALL_DIR/venv/bin/pip" install -r "$INSTALL_DIR/requirements-gui.txt"
 
 print_msg "$GREEN" "✓ Python dependencies installed"
 

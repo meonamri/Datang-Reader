@@ -1,0 +1,15 @@
+# Datang Reader Docker Container - Python Dependencies
+# This file contains ONLY dependencies needed for the HTTP server mode (no GUI)
+
+# HTTP API Client
+requests>=2.28.0
+
+# HTTP Server (for Docker deployment mode)
+Flask>=2.0.0
+
+# Database for offline queue
+# (sqlite3 is included in Python standard library, no need to install)
+
+# Development/Testing (optional - can be removed for production images)
+pytest>=7.0.0
+pytest-cov>=4.0.0

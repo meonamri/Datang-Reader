@@ -12,13 +12,13 @@ RUN apt-get update && \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements file
-COPY requirements.txt .
+# Copy requirements file (Docker-specific, without GUI dependencies)
+COPY requirements-docker.txt .
 
 # Install Python dependencies to a virtual environment
 RUN python -m venv /opt/venv && \
     /opt/venv/bin/pip install --no-cache-dir --upgrade pip && \
-    /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
+    /opt/venv/bin/pip install --no-cache-dir -r requirements-docker.txt
 
 
 # Stage 2: Runtime

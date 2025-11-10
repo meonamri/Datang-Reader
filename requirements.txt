@@ -1,24 +1,26 @@
-# Datang Reader Linux Service - Python Dependencies
+# Datang Reader - Python Dependencies
+#
+# ⚠️ IMPORTANT: This file has been DEPRECATED and split into:
+#
+#   requirements-docker.txt  - For Docker container (HTTP server only, no GUI)
+#   requirements-gui.txt     - For GUI client on host machine (PyQt5 + dependencies)
+#
+# Use the appropriate file for your deployment:
+#
+#   Docker deployment:  requirements-docker.txt (used by Dockerfile)
+#   GUI client setup:   requirements-gui.txt (used by install.sh)
+#
+# This file is kept for backward compatibility but should not be used directly.
+#
+# ============================================================================
 
-# HTTP API Client
+# ALL DEPENDENCIES (for backward compatibility only)
+# DO NOT USE THIS FILE - Use requirements-docker.txt or requirements-gui.txt
+
 requests>=2.28.0
-
-# HTTP Server (for Docker deployment mode)
 Flask>=2.0.0
-
-# GUI Framework (PyQt5 for modern UI)
 PyQt5>=5.15.0
-
-# Database for offline queue
-# (sqlite3 is included in Python standard library, no need to install)
-
-# Optional: For system tray icon support
 pystray>=0.19.0
 Pillow>=9.0.0
-
-# Development/Testing
 pytest>=7.0.0
 pytest-cov>=4.0.0
-
-# Note: This version uses HID keyboard-based RFID readers
-# No serial port communication libraries needed
