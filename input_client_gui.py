@@ -18,6 +18,8 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt5.QtGui import QFont, QColor, QIcon, QPainter, QPixmap
 
+from src.config import Config
+
 try:
     import requests
 except ImportError:
@@ -163,7 +165,11 @@ class AttendanceApp(QMainWindow):
     def init_ui(self):
         """Initialize user interface"""
         self.setWindowTitle("Datang Reader - Input Client")
-        self.setGeometry(100, 100, 900, 700)
+        self.setGeometry(100, 100, Config.WINDOW_WIDTH, Config.WINDOW_HEIGHT)
+
+        # Set fullscreen if configured
+        if Config.FULLSCREEN:
+            self.showFullScreen()
 
         # Set window style (Catppuccin Mocha theme)
         self.setStyleSheet("""

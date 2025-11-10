@@ -108,6 +108,7 @@ DATANG_READER_USERNAME=30370_reader78
 DATANG_READER_PASSWORD=your_password_here
 DATANG_DEVICE_ID=docker-reader-01
 DATANG_MOCK_API=false
+DATANG_FULLSCREEN=false  # Set to 'true' for GUI fullscreen mode
 ```
 
 **Security:**
@@ -160,6 +161,10 @@ curl http://localhost:8080/status
 
 # With custom container URL
 ./run-gui.sh --url http://192.168.1.100:8080
+
+# Fullscreen mode (set DATANG_FULLSCREEN=true in .env, or:)
+export DATANG_FULLSCREEN=true
+./run-gui.sh
 
 # Or activate venv manually
 source venv/bin/activate
