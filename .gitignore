@@ -191,3 +191,5 @@ SERENA.md
 # Windows nul file
 null
 nul
+# Docker runtime data
+docker-data/

@@ -114,6 +114,31 @@ def run_console_mode(service_manager: ServiceManager):
         return 1
 
 
+def run_http_server_mode(service_manager: ServiceManager, host: str = '0.0.0.0', port: int = 8080):
+    """
+    Run service in HTTP server mode (for Docker deployment)
+
+    Args:
+        service_manager: Service manager instance
+        host: Host to bind to (default: 0.0.0.0)
+        port: Port to listen on (default: 8080)
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("Starting HTTP server mode...")
+
+    try:
+        from src.http_server import run_http_server
+        run_http_server(host=host, port=port, use_mock_api=service_manager.use_mock_api)
+        return 0
+    except ImportError as e:
+        logger.error(f"Failed to import HTTP server module: {e}")
+        print("Error: Flask not installed. Install with: pip install flask")
+        return 1
+    except Exception as e:
+        logger.error(f"Error in HTTP server mode: {e}")
+        return 1
+
+
 def run_status_command():
     """Display service status"""
     print("\nDatang Reader Service Status")
@@ -309,6 +334,7 @@ def main():
 Examples:
   %(prog)s --gui              Run with graphical interface
   %(prog)s --console          Run in console mode
+  %(prog)s --http-server      Run HTTP server (Docker deployment)
   %(prog)s --status           Show service status
   %(prog)s --login            Login and save authentication token
   %(prog)s --sync             Sync offline queue
@@ -322,6 +348,8 @@ Examples:
                            help='Run with GUI (default)')
     mode_group.add_argument('--console', action='store_true',
                            help='Run in console mode (no GUI)')
+    mode_group.add_argument('--http-server', action='store_true',
+                           help='Run HTTP server for Docker deployment')
     mode_group.add_argument('--status', action='store_true',
                            help='Show service status')
     mode_group.add_argument('--login', action='store_true',
@@ -367,6 +395,8 @@ Examples:
 
         if args.console:
             return run_console_mode(service_manager)
+        elif args.http_server:
+            return run_http_server_mode(service_manager)
         else:
             # Default to GUI mode
             return run_gui_mode(service_manager)
