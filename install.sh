@@ -60,6 +60,72 @@ install_user_mode() {
     PYTHON_VERSION=$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
     print_msg "$GREEN" "✓ Found Python $PYTHON_VERSION"
 
+    # Check and install PyQt5 system dependencies
+    print_header "Checking System Dependencies"
+
+    # Flag to track if we should use system PyQt5
+    USE_SYSTEM_PYQT5=false
+
+    # Detect if we're on a Debian-based system
+    if command -v apt-get &> /dev/null; then
+        print_msg "$YELLOW" "Checking for Qt5 development libraries..."
+
+        # Check if system PyQt5 is installed
+        if dpkg -l | grep -q "python3-pyqt5"; then
+            print_msg "$GREEN" "✓ System PyQt5 already installed"
+            USE_SYSTEM_PYQT5=true
+        elif ! dpkg -l | grep -q "qtbase5-dev"; then
+            print_msg "$YELLOW" "Qt5 libraries not found. Installation requires sudo."
+            echo ""
+            echo "IMPORTANT: For ARM devices (Raspberry Pi, Orange Pi, etc.) with limited RAM,"
+            echo "we recommend using system-provided PyQt5 packages instead of compiling from source."
+            echo ""
+            echo "The following packages will be installed:"
+            echo "  - python3-pyqt5 (Pre-compiled PyQt5 - recommended for ARM)"
+            echo "  - qtbase5-dev (Qt5 development libraries)"
+            echo "  - python3-dev (Python development headers)"
+            echo ""
+            echo "Benefits:"
+            echo "  ✓ Instant installation (no 30-60 min compilation)"
+            echo "  ✓ Lower memory usage during installation"
+            echo "  ✓ Pre-tested and optimized for your platform"
+            echo ""
+            read -p "Install system dependencies with sudo? (y/N): " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                print_msg "$YELLOW" "Installing Qt5 dependencies (requires password)..."
+                sudo apt-get update
+                sudo apt-get install -y python3-pyqt5 qtbase5-dev python3-dev
+                print_msg "$GREEN" "✓ System dependencies installed"
+                USE_SYSTEM_PYQT5=true
+            else
+                print_msg "$YELLOW" "Warning: Skipping system package installation."
+                echo ""
+                echo "PyQt5 will be compiled from source, which may:"
+                echo "  - Take 30-60+ minutes on ARM devices"
+                echo "  - Require 2GB+ RAM (may fail on 1GB devices)"
+                echo "  - Use significant swap space"
+                echo ""
+                read -p "Continue anyway? (y/N): " -n 1 -r
+                echo
+                if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                    print_msg "$RED" "Installation cancelled."
+                    echo ""
+                    echo "To install system packages manually:"
+                    echo "  sudo apt-get update"
+                    echo "  sudo apt-get install -y python3-pyqt5 qtbase5-dev python3-dev"
+                    echo ""
+                    echo "Then run this script again."
+                    exit 1
+                fi
+            fi
+        else
+            print_msg "$GREEN" "✓ Qt5 libraries already installed"
+        fi
+    else
+        print_msg "$YELLOW" "Non-Debian system detected. Ensure Qt5 development libraries are installed."
+    fi
+
     # Create virtual environment
     print_header "Creating Virtual Environment"
 
@@ -77,20 +143,40 @@ install_user_mode() {
 
     if [ ! -d "$VENV_DIR" ]; then
         print_msg "$YELLOW" "Creating virtual environment..."
-        python3 -m venv "$VENV_DIR"
-        print_msg "$GREEN" "✓ Virtual environment created at $VENV_DIR"
+        if [ "$USE_SYSTEM_PYQT5" = true ]; then
+            print_msg "$YELLOW" "Using --system-site-packages to access system PyQt5..."
+            python3 -m venv --system-site-packages "$VENV_DIR"
+            print_msg "$GREEN" "✓ Virtual environment created with system site-packages access"
+        else
+            python3 -m venv "$VENV_DIR"
+            print_msg "$GREEN" "✓ Virtual environment created at $VENV_DIR"
+        fi
     fi
 
     # Install dependencies
     print_header "Installing Python Dependencies"
 
     print_msg "$YELLOW" "Upgrading pip..."
-    "$VENV_DIR/bin/pip" install --upgrade pip -q
+    "$VENV_DIR/bin/pip" install --upgrade pip
 
-    print_msg "$YELLOW" "Installing dependencies from requirements-gui.txt..."
-    "$VENV_DIR/bin/pip" install -r "$SCRIPT_DIR/requirements-gui.txt" -q
-
-    print_msg "$GREEN" "✓ All dependencies installed"
+    if [ "$USE_SYSTEM_PYQT5" = true ]; then
+        print_msg "$YELLOW" "Installing dependencies (excluding PyQt5 - using system version)..."
+        echo ""
+        print_msg "$BLUE" "This may take a few minutes. Installing: requests, pystray, Pillow"
+        echo ""
+        # Install dependencies except PyQt5
+        "$VENV_DIR/bin/pip" install requests pystray Pillow
+        print_msg "$GREEN" "✓ Dependencies installed (using system PyQt5)"
+    else
+        print_msg "$YELLOW" "Installing dependencies from requirements-gui.txt..."
+        echo ""
+        print_msg "$BLUE" "NOTE: PyQt5 compilation on ARM devices can take 30-60+ minutes."
+        print_msg "$BLUE" "Progress will be shown below. Do not interrupt."
+        echo ""
+        # Install all dependencies with verbose output
+        "$VENV_DIR/bin/pip" install -r "$SCRIPT_DIR/requirements-gui.txt" -v
+        print_msg "$GREEN" "✓ All dependencies installed"
+    fi
 
     # Make scripts executable
     chmod +x "$SCRIPT_DIR/input_client.py" 2>/dev/null || true

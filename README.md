@@ -210,76 +210,36 @@ For native installation:
 
 ## Troubleshooting
 
-### Docker Container Issues
+For detailed troubleshooting, see **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**.
+
+### Quick Fixes
+
+**PyQt5 installation hangs/fails on ARM devices (Orange Pi, Raspberry Pi):**
+```bash
+# The updated install.sh automatically uses system PyQt5 (fast, no compilation)
+./install.sh
+# Answer 'y' when prompted to install system packages
+
+# If installation is stuck, cancel (Ctrl+C) and:
+rm -rf venv
+./install.sh
+```
 
 **Container won't start:**
 ```bash
-# Check logs
-docker compose logs
-
-# Verify .env file
-cat .env
-
-# Check port 8080 not in use
-netstat -tulpn | grep 8080
+docker compose logs  # Check logs
+cat .env             # Verify credentials
 ```
 
-**Container restarts continuously:**
+**GUI can't connect:**
 ```bash
-# View recent logs
-docker logs datang-reader --tail=50
-
-# Common issues:
-# - Missing/invalid credentials in .env
-# - Python version mismatch
-# - Port already in use
-```
-
-### GUI Client Issues
-
-**PyQt5 not found / Build errors on Raspberry Pi:**
-```bash
-# Reinstall dependencies (uses requirements-gui.txt automatically)
-rm -rf venv
-./install.sh
-
-# Note: If you see PyQt5 build errors with Docker, the issue is fixed
-# in this version - Docker now uses requirements-docker.txt (no PyQt5)
-```
-
-**Can't connect to container:**
-```bash
-# Verify container is running
-curl http://localhost:8080/health
-
-# Check firewall
-sudo ufw allow 8080
+curl http://localhost:8080/health  # Test container
 ```
 
 **RFID reader not working:**
-1. Test in text editor first (should type card ID)
-2. Check USB connection
-3. Try different USB port
-4. Verify reader is HID keyboard type
-
-### Common Errors
-
-**"externally-managed-environment" error:**
-- Solution: Use `./install.sh` (creates venv automatically)
-- Or: Create manual venv: `python3 -m venv venv && source venv/bin/activate`
-
-**Permission denied (Docker):**
-```bash
-# Add user to docker group
-sudo usermod -aG docker $USER
-newgrp docker
-```
-
-**Token expired / Auth failed:**
-```bash
-# Re-login (in container)
-docker exec -it datang-reader python datang_reader.py --login
-```
+1. Test in text editor (should type card ID + Enter)
+2. Ensure GUI window has focus
+3. Check USB connection
 
 ### Health Checks
 
@@ -295,6 +255,8 @@ curl -X POST http://localhost:8080/card \
   -H "Content-Type: application/json" \
   -d '{"card_id": "1234567890"}'
 ```
+
+**For more issues:** See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for detailed solutions.
 
 ---
 
