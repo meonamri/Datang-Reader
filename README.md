@@ -109,6 +109,7 @@ DATANG_READER_PASSWORD=your_password_here
 DATANG_DEVICE_ID=docker-reader-01
 DATANG_MOCK_API=false
 DATANG_FULLSCREEN=false  # Set to 'true' for GUI fullscreen mode
+DATANG_ENABLE_PULSE=true # Set to 'true' for breathing effect
 ```
 
 **Security:**
