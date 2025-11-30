@@ -2,13 +2,14 @@
 """
 GUI Input Client for Datang Reader (Docker Deployment)
 
-Beautiful PyQt5 GUI that captures RFID card scans and forwards to Docker container.
-Uses the same design as the main datang_reader.py GUI.
+Modern PyQt5 GUI with SMK Sultan Ahmad Tajuddin branding.
+Optimized for OrangePi Zero 3 embedded display.
 """
 
 import sys
 import time
 import logging
+import re
 from datetime import datetime
 from typing import Optional
 from PyQt5.QtWidgets import (
@@ -33,6 +34,37 @@ DEFAULT_CONTAINER_URL = "http://localhost:8080"
 MAX_RETRIES = 3
 RETRY_DELAY = 2
 REQUEST_TIMEOUT = 5
+
+# Modern Color Palette - Teal and Navy theme
+COLORS = {
+    # Base colors - teal background with dark blue-gray cards
+    'bg_primary': '#313647',           # Teal background
+    'bg_secondary': '#26667F',         # Light mint for secondary areas
+    'bg_card': '#305669',              # Dark blue-gray card background
+    'bg_elevated': '#263f4d',          # Darker blue-gray for elevated surfaces
+
+    # Text colors - light text on dark cards
+    'text_primary': '#ffffff',         # White for dark cards
+    'text_secondary': '#e0f2f1',       # Light mint tint
+    'text_muted': '#b0bec5',           # Light gray
+
+    # Accent colors - terracotta as primary accent
+    'accent_green': '#2ecc71',         # Vibrant green (keep for success states)
+    'accent_yellow': '#f1c40f',        # Bright yellow (keep for warnings)
+    'accent_red': '#e74c3c',           # Alert red (keep for errors)
+    'accent_terracotta': '#C1785A',    # Terracotta for highlights
+
+    # Status colors
+    'success': '#4caf50',              # Success green
+    'warning': '#ff9800',              # Warning orange
+    'error': '#f44336',                # Error red
+    'info': '#00bcd4',                 # Info cyan
+
+    # UI elements
+    'border_subtle': '#B7E5CD',        # Light mint borders
+    'border_accent': '#C1785A',        # Terracotta accent borders
+    'shadow': 'rgba(0, 0, 0, 0.2)',    # Medium shadow
+}
 
 
 class InputClient:
@@ -86,7 +118,7 @@ class InputClient:
                 if result.get('success'):
                     online = result.get('online', False)
                     message = result.get('message', 'Recorded')
-                    data = result.get('data', {})  # Extract data field
+                    data = result.get('data', {})
                     return True, message, online, data
                 else:
                     return False, result.get('message', 'Unknown error'), False, {}
@@ -140,8 +172,152 @@ class HealthCheckThread(QThread):
         self.running = False
 
 
+class StatusIndicator(QWidget):
+    """Modern circular status indicator with pulse animation"""
+
+    def __init__(self, size=16, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(size, size)
+        self._color = QColor(COLORS['text_muted'])
+        self._active = False
+
+    def set_status(self, active: bool, color: str):
+        """Update indicator status"""
+        self._active = active
+        self._color = QColor(color)
+        self.update()
+
+    def paintEvent(self, _event):
+        """Custom paint for circular indicator"""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        # Draw outer glow if active
+        if self._active:
+            glow_color = QColor(self._color)
+            glow_color.setAlpha(80)
+            painter.setBrush(glow_color)
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(0, 0, self.width(), self.height())
+
+        # Draw main circle
+        painter.setBrush(self._color)
+        painter.setPen(Qt.NoPen)
+        margin = 3 if self._active else 0
+        painter.drawEllipse(margin, margin, self.width() - 2*margin, self.height() - 2*margin)
+
+
+class ModernCard(QFrame):
+    """Modern card widget with subtle elevation"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet(f"""
+            QFrame {{
+                background-color: {COLORS['bg_card']};
+                border-radius: 12px;
+                border: none;
+            }}
+        """)
+
+
+class PulseAnimation:
+    """Lightweight pulse/breathing animation for text elements
+
+    Optimized for ARM hardware - uses timer-based stylesheet updates
+    instead of QPropertyAnimation to minimize CPU usage.
+    """
+
+    def __init__(self, widget: QLabel, min_opacity: float = 0.8,
+                 max_opacity: float = 1.0, fps: int = 12):
+        """
+        Initialize pulse animation
+
+        Args:
+            widget: QLabel to animate
+            min_opacity: Minimum opacity (0.0-1.0)
+            max_opacity: Maximum opacity (0.0-1.0)
+            fps: Frames per second (lower = less CPU, 10-15 recommended for ARM)
+        """
+        self.widget = widget
+        self.min_opacity = min_opacity
+        self.max_opacity = max_opacity
+        self.fps = fps
+
+        # Animation state
+        self.current_opacity = max_opacity
+        self.direction = -1  # -1 = fading out, 1 = fading in
+        self.step_size = 0.05  # Opacity change per frame
+
+        # Timer for animation updates
+        self.timer = QTimer()
+        self.timer.timeout.connect(self._update_opacity)
+
+        # Store original stylesheet
+        self.base_style = widget.styleSheet()
+
+    def start(self):
+        """Start the pulse animation"""
+        if not self.timer.isActive():
+            # Update base style to current stylesheet (in case it changed)
+            self.base_style = self.widget.styleSheet()
+            # Reset animation state
+            self.current_opacity = self.max_opacity
+            self.direction = -1
+            # Start timer
+            interval_ms = int(1000 / self.fps)
+            self.timer.start(interval_ms)
+
+    def stop(self):
+        """Stop the pulse animation and reset to full opacity"""
+        self.timer.stop()
+        self._apply_opacity(self.max_opacity)
+
+    def _update_opacity(self):
+        """Update opacity for next frame (called by timer)"""
+        # Update opacity value
+        self.current_opacity += (self.direction * self.step_size)
+
+        # Reverse direction at boundaries
+        if self.current_opacity <= self.min_opacity:
+            self.current_opacity = self.min_opacity
+            self.direction = 1  # Start fading in
+        elif self.current_opacity >= self.max_opacity:
+            self.current_opacity = self.max_opacity
+            self.direction = -1  # Start fading out
+
+        # Apply to widget
+        self._apply_opacity(self.current_opacity)
+
+    def _apply_opacity(self, opacity: float):
+        """Apply opacity to widget via stylesheet
+
+        Args:
+            opacity: Opacity value (0.0-1.0)
+        """
+        # Convert to 0-255 range for CSS rgba
+        alpha = int(opacity * 255)
+
+        # Apply opacity via color with alpha channel
+        # Preserve margin styles from base stylesheet
+        # Use white text color (RGB: 255, 255, 255) for dark cards
+        style = self.base_style
+        if 'color:' in style:
+            # Replace existing color while preserving other styles
+            style = re.sub(
+                r'color:\s*[^;]+;',
+                f'color: rgba(255, 255, 255, {alpha});',
+                style
+            )
+        else:
+            # Append color to existing styles
+            style += f' color: rgba(255, 255, 255, {alpha});'
+
+        self.widget.setStyleSheet(style)
+
+
 class AttendanceApp(QMainWindow):
-    """Main GUI window for Input Client"""
+    """Main GUI window for Input Client with modern design"""
 
     def __init__(self, container_url: str):
         super().__init__()
@@ -159,70 +335,87 @@ class AttendanceApp(QMainWindow):
         # Threads
         self.health_thread = None
 
+        # Pulse animation for ready state
+        self.pulse_animation = None  # Created after UI init
+
         self.init_ui()
         self.start_background_tasks()
 
     def init_ui(self):
-        """Initialize user interface"""
-        self.setWindowTitle("Datang Reader - Input Client")
+        """Initialize user interface with modern design"""
+        self.setWindowTitle("SMK Sultan Ahmad Tajuddin - Attendance System")
         self.setGeometry(100, 100, Config.WINDOW_WIDTH, Config.WINDOW_HEIGHT)
 
         # Set fullscreen if configured
         if Config.FULLSCREEN:
             self.showFullScreen()
 
-        # Set window style (Catppuccin Mocha theme)
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: #1e1e2e;
-            }
-            QLabel {
-                color: #cdd6f4;
-            }
+        # Set main window style
+        self.setStyleSheet(f"""
+            QMainWindow {{
+                background-color: {COLORS['bg_primary']};
+            }}
+            QLabel {{
+                color: {COLORS['text_primary']};
+            }}
         """)
 
         # Create central widget and layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
-        main_layout.setSpacing(20)
-        main_layout.setContentsMargins(40, 40, 40, 40)
+        main_layout.setSpacing(16)
+        main_layout.setContentsMargins(16, 16, 16, 16)
 
-        # Header
-        header = self.create_header()
-        main_layout.addWidget(header)
+        # Top bar (compact header with logo and system info)
+        top_bar = self.create_top_bar()
+        main_layout.addWidget(top_bar)
 
-        # Status panel
-        self.status_panel = self.create_status_panel()
-        main_layout.addWidget(self.status_panel)
+        # Main content area
+        content_layout = QHBoxLayout()
+        content_layout.setSpacing(16)
 
-        # Main display area
-        self.main_display = self.create_main_display()
-        main_layout.addWidget(self.main_display, stretch=1)
+        # Left sidebar - Status cards
+        sidebar = self.create_sidebar()
+        content_layout.addWidget(sidebar)
 
-        # Card input field for HID keyboard reader
+        # Center - Main display
+        center_display = self.create_center_display()
+        content_layout.addLayout(center_display, stretch=1)
+
+        main_layout.addLayout(content_layout, stretch=1)
+
+        # Card input field for HID keyboard reader (minimal visibility)
         self.card_input = QLineEdit()
-        self.card_input.setPlaceholderText("Card scanner input (auto-focus)")
+        self.card_input.setPlaceholderText("Scan RFID card...")
         self.card_input.returnPressed.connect(self.on_card_input)
-        self.card_input.setStyleSheet("""
-            QLineEdit {
-                background-color: #313244;
-                color: #9399b2;
-                border: 1px solid #45475a;
-                border-radius: 5px;
-                padding: 5px;
-                font-size: 12px;
-            }
+        self.card_input.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {COLORS['bg_card']};
+                color: {COLORS['text_primary']};
+                border: 1px solid {COLORS['border_subtle']};
+                border-radius: 6px;
+                padding: 8px 12px;
+                font-size: 11px;
+            }}
+            QLineEdit:focus {{
+                border: 1px solid {COLORS['bg_elevated']};
+            }}
         """)
-        self.card_input.setMaximumHeight(30)
+        self.card_input.setMaximumHeight(32)
         main_layout.addWidget(self.card_input)
-
-        # Footer with stats
-        footer = self.create_footer()
-        main_layout.addWidget(footer)
 
         # Status bar
         self.status_bar = QStatusBar()
+        self.status_bar.setStyleSheet(f"""
+            QStatusBar {{
+                background-color: {COLORS['bg_secondary']};
+                color: {COLORS['text_secondary']};
+                border-top: 1px solid {COLORS['border_subtle']};
+                padding: 4px 10px;
+                font-size: 11px;
+            }}
+        """)
         self.setStatusBar(self.status_bar)
         self.update_status_bar()
 
@@ -230,198 +423,380 @@ class AttendanceApp(QMainWindow):
         if QSystemTrayIcon.isSystemTrayAvailable():
             self.create_system_tray()
 
-    def create_header(self) -> QWidget:
-        """Create header section"""
-        header = QFrame()
-        header.setFixedHeight(100)
-        header.setStyleSheet("QFrame { background-color: #313244; border-radius: 10px; }")
+        # Initialize display to ready state (starts pulse animation)
+        self.reset_display()
 
-        layout = QHBoxLayout(header)
-        layout.setContentsMargins(30, 20, 30, 20)
+    def create_top_bar(self) -> QWidget:
+        """Create compact top bar with logo and key info"""
+        bar = ModernCard()
+        bar.setFixedHeight(80)
 
-        # Title
-        title = QLabel("Datang Reader")
-        title.setFont(QFont("Arial", 32, QFont.Bold))
-        title.setStyleSheet("color: #89b4fa;")
-        layout.addWidget(title)
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(15, 10, 15, 10)
+        layout.setSpacing(15)
 
-        # Subtitle
-        subtitle = QLabel("Input Client")
-        subtitle.setFont(QFont("Arial", 14))
-        subtitle.setStyleSheet("color: #7f849c;")
-        layout.addWidget(subtitle)
+        # Logo section
+        logo_container = QWidget()
+        logo_layout = QHBoxLayout(logo_container)
+        logo_layout.setContentsMargins(0, 0, 0, 0)
+        logo_layout.setSpacing(12)
+
+        logo_label = QLabel()
+        try:
+            logo_pixmap = QPixmap("/home/meon/Desktop/Datang/Datang-Reader/logo/Logo SMKSAT trans.png")
+            if not logo_pixmap.isNull():
+                scaled_logo = logo_pixmap.scaled(60, 60, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                logo_label.setPixmap(scaled_logo)
+            else:
+                logo_label.setText("🎓")
+                logo_label.setStyleSheet("font-size: 40px;")
+        except Exception:
+            logo_label.setText("🎓")
+            logo_label.setStyleSheet("font-size: 40px;")
+
+        logo_label.setFixedSize(60, 60)
+        logo_label.setAlignment(Qt.AlignCenter)
+        logo_layout.addWidget(logo_label)
+
+        # Title section
+        title_container = QWidget()
+        title_layout = QVBoxLayout(title_container)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(2)
+
+        school_name = QLabel("SMK SULTAN AHMAD TAJUDDIN")
+        school_name.setFont(QFont("Arial", 14, QFont.Bold))
+        school_name.setStyleSheet(f"color: {COLORS['text_primary']};")
+        title_layout.addWidget(school_name)
+
+        system_name = QLabel("RFID Attendance System")
+        system_name.setFont(QFont("Arial", 11))
+        system_name.setStyleSheet(f"color: {COLORS['text_secondary']};")
+        title_layout.addWidget(system_name)
+
+        motto = QLabel("HIDUP BERJASA")
+        motto.setFont(QFont("Arial", 9, QFont.Bold))
+        motto.setStyleSheet(f"color: {COLORS['accent_yellow']}; letter-spacing: 1px;")
+        title_layout.addWidget(motto)
+
+        logo_layout.addWidget(title_container)
+        layout.addWidget(logo_container)
 
         layout.addStretch()
 
-        # Container connection status indicator
-        self.connection_indicator = QLabel("⚫")
-        self.connection_indicator.setFont(QFont("Arial", 24))
-        self.connection_indicator.setToolTip("Docker Container Status")
-        layout.addWidget(self.connection_indicator)
+        # Right section - Time and connection
+        right_section = QWidget()
+        right_layout = QVBoxLayout(right_section)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(8)
+        right_layout.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
-        # Time display
+        # Time
         self.time_label = QLabel()
-        self.time_label.setFont(QFont("Arial", 20))
+        self.time_label.setFont(QFont("Arial", 20, QFont.Bold))
+        self.time_label.setStyleSheet(f"color: {COLORS['text_primary']};")
+        self.time_label.setAlignment(Qt.AlignRight)
         self.update_time()
-        layout.addWidget(self.time_label)
+        right_layout.addWidget(self.time_label)
 
-        return header
+        # Connection status
+        connection_widget = QWidget()
+        connection_layout = QHBoxLayout(connection_widget)
+        connection_layout.setContentsMargins(0, 0, 0, 0)
+        connection_layout.setSpacing(8)
 
-    def create_status_panel(self) -> QWidget:
-        """Create status panel"""
-        panel = QFrame()
-        panel.setFixedHeight(80)
-        panel.setStyleSheet("QFrame { background-color: #313244; border-radius: 10px; }")
+        connection_label = QLabel("Server")
+        connection_label.setFont(QFont("Arial", 10))
+        connection_label.setStyleSheet(f"color: {COLORS['text_secondary']};")
+        connection_layout.addWidget(connection_label)
 
-        layout = QHBoxLayout(panel)
-        layout.setContentsMargins(20, 10, 20, 10)
-        layout.setSpacing(30)
+        self.connection_indicator = StatusIndicator(12)
+        self.connection_indicator.set_status(False, COLORS['error'])
+        connection_layout.addWidget(self.connection_indicator)
 
-        # RFID Reader status
-        self.rfid_status = self.create_status_item("RFID Reader", "●", "#94e2d5")
-        layout.addWidget(self.rfid_status)
+        right_layout.addWidget(connection_widget)
+
+        layout.addWidget(right_section)
+
+        return bar
+
+    def create_sidebar(self) -> QWidget:
+        """Create left sidebar with status cards"""
+        sidebar = QWidget()
+        sidebar.setFixedWidth(240)
+
+        layout = QVBoxLayout(sidebar)
+        layout.setSpacing(15)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        # Statistics card
+        stats_card = ModernCard()
+        stats_layout = QVBoxLayout(stats_card)
+        stats_layout.setContentsMargins(20, 20, 20, 20)
+        stats_layout.setSpacing(15)
+
+        stats_title = QLabel("Today's Statistics")
+        stats_title.setFont(QFont("Arial", 12, QFont.Bold))
+        stats_title.setStyleSheet(f"color: {COLORS['text_primary']};")
+        stats_layout.addWidget(stats_title)
+
+        # Total scans
+        self.total_stat = self.create_stat_row("Total Scans", "0", COLORS['text_primary'])
+        stats_layout.addWidget(self.total_stat)
+
+        # Successful scans
+        self.success_stat = self.create_stat_row("Successful", "0", COLORS['success'])
+        stats_layout.addWidget(self.success_stat)
+
+        # Failed scans
+        self.failed_stat = self.create_stat_row("Failed", "0", COLORS['error'])
+        stats_layout.addWidget(self.failed_stat)
+
+        stats_layout.addStretch()
+        layout.addWidget(stats_card)
+
+        # System status card
+        status_card = ModernCard()
+        status_layout = QVBoxLayout(status_card)
+        status_layout.setContentsMargins(20, 20, 20, 20)
+        status_layout.setSpacing(15)
+
+        status_title = QLabel("System Status")
+        status_title.setFont(QFont("Arial", 12, QFont.Bold))
+        status_title.setStyleSheet(f"color: {COLORS['text_primary']};")
+        status_layout.addWidget(status_title)
+
+        # RFID reader status
+        self.rfid_status = self.create_status_row("RFID Reader", "Ready", COLORS['success'])
+        status_layout.addWidget(self.rfid_status)
 
         # Container status
-        self.container_status = self.create_status_item("Container", "●", "#f38ba8")
-        layout.addWidget(self.container_status)
+        self.container_status = self.create_status_row("Container", "Offline", COLORS['error'])
+        status_layout.addWidget(self.container_status)
 
-        # Queue size (from container)
-        self.queue_status = self.create_status_item("Queue", "0", "#94e2d5")
-        layout.addWidget(self.queue_status)
+        # Queue status
+        self.queue_status = self.create_status_row("Queue", "Empty", COLORS['text_muted'])
+        status_layout.addWidget(self.queue_status)
 
-        # Scan statistics
-        self.scan_stats = self.create_status_item("Scans", "0/0", "#a6e3a1")
-        layout.addWidget(self.scan_stats)
-
-        layout.addStretch()
-
-        return panel
-
-    def create_status_item(self, label_text: str, value: str, color: str) -> QWidget:
-        """Create status item widget"""
-        widget = QWidget()
-        layout = QHBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
-
-        label = QLabel(label_text + ":")
-        label.setFont(QFont("Arial", 14))
-        layout.addWidget(label)
-
-        value_label = QLabel(value)
-        value_label.setFont(QFont("Arial", 14, QFont.Bold))
-        value_label.setStyleSheet(f"color: {color};")
-        value_label.setObjectName("value")
-        layout.addWidget(value_label)
-
-        return widget
-
-    def create_main_display(self) -> QWidget:
-        """Create main display area"""
-        display = QFrame()
-        display.setStyleSheet("QFrame { background-color: #313244; border-radius: 10px; }")
-
-        layout = QVBoxLayout(display)
-        layout.setAlignment(Qt.AlignCenter)
-
-        # Icon/Status
-        self.status_icon = QLabel("📱")
-        self.status_icon.setFont(QFont("Arial", 120))
-        self.status_icon.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.status_icon)
-
-        # Message
-        self.message_label = QLabel("Ready to Scan")
-        self.message_label.setFont(QFont("Arial", 36, QFont.Bold))
-        self.message_label.setAlignment(Qt.AlignCenter)
-        self.message_label.setStyleSheet("color: #cdd6f4; margin: 20px;")
-        layout.addWidget(self.message_label)
-
-        # Sub-message
-        self.sub_message_label = QLabel("Please scan your RFID card")
-        self.sub_message_label.setFont(QFont("Arial", 20))
-        self.sub_message_label.setAlignment(Qt.AlignCenter)
-        self.sub_message_label.setStyleSheet("color: #9399b2;")
-        layout.addWidget(self.sub_message_label)
-
-        # Attendee Name Label
-        self.name_label = QLabel("")
-        self.name_label.setFont(QFont("Arial", 28, QFont.Bold))
-        self.name_label.setAlignment(Qt.AlignCenter)
-        self.name_label.setStyleSheet("color: #89b4fa; margin-top: 10px;")
-        self.name_label.setVisible(False)  # Hidden by default
-        layout.addWidget(self.name_label)
-
-        # Section Label
-        self.section_label = QLabel("")
-        self.section_label.setFont(QFont("Arial", 18))
-        self.section_label.setAlignment(Qt.AlignCenter)
-        self.section_label.setStyleSheet("color: #a6adc8; margin-top: 5px;")
-        self.section_label.setVisible(False)  # Hidden by default
-        layout.addWidget(self.section_label)
-
-        return display
-
-    def create_footer(self) -> QWidget:
-        """Create footer with controls"""
-        footer = QFrame()
-        footer.setFixedHeight(60)
-        footer.setStyleSheet("QFrame { background-color: #313244; border-radius: 10px; }")
-
-        layout = QHBoxLayout(footer)
-        layout.setContentsMargins(20, 10, 20, 10)
-
-        # Last scan info
-        self.last_scan_label = QLabel("No scans yet")
-        self.last_scan_label.setFont(QFont("Arial", 12))
-        self.last_scan_label.setStyleSheet("color: #9399b2;")
-        layout.addWidget(self.last_scan_label)
+        status_layout.addStretch()
+        layout.addWidget(status_card)
 
         layout.addStretch()
 
-        # Container URL
-        url_label = QLabel(f"Container: {self.container_url}")
-        url_label.setFont(QFont("Arial", 10))
-        url_label.setStyleSheet("color: #7f849c;")
-        layout.addWidget(url_label)
-
-        # Quit button
-        quit_btn = QPushButton("Quit")
-        quit_btn.clicked.connect(self.close)
-        quit_btn.setStyleSheet(self.get_button_style("#f38ba8"))
-        layout.addWidget(quit_btn)
-
-        return footer
-
-    def get_button_style(self, color: str = "#89b4fa") -> str:
-        """Get button stylesheet"""
-        return f"""
+        # Exit button
+        exit_btn = QPushButton("Exit System")
+        exit_btn.clicked.connect(self.close)
+        exit_btn.setFixedHeight(36)
+        exit_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: {color};
-                color: #1e1e2e;
-                border: none;
-                border-radius: 5px;
-                padding: 10px 20px;
-                font-size: 14px;
+                background-color: {COLORS['bg_elevated']};
+                color: {COLORS['text_primary']};
+                border: 1px solid {COLORS['border_subtle']};
+                border-radius: 8px;
+                padding: 8px;
+                font-size: 12px;
                 font-weight: bold;
             }}
             QPushButton:hover {{
-                background-color: {color}dd;
+                background-color: {COLORS['error']};
+                border-color: {COLORS['error']};
             }}
             QPushButton:pressed {{
-                background-color: {color}aa;
+                background-color: #a93226;
             }}
-        """
+        """)
+        layout.addWidget(exit_btn)
+
+        return sidebar
+
+    def create_stat_row(self, label: str, value: str, color: str) -> QWidget:
+        """Create statistics row"""
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+
+        label_widget = QLabel(label)
+        label_widget.setFont(QFont("Arial", 10))
+        label_widget.setStyleSheet(f"color: {COLORS['text_secondary']};")
+        layout.addWidget(label_widget)
+
+        layout.addStretch()
+
+        value_widget = QLabel(value)
+        value_widget.setFont(QFont("Arial", 14, QFont.Bold))
+        value_widget.setStyleSheet(f"color: {color};")
+        value_widget.setObjectName("value")
+        layout.addWidget(value_widget)
+
+        return row
+
+    def create_status_row(self, label: str, status: str, color: str) -> QWidget:
+        """Create status row with indicator"""
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+
+        label_widget = QLabel(label)
+        label_widget.setFont(QFont("Arial", 10))
+        label_widget.setStyleSheet(f"color: {COLORS['text_secondary']};")
+        layout.addWidget(label_widget)
+
+        layout.addStretch()
+
+        indicator = StatusIndicator(10)
+        indicator.set_status(color == COLORS['success'], color)
+        indicator.setObjectName("indicator")
+        layout.addWidget(indicator)
+
+        status_widget = QLabel(status)
+        status_widget.setFont(QFont("Arial", 10, QFont.Bold))
+        status_widget.setStyleSheet(f"color: {color};")
+        status_widget.setObjectName("status")
+        layout.addWidget(status_widget)
+
+        return row
+
+    def update_stat_value(self, widget: QWidget, value: str):
+        """Update stat row value"""
+        value_label = widget.findChild(QLabel, "value")
+        if value_label:
+            value_label.setText(value)
+
+    def update_status_row(self, widget: QWidget, status: str, color: str):
+        """Update status row"""
+        status_label = widget.findChild(QLabel, "status")
+        indicator = widget.findChild(StatusIndicator, "indicator")
+
+        if status_label:
+            status_label.setText(status)
+            status_label.setStyleSheet(f"color: {color};")
+
+        if indicator:
+            indicator.set_status(color == COLORS['success'], color)
+
+    def create_center_display(self) -> QVBoxLayout:
+        """Create center display area"""
+        layout = QVBoxLayout()
+        layout.setSpacing(16)
+
+        # Main scan result card
+        self.main_card = ModernCard()
+        self.main_card.setMinimumHeight(400)
+
+        card_layout = QVBoxLayout(self.main_card)
+        card_layout.setAlignment(Qt.AlignCenter)
+        card_layout.setSpacing(25)
+        card_layout.setContentsMargins(30, 50, 30, 50)
+
+        # Status icon (hidden by default, shown during scan results)
+        self.status_icon = QLabel()
+        self.status_icon.setFont(QFont("Arial", 80))
+        self.status_icon.setAlignment(Qt.AlignCenter)
+        self.status_icon.setVisible(False)  # Hidden initially
+        self.status_icon.setStyleSheet("background: transparent;")
+        card_layout.addWidget(self.status_icon)
+
+        # Main message
+        self.message_label = QLabel("Ready to Scan")
+        self.message_label.setFont(QFont("Arial", 38, QFont.Bold))
+        self.message_label.setAlignment(Qt.AlignCenter)
+        self.message_label.setStyleSheet(f"color: {COLORS['text_primary']}; margin: 20px 0px;")
+        self.message_label.setWordWrap(True)
+        card_layout.addWidget(self.message_label)
+
+        # Sub-message
+        self.sub_message_label = QLabel("Place your RFID card on the reader")
+        self.sub_message_label.setFont(QFont("Arial", 15))
+        self.sub_message_label.setAlignment(Qt.AlignCenter)
+        self.sub_message_label.setStyleSheet(f"color: {COLORS['text_secondary']}; margin-top: 5px;")
+        self.sub_message_label.setWordWrap(True)
+        card_layout.addWidget(self.sub_message_label)
+
+        # Create pulse animation for message label (if enabled)
+        if Config.ENABLE_PULSE_ANIMATION:
+            self.pulse_animation = PulseAnimation(
+                self.message_label,
+                min_opacity=0.4,
+                max_opacity=1.0,
+                fps=Config.PULSE_ANIMATION_FPS
+            )
+
+        # Attendee info card
+        self.attendee_card = ModernCard()
+        self.attendee_card.setStyleSheet(f"""
+            QFrame {{
+                background: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:0,
+                    stop:0 {COLORS['accent_green']},
+                    stop:1 #229954
+                );
+                border-radius: 12px;
+                border: 2px solid {COLORS['accent_terracotta']};
+            }}
+        """)
+        self.attendee_card.setVisible(False)
+        self.attendee_card.setFixedHeight(120)
+
+        attendee_layout = QVBoxLayout(self.attendee_card)
+        attendee_layout.setSpacing(8)
+        attendee_layout.setContentsMargins(25, 15, 25, 15)
+
+        # Attendee name
+        self.name_label = QLabel("")
+        self.name_label.setFont(QFont("Arial", 24, QFont.Bold))
+        self.name_label.setAlignment(Qt.AlignCenter)
+        self.name_label.setStyleSheet("color: white;")
+        attendee_layout.addWidget(self.name_label)
+
+        # Section
+        self.section_label = QLabel("")
+        self.section_label.setFont(QFont("Arial", 14))
+        self.section_label.setAlignment(Qt.AlignCenter)
+        self.section_label.setStyleSheet(f"color: {COLORS['accent_terracotta']};")
+        attendee_layout.addWidget(self.section_label)
+
+        card_layout.addWidget(self.attendee_card)
+
+        layout.addWidget(self.main_card, stretch=1)
+
+        # Last scan info bar
+        last_scan_bar = ModernCard()
+        last_scan_bar.setFixedHeight(50)
+
+        scan_layout = QHBoxLayout(last_scan_bar)
+        scan_layout.setContentsMargins(20, 10, 20, 10)
+
+        scan_icon = QLabel("🕐")
+        scan_icon.setFont(QFont("Arial", 18))
+        scan_layout.addWidget(scan_icon)
+
+        self.last_scan_label = QLabel("No scans yet")
+        self.last_scan_label.setFont(QFont("Arial", 12))
+        self.last_scan_label.setStyleSheet(f"color: {COLORS['text_secondary']};")
+        scan_layout.addWidget(self.last_scan_label)
+
+        scan_layout.addStretch()
+
+        container_label = QLabel(f"Container: {self.container_url}")
+        container_label.setFont(QFont("Arial", 9))
+        container_label.setStyleSheet(f"color: {COLORS['text_muted']};")
+        scan_layout.addWidget(container_label)
+
+        layout.addWidget(last_scan_bar)
+
+        return layout
 
     def create_system_tray(self):
         """Create system tray icon"""
         self.tray_icon = QSystemTrayIcon(self)
 
-        # Create icon (colored circle)
+        # Create icon
         pixmap = QPixmap(32, 32)
         pixmap.fill(Qt.transparent)
         painter = QPainter(pixmap)
-        painter.setBrush(QColor("#89b4fa"))
+        painter.setBrush(QColor(COLORS['accent_green']))
         painter.drawEllipse(4, 4, 24, 24)
         painter.end()
 
@@ -465,39 +840,49 @@ class AttendanceApp(QMainWindow):
     def update_status_bar(self):
         """Update status bar"""
         self.status_bar.showMessage(
-            f"Total: {self.total_scans} | Success: {self.successful_scans} | Failed: {self.failed_scans}"
+            f"  Total: {self.total_scans}  |  Success: {self.successful_scans}  |  Failed: {self.failed_scans}  "
         )
 
     def on_health_status(self, is_healthy: bool, status_data: dict):
         """Update connection status display"""
         self.container_online = is_healthy
 
-        # Update connection indicator
         if is_healthy:
-            self.connection_indicator.setText("🟢")
-            self.connection_indicator.setStyleSheet("color: #a6e3a1;")
+            # Update connection indicator
+            self.connection_indicator.set_status(True, COLORS['success'])
 
             # Update container status
-            value_label = self.container_status.findChild(QLabel, "value")
-            if value_label:
-                value_label.setText("●")
-                value_label.setStyleSheet("color: #a6e3a1;")
+            self.update_status_row(
+                self.container_status,
+                "Online",
+                COLORS['success']
+            )
 
             # Update queue size from container status
             if status_data and 'queue_size' in status_data:
                 self.container_queue_size = status_data['queue_size']
-                queue_label = self.queue_status.findChild(QLabel, "value")
-                if queue_label:
-                    queue_label.setText(str(self.container_queue_size))
+                if self.container_queue_size > 0:
+                    queue_text = f"{self.container_queue_size} pending"
+                    queue_color = COLORS['warning']
+                else:
+                    queue_text = "Empty"
+                    queue_color = COLORS['success']
+
+                self.update_status_row(
+                    self.queue_status,
+                    queue_text,
+                    queue_color
+                )
         else:
-            self.connection_indicator.setText("🔴")
-            self.connection_indicator.setStyleSheet("color: #f38ba8;")
+            # Update connection indicator
+            self.connection_indicator.set_status(False, COLORS['error'])
 
             # Update container status
-            value_label = self.container_status.findChild(QLabel, "value")
-            if value_label:
-                value_label.setText("●")
-                value_label.setStyleSheet("color: #f38ba8;")
+            self.update_status_row(
+                self.container_status,
+                "Offline",
+                COLORS['error']
+            )
 
     def on_card_input(self):
         """Handle card scan from RFID reader"""
@@ -514,17 +899,23 @@ class AttendanceApp(QMainWindow):
         # Validate
         is_valid, error = self.client.validate_card_id(card_id)
         if not is_valid:
-            self.show_scan_result(False, f"Invalid: {error}", card_id)
+            self.show_scan_result(False, f"Invalid Card: {error}", "", "", False)
             self.failed_scans += 1
             self.total_scans += 1
-            self.update_status_bar()
+            self.update_statistics()
             return
 
         # Update display - scanning
         self.status_icon.setText("🔄")
+        self.status_icon.setVisible(True)
         self.message_label.setText("Processing...")
-        self.message_label.setStyleSheet("color: #f9e2af;")
+        self.message_label.setStyleSheet(f"color: {COLORS['warning']}; margin: 20px 0px;")
         self.sub_message_label.setText(f"Card: {card_id[:8]}...")
+        self.attendee_card.setVisible(False)
+
+        # Stop pulse animation during processing
+        if self.pulse_animation:
+            self.pulse_animation.stop()
 
         # Send to container
         QApplication.processEvents()  # Update UI
@@ -544,70 +935,81 @@ class AttendanceApp(QMainWindow):
         self.last_scan_time = timestamp
 
         # Show result
-        self.show_scan_result(success, message, card_id, online, name, section)
-        self.update_status_bar()
+        self.show_scan_result(success, message, name, section, online)
+        self.update_statistics()
 
         # Update last scan label
-        status_text = "✓" if success else "✗"
+        status_icon = "✓" if success else "✗"
         mode_text = "ONLINE" if online else "OFFLINE" if success else "FAILED"
-        self.last_scan_label.setText(f"Last scan: {timestamp} | {status_text} {mode_text}")
+        mode_color = COLORS['success'] if online else COLORS['warning'] if success else COLORS['error']
+        self.last_scan_label.setText(f"Last scan: {timestamp}  •  {status_icon} {mode_text}")
+        self.last_scan_label.setStyleSheet(f"color: {mode_color}; font-weight: bold;")
 
-        # Update scan stats
-        stats_label = self.scan_stats.findChild(QLabel, "value")
-        if stats_label:
-            stats_label.setText(f"{self.successful_scans}/{self.total_scans}")
+        # Reset display after 4 seconds
+        QTimer.singleShot(4000, self.reset_display)
 
-        # Reset display after 3 seconds
-        QTimer.singleShot(3000, self.reset_display)
+    def update_statistics(self):
+        """Update all statistics displays"""
+        self.update_stat_value(self.total_stat, str(self.total_scans))
+        self.update_stat_value(self.success_stat, str(self.successful_scans))
+        self.update_stat_value(self.failed_stat, str(self.failed_scans))
+        self.update_status_bar()
 
-    def show_scan_result(self, success: bool, message: str, card_id: str, 
-                         online: bool = False, name: str = "", section: str = ""):
+    def show_scan_result(self, success: bool, message: str, name: str = "",
+                         section: str = "", online: bool = False):
         """Show scan result on main display"""
         if success:
+            # Success state
             self.status_icon.setText("✅")
+            self.status_icon.setVisible(True)
             self.message_label.setText("Attendance Recorded")
-            self.message_label.setStyleSheet("color: #a6e3a1;")
-            mode = "ONLINE" if online else "QUEUED"
-            self.sub_message_label.setText(f"{mode} - {message}")
-            
-            # Display name if available
-            if name:
-                self.name_label.setText(name)
-                self.name_label.setVisible(True)
+            self.message_label.setStyleSheet(f"color: {COLORS['success']}; margin: 20px 0px;")
+
+            mode = "ONLINE" if online else "QUEUED (Offline)"
+            mode_color = COLORS['success'] if online else COLORS['warning']
+            self.sub_message_label.setText(mode)
+            self.sub_message_label.setStyleSheet(f"color: {mode_color}; font-weight: bold; margin-top: 5px;")
+
+            # Show attendee info if available
+            if name or section:
+                self.name_label.setText(name if name else "Unknown")
+                self.section_label.setText(f"Section: {section}" if section else "")
+                self.attendee_card.setVisible(True)
             else:
-                self.name_label.setVisible(False)
-            
-            # Display section if available
-            if section:
-                self.section_label.setText(f"Section: {section}")
-                self.section_label.setVisible(True)
-            else:
-                self.section_label.setVisible(False)
+                self.attendee_card.setVisible(False)
         else:
+            # Error state
             self.status_icon.setText("❌")
+            self.status_icon.setVisible(True)
             self.message_label.setText("Error")
-            self.message_label.setStyleSheet("color: #f38ba8;")
+            self.message_label.setStyleSheet(f"color: {COLORS['error']}; margin: 20px 0px;")
             self.sub_message_label.setText(message)
-            # Hide name and section on error
-            self.name_label.setVisible(False)
-            self.section_label.setVisible(False)
+            self.sub_message_label.setStyleSheet(f"color: {COLORS['error']}; margin-top: 5px;")
+            self.attendee_card.setVisible(False)
 
     def reset_display(self):
         """Reset main display to ready state"""
-        self.status_icon.setText("📱")
+        self.status_icon.setVisible(False)  # Hide icon in ready state
         self.message_label.setText("Ready to Scan")
-        self.message_label.setStyleSheet("color: #cdd6f4;")
-        self.sub_message_label.setText("Please scan your RFID card")
-        
-        # Hide name and section labels
-        self.name_label.setVisible(False)
-        self.section_label.setVisible(False)
+        self.message_label.setStyleSheet(f"color: {COLORS['text_primary']}; margin: 20px 0px;")
+        self.sub_message_label.setText("Place your RFID card on the reader")
+        self.sub_message_label.setStyleSheet(f"color: {COLORS['text_secondary']}; margin-top: 5px;")
+        self.attendee_card.setVisible(False)
+
+        # Reset last scan label color
+        self.last_scan_label.setStyleSheet(f"color: {COLORS['text_secondary']};")
+
+        # Start pulse animation in ready state
+        if self.pulse_animation and Config.ENABLE_PULSE_ANIMATION:
+            self.pulse_animation.start()
 
     def closeEvent(self, event):
         """Handle window close"""
         if self.health_thread:
             self.health_thread.stop()
             self.health_thread.wait()
+        if self.pulse_animation:
+            self.pulse_animation.stop()
         event.accept()
 
 

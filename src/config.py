@@ -89,12 +89,16 @@ class Config:
     WINDOW_TITLE = "Datang Reader - Attendance System"
     WINDOW_WIDTH = 800
     WINDOW_HEIGHT = 600
-    FULLSCREEN = os.getenv("DATANG_FULLSCREEN", "false").lower() == "true"
+    FULLSCREEN = os.getenv("DATANG_FULLSCREEN", "true").lower() == "true"
 
     # Display settings
     SHOW_CARD_ID = False  # Whether to display full card ID on screen
     SUCCESS_DISPLAY_TIME = 3  # seconds to show success message
     ERROR_DISPLAY_TIME = 5  # seconds to show error message
+
+    # Pulse animation for ready state
+    ENABLE_PULSE_ANIMATION = os.getenv("DATANG_ENABLE_PULSE", "true").lower() == "true"
+    PULSE_ANIMATION_FPS = 12  # Updates per second (lower = less CPU usage)
 
     # Sound feedback
     ENABLE_SOUND = True
