@@ -9,6 +9,7 @@ Optimized for OrangePi Zero 3 embedded display.
 import sys
 import time
 import logging
+import signal
 import re
 from datetime import datetime
 from typing import Optional
@@ -1030,6 +1031,14 @@ def main():
 
     # Create application
     app = QApplication(sys.argv)
+
+    # Setup signal handler for Ctrl+C
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+    # Timer to allow Python to process signals (needed for Ctrl+C to work)
+    timer = QTimer()
+    timer.start(500)  # Check every 500ms
+    timer.timeout.connect(lambda: None)  # Allow signal processing
 
     # Create and show main window
     window = AttendanceApp(args.url)

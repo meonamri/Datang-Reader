@@ -13,6 +13,12 @@ ExecStart=/opt/datang-reader/venv/bin/python3 /opt/datang-reader/datang_reader.p
 Restart=always
 RestartSec=10
 
+# Qt platform plugin for GUI mode
+# xcb: Run within existing desktop (X11/XFCE)
+# eglfs: Kiosk mode (requires stopping desktop first)
+Environment="QT_QPA_PLATFORM=xcb"
+Environment="DISPLAY=:0"
+
 # Environment variables (optional - can also be set in config.py)
 #Environment="DATANG_API_URL=https://datang.my/api/reader/v1"
 #Environment="DATANG_DEVICE_ID=linux-reader-001"
