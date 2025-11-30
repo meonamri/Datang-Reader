@@ -444,7 +444,7 @@ class AttendanceApp(QMainWindow):
 
         logo_label = QLabel()
         try:
-            logo_pixmap = QPixmap("/home/meon/Desktop/Datang/Datang-Reader/logo/Logo SMKSAT trans.png")
+            logo_pixmap = QPixmap("./logo/Logo SMKSAT trans.png")
             if not logo_pixmap.isNull():
                 scaled_logo = logo_pixmap.scaled(60, 60, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 logo_label.setPixmap(scaled_logo)
