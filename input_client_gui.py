@@ -39,15 +39,15 @@ REQUEST_TIMEOUT = 5
 # Modern Color Palette - Teal and Navy theme
 COLORS = {
     # Base colors - teal background with dark blue-gray cards
-    'bg_primary': '#313647',           # Teal background
-    'bg_secondary': '#26667F',         # Light mint for secondary areas
-    'bg_card': '#305669',              # Dark blue-gray card background
-    'bg_elevated': '#263f4d',          # Darker blue-gray for elevated surfaces
+    'bg_primary': '#0f1419',           # Deep charcoal (almost black)
+    'bg_secondary': '#1a1f26',         # Slightly lighter charcoal
+    'bg_card': '#222831',              # Card background
+    'bg_elevated': '#2d3541',          # Elevated surfaces
 
     # Text colors - light text on dark cards
-    'text_primary': '#ffffff',         # White for dark cards
-    'text_secondary': '#e0f2f1',       # Light mint tint
-    'text_muted': '#b0bec5',           # Light gray
+    'text_primary': '#f8f9fa',         # Crisp white
+    'text_secondary': '#adb5bd',       # Soft gray
+    'text_muted': '#6c757d',           # Muted gray
 
     # Accent colors - terracotta as primary accent
     'accent_green': '#2ecc71',         # Vibrant green (keep for success states)
@@ -62,9 +62,9 @@ COLORS = {
     'info': '#00bcd4',                 # Info cyan
 
     # UI elements
-    'border_subtle': '#B7E5CD',        # Light mint borders
-    'border_accent': '#C1785A',        # Terracotta accent borders
-    'shadow': 'rgba(0, 0, 0, 0.2)',    # Medium shadow
+    'border_subtle': '#3a3f4b',        # Subtle borders
+    'border_accent': '#4a5568',        # Accent borders
+    'shadow': 'rgba(0, 0, 0, 0.3)',    # Shadow color
 }
 
 
