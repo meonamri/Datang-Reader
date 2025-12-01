@@ -14,4 +14,7 @@ fi
 # export QT_QPA_PLATFORM=eglfs  # Requires stopping X11/desktop first
 # export QT_QPA_PLATFORM=linuxfb  # Alternative without GPU acceleration
 
-"$SCRIPT_DIR/venv/bin/python3" "$SCRIPT_DIR/input_client_gui.py" "$@"
+# Change to GUI directory so relative paths work
+cd "$SCRIPT_DIR/gui"
+
+"$SCRIPT_DIR/venv/bin/python3" "$SCRIPT_DIR/gui/input_client_gui.py" "$@"

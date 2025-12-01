@@ -168,20 +168,19 @@ install_user_mode() {
         "$VENV_DIR/bin/pip" install requests pystray Pillow
         print_msg "$GREEN" "✓ Dependencies installed (using system PyQt5)"
     else
-        print_msg "$YELLOW" "Installing dependencies from requirements-gui.txt..."
+        print_msg "$YELLOW" "Installing dependencies from requirements.txt..."
         echo ""
         print_msg "$BLUE" "NOTE: PyQt5 compilation on ARM devices can take 30-60+ minutes."
         print_msg "$BLUE" "Progress will be shown below. Do not interrupt."
         echo ""
         # Install all dependencies with verbose output
-        "$VENV_DIR/bin/pip" install -r "$SCRIPT_DIR/requirements-gui.txt" -v
+        "$VENV_DIR/bin/pip" install -r "$SCRIPT_DIR/gui/requirements.txt" -v
         print_msg "$GREEN" "✓ All dependencies installed"
     fi
 
     # Make scripts executable
-    chmod +x "$SCRIPT_DIR/input_client.py" 2>/dev/null || true
-    chmod +x "$SCRIPT_DIR/input_client_gui.py" 2>/dev/null || true
-    chmod +x "$SCRIPT_DIR/datang_reader.py" 2>/dev/null || true
+    chmod +x "$SCRIPT_DIR/console/input_client.py" 2>/dev/null || true
+    chmod +x "$SCRIPT_DIR/gui/input_client_gui.py" 2>/dev/null || true
 
     # Create wrapper scripts
     print_header "Creating Launcher Scripts"
@@ -190,7 +189,19 @@ install_user_mode() {
     cat > "$SCRIPT_DIR/run-gui.sh" << 'EOF'
 #!/bin/bash
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-"$SCRIPT_DIR/venv/bin/python3" "$SCRIPT_DIR/input_client_gui.py" "$@"
+
+# Running within an existing desktop (X11/XFCE)
+export QT_QPA_PLATFORM=xcb
+
+# Set DISPLAY if not already set
+if [ -z "$DISPLAY" ]; then
+    export DISPLAY=:0
+fi
+
+# Change to GUI directory so relative paths work
+cd "$SCRIPT_DIR/gui"
+
+"$SCRIPT_DIR/venv/bin/python3" "$SCRIPT_DIR/gui/input_client_gui.py" "$@"
 EOF
     chmod +x "$SCRIPT_DIR/run-gui.sh"
     print_msg "$GREEN" "✓ Created run-gui.sh"
@@ -199,7 +210,7 @@ EOF
     cat > "$SCRIPT_DIR/run-console.sh" << 'EOF'
 #!/bin/bash
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-"$SCRIPT_DIR/venv/bin/python3" "$SCRIPT_DIR/input_client.py" "$@"
+"$SCRIPT_DIR/venv/bin/python3" "$SCRIPT_DIR/console/input_client.py" "$@"
 EOF
     chmod +x "$SCRIPT_DIR/run-console.sh"
     print_msg "$GREEN" "✓ Created run-console.sh"
@@ -221,7 +232,7 @@ EOF
     echo ""
     echo "  Or activate venv and run directly:"
     echo "    source venv/bin/activate"
-    echo "    python3 input_client_gui.py"
+    echo "    cd gui && python3 input_client_gui.py"
     echo ""
     print_msg "$YELLOW" "Note: Make sure Docker container is running first!"
     echo "  Check with: docker compose ps"
@@ -385,8 +396,8 @@ print_msg "$GREEN" "✓ Created installation directory: $INSTALL_DIR"
 print_msg "$YELLOW" "Copying service files..."
 
 cp -r "$SCRIPT_DIR/src" "$INSTALL_DIR/"
-cp "$SCRIPT_DIR/datang_reader.py" "$INSTALL_DIR/"
-cp "$SCRIPT_DIR/requirements-gui.txt" "$INSTALL_DIR/"
+cp -r "$SCRIPT_DIR/gui" "$INSTALL_DIR/"
+cp -r "$SCRIPT_DIR/console" "$INSTALL_DIR/"
 
 # Make main script executable
 chmod +x "$INSTALL_DIR/datang_reader.py"

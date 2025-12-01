@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt5.QtGui import QFont, QColor, QIcon, QPainter, QPixmap
 
-from src.config import Config
+from config import Config
 
 try:
     import requests
@@ -36,34 +36,34 @@ MAX_RETRIES = 3
 RETRY_DELAY = 2
 REQUEST_TIMEOUT = 5
 
-# Modern Color Palette - Teal and Navy theme
+# SMKSAT Professional Color Palette - Dark Elegant Theme
 COLORS = {
-    # Base colors - teal background with dark blue-gray cards
-    'bg_primary': '#0f1419',           # Deep charcoal (almost black)
-    'bg_secondary': '#1a1f26',         # Slightly lighter charcoal
-    'bg_card': '#222831',              # Card background
-    'bg_elevated': '#2d3541',          # Elevated surfaces
+    # Base colors - Sophisticated dark theme
+    'bg_primary': '#1a2332',           # Midnight Slate - Primary background
+    'bg_secondary': '#2d3748',         # Deep Charcoal - Secondary backgrounds
+    'bg_card': '#2d3748',              # Deep Charcoal - Card backgrounds
+    'bg_elevated': '#1e3a5f',          # Royal Navy - Elevated surfaces, hover states
 
-    # Text colors - light text on dark cards
-    'text_primary': '#f8f9fa',         # Crisp white
-    'text_secondary': '#adb5bd',       # Soft gray
-    'text_muted': '#6c757d',           # Muted gray
+    # Text colors - High contrast for accessibility
+    'text_primary': '#ffffff',         # Pure White - Primary text
+    'text_secondary': '#9ca3af',       # Medium Gray - Secondary text
+    'text_muted': '#6c757d',           # Muted gray - Tertiary text
 
-    # Accent colors - terracotta as primary accent
-    'accent_green': '#2ecc71',         # Vibrant green (keep for success states)
-    'accent_yellow': '#f1c40f',        # Bright yellow (keep for warnings)
-    'accent_red': '#e74c3c',           # Alert red (keep for errors)
-    'accent_terracotta': '#C1785A',    # Terracotta for highlights
+    # Accent colors - Refined and purposeful
+    'accent_green': '#10b981',         # Emerald Accent - Success states
+    'accent_yellow': '#f59e0b',        # Golden Amber - Highlights, motto
+    'accent_red': '#dc2626',           # Crimson Touch - Errors
+    'accent_blue': '#3b82f6',          # Royal Blue - Primary CTAs
 
     # Status colors
-    'success': '#4caf50',              # Success green
-    'warning': '#ff9800',              # Warning orange
-    'error': '#f44336',                # Error red
-    'info': '#00bcd4',                 # Info cyan
+    'success': '#10b981',              # Emerald - Success states
+    'warning': '#f59e0b',              # Golden Amber - Warnings
+    'error': '#dc2626',                # Crimson - Errors
+    'info': '#3b82f6',                 # Royal Blue - Info
 
     # UI elements
-    'border_subtle': '#3a3f4b',        # Subtle borders
-    'border_accent': '#4a5568',        # Accent borders
+    'border_subtle': '#4a5568',        # Slate Gray - Borders, dividers
+    'border_accent': '#1e3a5f',        # Royal Navy - Accent borders
     'shadow': 'rgba(0, 0, 0, 0.3)',    # Shadow color
 }
 
@@ -431,6 +431,18 @@ class AttendanceApp(QMainWindow):
         """Create compact top bar with logo and key info"""
         bar = ModernCard()
         bar.setFixedHeight(80)
+        # SMKSAT gradient header - Midnight Slate to Royal Navy
+        bar.setStyleSheet(f"""
+            QFrame {{
+                background: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #1a2332,
+                    stop:1 #1e3a5f
+                );
+                border-radius: 12px;
+                border: none;
+            }}
+        """)
 
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(15, 10, 15, 10)
@@ -438,22 +450,23 @@ class AttendanceApp(QMainWindow):
 
         # Logo section
         logo_container = QWidget()
+        logo_container.setStyleSheet("background: transparent;")
         logo_layout = QHBoxLayout(logo_container)
         logo_layout.setContentsMargins(0, 0, 0, 0)
         logo_layout.setSpacing(12)
 
         logo_label = QLabel()
         try:
-            logo_pixmap = QPixmap("./logo/Logo SMKSAT trans.png")
+            logo_pixmap = QPixmap("./assets/logo/Logo SMKSAT trans.png")
             if not logo_pixmap.isNull():
                 scaled_logo = logo_pixmap.scaled(60, 60, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 logo_label.setPixmap(scaled_logo)
             else:
-                logo_label.setText("🎓")
-                logo_label.setStyleSheet("font-size: 40px;")
+                logo_label.setText("SMKSAT")
+                logo_label.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {COLORS['text_primary']};")
         except Exception:
-            logo_label.setText("🎓")
-            logo_label.setStyleSheet("font-size: 40px;")
+            logo_label.setText("SMKSAT")
+            logo_label.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {COLORS['text_primary']};")
 
         logo_label.setFixedSize(60, 60)
         logo_label.setAlignment(Qt.AlignCenter)
@@ -461,6 +474,7 @@ class AttendanceApp(QMainWindow):
 
         # Title section
         title_container = QWidget()
+        title_container.setStyleSheet("background: transparent;")
         title_layout = QVBoxLayout(title_container)
         title_layout.setContentsMargins(0, 0, 0, 0)
         title_layout.setSpacing(2)
@@ -487,6 +501,7 @@ class AttendanceApp(QMainWindow):
 
         # Right section - Time and connection
         right_section = QWidget()
+        right_section.setStyleSheet("background: transparent;")
         right_layout = QVBoxLayout(right_section)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(8)
@@ -502,6 +517,7 @@ class AttendanceApp(QMainWindow):
 
         # Connection status
         connection_widget = QWidget()
+        connection_widget.setStyleSheet("background: transparent;")
         connection_layout = QHBoxLayout(connection_widget)
         connection_layout.setContentsMargins(0, 0, 0, 0)
         connection_layout.setSpacing(8)
@@ -731,10 +747,10 @@ class AttendanceApp(QMainWindow):
                 background: qlineargradient(
                     x1:0, y1:0, x2:1, y2:0,
                     stop:0 {COLORS['accent_green']},
-                    stop:1 #229954
+                    stop:1 {COLORS['accent_blue']}
                 );
                 border-radius: 12px;
-                border: 2px solid {COLORS['accent_terracotta']};
+                border: 2px solid {COLORS['border_accent']};
             }}
         """)
         self.attendee_card.setVisible(False)
@@ -755,7 +771,7 @@ class AttendanceApp(QMainWindow):
         self.section_label = QLabel("")
         self.section_label.setFont(QFont("Arial", 14))
         self.section_label.setAlignment(Qt.AlignCenter)
-        self.section_label.setStyleSheet(f"color: {COLORS['accent_terracotta']};")
+        self.section_label.setStyleSheet(f"color: {COLORS['text_primary']}; font-weight: 500; opacity: 0.95;")
         attendee_layout.addWidget(self.section_label)
 
         card_layout.addWidget(self.attendee_card)
@@ -769,8 +785,9 @@ class AttendanceApp(QMainWindow):
         scan_layout = QHBoxLayout(last_scan_bar)
         scan_layout.setContentsMargins(20, 10, 20, 10)
 
-        scan_icon = QLabel("🕐")
+        scan_icon = QLabel("⏱")
         scan_icon.setFont(QFont("Arial", 18))
+        scan_icon.setStyleSheet(f"color: {COLORS['text_secondary']};")
         scan_layout.addWidget(scan_icon)
 
         self.last_scan_label = QLabel("No scans yet")
@@ -907,8 +924,9 @@ class AttendanceApp(QMainWindow):
             return
 
         # Update display - scanning
-        self.status_icon.setText("🔄")
+        self.status_icon.setText("●")
         self.status_icon.setVisible(True)
+        self.status_icon.setStyleSheet(f"color: {COLORS['warning']};")
         self.message_label.setText("Processing...")
         self.message_label.setStyleSheet(f"color: {COLORS['warning']}; margin: 20px 0px;")
         self.sub_message_label.setText(f"Card: {card_id[:8]}...")
@@ -961,8 +979,9 @@ class AttendanceApp(QMainWindow):
         """Show scan result on main display"""
         if success:
             # Success state
-            self.status_icon.setText("✅")
+            self.status_icon.setText("✓")
             self.status_icon.setVisible(True)
+            self.status_icon.setStyleSheet(f"color: {COLORS['success']};")
             self.message_label.setText("Attendance Recorded")
             self.message_label.setStyleSheet(f"color: {COLORS['success']}; margin: 20px 0px;")
 
@@ -980,8 +999,9 @@ class AttendanceApp(QMainWindow):
                 self.attendee_card.setVisible(False)
         else:
             # Error state
-            self.status_icon.setText("❌")
+            self.status_icon.setText("✗")
             self.status_icon.setVisible(True)
+            self.status_icon.setStyleSheet(f"color: {COLORS['error']};")
             self.message_label.setText("Error")
             self.message_label.setStyleSheet(f"color: {COLORS['error']}; margin: 20px 0px;")
             self.sub_message_label.setText(message)

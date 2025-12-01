@@ -48,13 +48,13 @@ fi
 echo -e "${GREEN}✓${NC} Docker is installed"
 echo
 
-# Check for .env file
-if [ ! -f ".env" ]; then
+# Check for .env file (in parent directory)
+if [ ! -f "../.env" ]; then
     echo -e "${YELLOW}⚠ .env file not found${NC}"
     echo "Creating .env from .env.example..."
 
-    if [ -f ".env.example" ]; then
-        cp .env.example .env
+    if [ -f "../.env.example" ]; then
+        cp ../.env.example ../.env
         echo -e "${GREEN}✓${NC} Created .env file"
         echo -e "${YELLOW}⚠ IMPORTANT: Edit .env and configure your credentials!${NC}"
         echo
@@ -70,12 +70,12 @@ echo
 
 # Create persistent data directories
 echo "Creating persistent data directories..."
-mkdir -p docker-data/logs
-chmod 755 docker-data
+mkdir -p ../docker-data/logs
+chmod 755 ../docker-data
 
 # Create empty files for volume mounts (if they don't exist)
-touch docker-data/token 2>/dev/null || true
-touch docker-data/queue.db 2>/dev/null || true
+touch ../docker-data/token 2>/dev/null || true
+touch ../docker-data/queue.db 2>/dev/null || true
 
 echo -e "${GREEN}✓${NC} Data directories created"
 echo

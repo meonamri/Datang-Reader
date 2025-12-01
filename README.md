@@ -1,63 +1,68 @@
-# Datang Reader Service
+# Datang Reader - RFID Attendance System
 
-RFID attendance tracking system for Datang API with Docker deployment and offline queue support.
+Split-architecture RFID attendance tracking for Datang API with Docker deployment and offline queue support.
+
+## Architecture
+
+```
+┌─────────────────┐
+│  RFID Reader    │  (USB HID Keyboard)
+└────────┬────────┘
+         │
+         ↓
+┌─────────────────┐
+│  GUI Client     │  client/gui/
+│  (Host)         │  PyQt5 Interface
+└────────┬────────┘
+         │ HTTP POST :8080
+         ↓
+┌─────────────────┐
+│  Docker Server  │  server/
+│  - HTTP API     │  Flask HTTP Server
+│  - Auth Manager │
+│  - Offline Queue│
+└─────────────────┘
+```
+
+**Why split?**
+- **Docker Server**: Easy deployment, updates, isolation
+- **Host GUI**: Direct USB RFID reader access
+- Best of both worlds!
+
+---
 
 ## Quick Start
 
-### Prerequisites
-
-- Docker and Docker Compose
-- Python 3.8+ (for GUI input client on host)
-- HID keyboard-emulating RFID reader
-
-### 1. Docker Deployment (Recommended)
-
-Deploy the main application in Docker:
+### 1. Deploy Docker Server
 
 ```bash
-# Configure credentials
-cp .env.example .env
-nano .env  # Edit with your credentials
+cd server/
+cp ../.env.example ../.env
+nano ../.env  # Configure credentials
 
-# Deploy
-./deploy-docker.sh
+./deploy.sh
 ```
 
-**What this does:**
-- Creates isolated Docker container
-- Sets up persistent data storage
-- Exposes HTTP API on port 8080
-- Handles authentication, queue, and sync
+**Deployed:**
+- HTTP server on port 8080
+- Persistent data in `docker-data/`
+- Offline queue with auto-sync
 
-### 2. Setup GUI Input Client
-
-Install dependencies and GUI client on host:
+### 2. Setup GUI Client
 
 ```bash
-# One-command setup (creates venv automatically)
-./install.sh
-
-# Launch GUI
+cd client/
+./install.sh  # Creates venv automatically
 ./run-gui.sh
 ```
-
-**What the GUI does:**
-- Captures RFID card scans from USB reader
-- Sends to Docker container via HTTP
-- Shows real-time status and statistics
-- Provides manual testing interface
 
 ### 3. Test the System
 
 ```bash
-# Check container health
+# Check server health
 curl http://localhost:8080/health
 
-# Test with GUI
-./run-gui.sh
-# Type a 10-digit number in manual input field and press Submit
-
-# Or test via curl
+# Test card submission
 curl -X POST http://localhost:8080/card \
   -H "Content-Type: application/json" \
   -d '{"card_id": "1234567890"}'
@@ -65,75 +70,86 @@ curl -X POST http://localhost:8080/card \
 
 ---
 
-## Architecture
-
-```
-┌─────────────────┐
-│  RFID Reader    │ USB HID Keyboard
-│  (Host)         │
-└────────┬────────┘
-         │
-         ↓
-┌─────────────────┐
-│  GUI Client     │ Python (venv)
-│  (Host)         │ ./run-gui.sh
-└────────┬────────┘
-         │ HTTP POST
-         ↓
-┌─────────────────┐
-│  Docker         │ Port 8080
-│  Container      │
-│  - API Client   │
-│  - Auth Manager │
-│  - Queue System │
-└─────────────────┘
-```
-
-**Why this split architecture?**
-- Docker container: Easy deployment, updates, isolation
-- Host GUI client: Direct access to USB RFID reader
-- Best of both worlds!
-
----
-
 ## Configuration
 
 ### Environment Variables (.env)
 
-Create `.env` file with your credentials:
+Create `.env` in project root:
 
 ```env
 DATANG_API_BASE_URL=https://datang.my/api/reader/v1
-DATANG_READER_USERNAME=30370_reader78
-DATANG_READER_PASSWORD=your_password_here
+DATANG_READER_USERNAME=your_username
+DATANG_READER_PASSWORD=your_password
 DATANG_DEVICE_ID=docker-reader-01
 DATANG_MOCK_API=false
-DATANG_FULLSCREEN=false  # Set to 'true' for GUI fullscreen mode
-DATANG_ENABLE_PULSE=true # Set to 'true' for breathing effect
+DATANG_FULLSCREEN=true   # GUI fullscreen mode
+DATANG_ENABLE_PULSE=true # Breathing animation
 ```
 
 **Security:**
 - Never commit `.env` to git
-- Use environment variables, not hardcoded credentials
-- Keep `.env` file permissions restricted
+- `.env` is in root directory (used by both server and client)
 
 ### RFID Reader Setup
 
-1. **Plug in USB RFID reader** (HID keyboard type)
-2. **No drivers needed** - works as standard keyboard
-3. **Test it:** Open text editor and scan a card
-   - Reader should type the card ID + Enter
-4. **Start GUI client** to capture scans
+1. Plug in USB RFID reader (HID keyboard type)
+2. No drivers needed - works as standard keyboard
+3. Test: Open text editor, scan card (should type ID + Enter)
+4. Start GUI client to capture scans
+
+---
+
+## Directory Structure
+
+```
+datang-reader/
+├── .env                  # Configuration (create from .env.example)
+├── .env.example          # Example configuration
+├── docker-data/          # Persistent data (auto-created)
+│   ├── token             # Authentication token
+│   ├── queue.db          # Offline queue (BACKUP THIS!)
+│   └── logs/             # Application logs
+│
+├── server/               # 🐳 DOCKER CONTAINER
+│   ├── deploy.sh         # Deploy Docker container
+│   ├── Dockerfile        # Container image
+│   ├── docker-compose.yml# Docker configuration
+│   ├── requirements.txt  # Server dependencies (Flask, requests)
+│   ├── datang_reader.py  # Server entry point
+│   └── src/              # Server source code
+│       ├── http_server.py      # Flask HTTP API
+│       ├── service_manager.py  # Core orchestration
+│       ├── api_client.py       # Datang API client
+│       ├── auth_manager.py     # Authentication
+│       ├── offline_queue.py    # SQLite queue
+│       ├── rfid_reader.py      # Serial RFID support
+│       └── config.py           # Server configuration
+│
+└── client/               # 💻 HOST CLIENTS
+    ├── install.sh        # Setup client venv
+    ├── run-gui.sh        # Launch GUI
+    ├── run-console.sh    # Launch console (testing)
+    ├── venv/             # Virtual environment (auto-created)
+    │
+    ├── gui/              # PyQt5 GUI Application
+    │   ├── input_client_gui.py  # Main GUI app
+    │   ├── config.py            # GUI configuration
+    │   ├── requirements.txt     # PyQt5, requests, pystray
+    │   └── assets/
+    │       └── logo/            # SMKSAT logo
+    │
+    └── console/          # Console Client (Testing)
+        └── input_client.py      # Simple console input
+```
 
 ---
 
 ## Usage
 
-### Container Management
+### Server Management
 
 ```bash
-# View status
-docker compose ps
+cd server/
 
 # View logs
 docker compose logs -f
@@ -154,87 +170,56 @@ curl http://localhost:8080/status
 ### GUI Client
 
 ```bash
+cd client/
+
 # Start GUI
 ./run-gui.sh
 
-# Start console version
+# Start console version (testing)
 ./run-console.sh
 
-# With custom container URL
+# Custom container URL
 ./run-gui.sh --url http://192.168.1.100:8080
-
-# Fullscreen mode (set DATANG_FULLSCREEN=true in .env, or:)
-export DATANG_FULLSCREEN=true
-./run-gui.sh
 
 # Or activate venv manually
 source venv/bin/activate
-python3 input_client_gui.py
+cd gui && python3 input_client_gui.py
 ```
-
-### Persistent Data
-
-Data stored in `./docker-data/`:
-- `token` - Authentication token
-- `queue.db` - Offline attendance queue
-- `logs/` - Application logs
-
-**Important:** Backup `queue.db` regularly!
-
----
-
-## Installation Options
-
-### Option 1: Docker + GUI Client (Recommended)
-
-```bash
-./deploy-docker.sh  # Deploy container
-./install.sh        # Setup GUI client
-./run-gui.sh        # Start scanning
-```
-
-### Option 2: Native Installation (No Docker)
-
-```bash
-sudo ./install.sh --system  # System-wide installation
-# Or
-./install.sh --user        # User installation (no sudo)
-```
-
-For native installation:
-- Creates systemd service (system mode)
-- Or creates venv (user mode)
-- Direct RFID reader access
-- No container overhead
 
 ---
 
 ## Troubleshooting
 
-For detailed troubleshooting, see **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**.
-
-### Quick Fixes
-
-**PyQt5 installation hangs/fails on ARM devices (Orange Pi, Raspberry Pi):**
-```bash
-# The updated install.sh automatically uses system PyQt5 (fast, no compilation)
-./install.sh
-# Answer 'y' when prompted to install system packages
-
-# If installation is stuck, cancel (Ctrl+C) and:
-rm -rf venv
-./install.sh
-```
+### Server Issues
 
 **Container won't start:**
 ```bash
+cd server/
 docker compose logs  # Check logs
-cat .env             # Verify credentials
+cat ../.env          # Verify credentials
 ```
+
+**Check server health:**
+```bash
+curl http://localhost:8080/health
+```
+
+### GUI Issues
 
 **GUI can't connect:**
 ```bash
-curl http://localhost:8080/health  # Test container
+# Test server
+curl http://localhost:8080/health
+
+# Check container is running
+cd server/ && docker compose ps
+```
+
+**PyQt5 installation fails on ARM:**
+```bash
+cd client/
+rm -rf venv
+./install.sh  # Answer 'y' to install system packages
 ```
 
 **RFID reader not working:**
@@ -242,64 +227,17 @@ curl http://localhost:8080/health  # Test container
 2. Ensure GUI window has focus
 3. Check USB connection
 
-### Health Checks
+### Debug Mode
 
 ```bash
-# Container health
-curl http://localhost:8080/health
+# In .env
+DATANG_LOG_LEVEL=DEBUG
 
-# Queue status
-curl http://localhost:8080/status
+# Restart server
+cd server/ && docker compose restart
 
-# Test card submission
-curl -X POST http://localhost:8080/card \
-  -H "Content-Type: application/json" \
-  -d '{"card_id": "1234567890"}'
-```
-
-**For more issues:** See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for detailed solutions.
-
----
-
-## Advanced
-
-### Custom Deployment
-
-**Change container port:**
-```yaml
-# docker-compose.yml
-ports:
-  - "8081:8080"  # Use port 8081 instead
-```
-
-**Use different container URL:**
-```bash
-./run-gui.sh --url http://192.168.1.100:8081
-```
-
-**Run as systemd service:**
-```bash
-# Install GUI client as service
-sudo cp systemd/input-client.service /etc/systemd/system/
-sudo systemctl enable input-client
-sudo systemctl start input-client
-```
-
-### Multiple Readers
-
-Deploy multiple containers with different ports:
-```bash
-# Container 1
-docker-compose -f docker-compose.yml -p reader1 up -d
-
-# Container 2
-docker-compose -f docker-compose-reader2.yml -p reader2 up -d
-
-# GUI for reader 1
-./run-gui.sh --url http://localhost:8080
-
-# GUI for reader 2
-./run-gui.sh --url http://localhost:8081
+# View GUI logs
+tail -f ~/.datang_reader.log
 ```
 
 ---
@@ -309,86 +247,38 @@ docker-compose -f docker-compose-reader2.yml -p reader2 up -d
 ### Mock API Mode
 
 Test without real API:
+
 ```bash
-# Set in .env
+# In .env
 DATANG_MOCK_API=true
 
-# Or run with flag
-python3 datang_reader.py --console --mock-api
+# Restart server
+cd server/ && docker compose restart
 ```
 
-### View Logs
+### Multiple Readers
 
 ```bash
-# Container logs
-docker compose logs -f
+# Edit server/docker-compose.yml to use different port
+ports:
+  - "8081:8080"
 
-# GUI client logs
-tail -f ~/.datang_reader.log
+# Deploy
+cd server/ && ./deploy.sh
 
-# Host system journal
-journalctl -u input-client -f
+# Connect GUI
+cd client/ && ./run-gui.sh --url http://localhost:8081
 ```
-
----
-
-## File Structure
-
-```
-datang-reader/
-├── deploy-docker.sh          # Docker deployment script
-├── install.sh                # Setup script (creates venv)
-├── run-gui.sh                # GUI launcher
-├── run-console.sh            # Console launcher
-├── docker-compose.yml        # Docker configuration
-├── Dockerfile                # Container image
-├── .env.example              # Example environment variables
-├── datang_reader.py          # Main application
-├── input_client.py           # Console input client
-├── input_client_gui.py       # GUI input client
-├── requirements-docker.txt   # Docker container dependencies (Flask, requests)
-├── requirements-gui.txt      # GUI client dependencies (PyQt5, requests)
-├── requirements.txt          # (Deprecated - kept for compatibility)
-├── src/                      # Source code
-│   ├── config.py
-│   ├── api_client.py
-│   ├── auth_manager.py
-│   ├── offline_queue.py
-│   ├── http_server.py
-│   └── gui_app.py
-└── docker-data/              # Persistent data (auto-created)
-    ├── token
-    ├── queue.db
-    └── logs/
-```
-
-### Python Dependencies
-
-The project uses **separate requirements files** for different components:
-
-- **`requirements-docker.txt`** - Used by Docker container (HTTP server only)
-  - Flask (HTTP server)
-  - requests (API client)
-  - pytest (testing)
-
-- **`requirements-gui.txt`** - Used by GUI client on host
-  - PyQt5 (GUI framework)
-  - requests (communicates with container)
-  - pystray/Pillow (system tray support)
-
-- **`requirements.txt`** - Deprecated (kept for backward compatibility)
-
-**Why split?** The Docker container doesn't need PyQt5, and on ARM devices (like Raspberry Pi), PyQt5 compilation can fail. Splitting keeps builds faster and more reliable.
 
 ---
 
 ## Security Notes
 
 - Never commit `.env` or credentials to git
-- Keep `docker-data/` secure (contains queue database)
+- Backup `docker-data/queue.db` regularly (contains attendance records)
 - Restrict file permissions on token files
-- Use firewall rules for port 8080
-- Backup `queue.db` regularly
+- Use firewall rules for port 8080 in production
+- `.env` file should have 600 permissions (`chmod 600 .env`)
 
 ---
 
@@ -396,22 +286,18 @@ The project uses **separate requirements files** for different components:
 
 **Check logs:**
 ```bash
-docker compose logs -f          # Container
-tail -f ~/.datang_reader.log    # GUI client
-```
+# Server
+cd server/ && docker compose logs -f
 
-**Enable debug mode:**
-```bash
-# In .env
-DATANG_LOG_LEVEL=DEBUG
-docker compose restart
+# GUI Client
+tail -f ~/.datang_reader.log
 ```
 
 **Get help:**
 1. Check logs first
-2. Test with mock API: `DATANG_MOCK_API=true`
+2. Test with mock API: `DATANG_MOCK_API=true` in `.env`
 3. Verify RFID reader works in text editor
-4. Check network connectivity: `curl https://datang.my`
+4. Test server: `curl http://localhost:8080/health`
 
 ---
 

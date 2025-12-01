@@ -29,13 +29,13 @@ services:
     # Volume mounts for persistent data
     volumes:
       # Authentication token (persists across container restarts)
-      - ./docker-data/token:/root/.datang_reader_token
+      - ../docker-data/token:/root/.datang_reader_token
 
       # Offline queue database (critical - stores pending attendance records)
-      - ./docker-data/queue.db:/root/.datang_reader_queue.db
+      - ../docker-data/queue.db:/root/.datang_reader_queue.db
 
       # Logs (optional, for debugging)
-      - ./docker-data/logs:/data/logs
+      - ../docker-data/logs:/data/logs
 
     # Restart policy
     restart: unless-stopped
