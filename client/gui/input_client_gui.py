@@ -750,7 +750,7 @@ class AttendanceApp(QMainWindow):
                     stop:1 {COLORS['accent_blue']}
                 );
                 border-radius: 12px;
-                border: 2px solid {COLORS['border_accent']};
+                border: none;
             }}
         """)
         self.attendee_card.setVisible(False)
