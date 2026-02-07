@@ -84,7 +84,7 @@ cd server/
 
 Once configured, the server is reachable at:
 ```
-https://svc:datang-reader.<your-tailnet>.ts.net
+https://datang-reader.<your-tailnet>.ts.net
 ```
 
 This uses `tailscale serve --service` to register a **named service** with its own DNS identity, separate from the machine's hostname. Useful when hosting multiple services on the same device.
