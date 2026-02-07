@@ -88,7 +88,7 @@ echo
 # Derive the tailnet suffix from the machine's DNS name
 # e.g., "raspberrypi.tail1234.ts.net" -> "tail1234.ts.net"
 TAILNET_SUFFIX=$(echo "$TS_HOSTNAME" | sed 's/^[^.]*\.//')
-SERVICE_FQDN="svc:${SERVICE_NAME}.${TAILNET_SUFFIX}"
+SERVICE_FQDN="${SERVICE_NAME}.${TAILNET_SUFFIX}"
 
 # Configure Tailscale Serve as a named service
 echo "Configuring Tailscale service..."
