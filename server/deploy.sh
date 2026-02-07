@@ -66,6 +66,13 @@ if [ ! -f ".env" ]; then
 fi
 
 echo -e "${GREEN}✓${NC} .env file exists"
+
+# Source .env so variables are available to this script
+# (docker-compose loads .env automatically, but bash does not)
+set -a
+source .env
+set +a
+
 echo
 
 # Create persistent data directories
