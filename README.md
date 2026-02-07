@@ -268,16 +268,60 @@ cd server/ && docker compose restart
 
 ### Multiple Readers
 
+**Multiple clients, one server** (same credentials/device ID):
+
+Multiple GUI clients on separate machines can connect to a single server.
+Each machine needs its own RFID reader (one reader per machine — HID keyboard
+input goes to the focused window).
+
 ```bash
-# Edit server/docker-compose.yml to use different port
-ports:
-  - "8081:8080"
+# Machine A
+cd client/ && ./run-gui.sh --url http://192.168.1.100:8080
 
-# Deploy
-cd server/ && ./deploy.sh
+# Machine B
+cd client/ && ./run-gui.sh --url http://192.168.1.100:8080
+```
 
-# Connect GUI
-cd client/ && ./run-gui.sh --url http://localhost:8081
+All scans are processed under the same `DATANG_READER_USERNAME` and `DATANG_DEVICE_ID`
+configured in that server's `.env`.
+
+**Multiple servers** (separate credentials/device IDs):
+
+Each server needs its own Docker instance with unique container name, port,
+credentials, and data directory. Edit `server/docker-compose.yml`:
+
+```yaml
+services:
+  datang-reader-01:                        # Unique service name
+    container_name: datang-reader-01       # Unique container name
+    ports:
+      - "8080:8080"                        # Unique host port
+    volumes:
+      - ../docker-data-01/token:/root/.datang_reader_token
+      - ../docker-data-01/queue.db:/root/.datang_reader_queue.db
+      - ../docker-data-01/logs:/data/logs
+    # ... rest of config
+
+  datang-reader-02:
+    container_name: datang-reader-02
+    ports:
+      - "8081:8080"
+    volumes:
+      - ../docker-data-02/token:/root/.datang_reader_token
+      - ../docker-data-02/queue.db:/root/.datang_reader_queue.db
+      - ../docker-data-02/logs:/data/logs
+    environment:
+      - DATANG_READER_USERNAME=30370_reader79  # Different credentials
+      - DATANG_READER_PASSWORD=other_password
+      - DATANG_DEVICE_ID=docker-reader-02
+      # ... rest of env vars from .env
+```
+
+Then connect each client to its server:
+
+```bash
+cd client/ && ./run-gui.sh --url http://localhost:8080  # Reader 01
+cd client/ && ./run-gui.sh --url http://localhost:8081  # Reader 02
 ```
 
 ---
