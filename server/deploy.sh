@@ -48,19 +48,19 @@ fi
 echo -e "${GREEN}✓${NC} Docker is installed"
 echo
 
-# Check for .env file (in parent directory)
-if [ ! -f "../.env" ]; then
+# Check for .env file (in server directory, next to docker-compose.yml)
+if [ ! -f ".env" ]; then
     echo -e "${YELLOW}⚠ .env file not found${NC}"
     echo "Creating .env from .env.example..."
 
-    if [ -f "../.env.example" ]; then
-        cp ../.env.example ../.env
+    if [ -f ".env.example" ]; then
+        cp .env.example .env
         echo -e "${GREEN}✓${NC} Created .env file"
-        echo -e "${YELLOW}⚠ IMPORTANT: Edit .env and configure your credentials!${NC}"
+        echo -e "${YELLOW}⚠ IMPORTANT: Edit server/.env and configure your credentials!${NC}"
         echo
         read -p "Press Enter to continue after editing .env (or Ctrl+C to exit)..."
     else
-        echo -e "${RED}ERROR: .env.example not found${NC}"
+        echo -e "${RED}ERROR: .env.example not found in server/${NC}"
         exit 1
     fi
 fi
