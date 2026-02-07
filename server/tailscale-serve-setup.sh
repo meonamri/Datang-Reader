@@ -96,7 +96,7 @@ echo "  Service:  svc:${SERVICE_NAME}"
 echo "  Target:   http://localhost:${PORT}"
 echo
 
-tailscale serve --service="svc:${SERVICE_NAME}" --bg --https=443 "http://localhost:${PORT}"
+sudo tailscale serve --service="svc:${SERVICE_NAME}" --bg --https=443 "http://localhost:${PORT}"
 
 echo
 echo -e "${GREEN}✓${NC} Tailscale service configured successfully!"
