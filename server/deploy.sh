@@ -125,6 +125,9 @@ echo
 echo "Container status:"
 $COMPOSE_CMD ps
 
+# Get configured host port
+HOST_PORT="${DATANG_HOST_PORT:-8080}"
+
 echo
 echo -e "${BLUE}============================================${NC}"
 echo -e "${BLUE}  Deployment Complete!${NC}"
@@ -133,7 +136,7 @@ echo
 echo "Next steps:"
 echo
 echo "1. Test the HTTP server endpoint:"
-echo -e "   ${GREEN}curl http://localhost:8080/health${NC}"
+echo -e "   ${GREEN}curl http://localhost:${HOST_PORT}/health${NC}"
 echo
 echo "2. Start the input client (on host) to capture RFID scans:"
 echo -e "   ${GREEN}python3 input_client.py${NC}"
@@ -144,9 +147,12 @@ echo -e "   ${GREEN}sudo systemctl daemon-reload${NC}"
 echo -e "   ${GREEN}sudo systemctl start input-client${NC}"
 echo -e "   ${GREEN}sudo systemctl enable input-client${NC}"
 echo
+echo "4. Expose on Tailscale (optional):"
+echo -e "   ${GREEN}./tailscale-serve-setup.sh ${HOST_PORT}${NC}"
+echo
 echo "Useful commands:"
 echo -e "  View logs:        ${GREEN}$COMPOSE_CMD logs -f${NC}"
 echo -e "  Stop container:   ${GREEN}$COMPOSE_CMD down${NC}"
 echo -e "  Restart:          ${GREEN}$COMPOSE_CMD restart${NC}"
-echo -e "  Manual sync:      ${GREEN}curl -X POST http://localhost:8080/sync${NC}"
+echo -e "  Manual sync:      ${GREEN}curl -X POST http://localhost:${HOST_PORT}/sync${NC}"
 echo
