@@ -201,27 +201,37 @@ To customize, edit `~/.config/systemd/user/datang-reader-gui.service`
 
 ## Advanced Configuration
 
-### Run on Multiple Displays
+### Multiple Clients on Separate Displays
 
-If you have multiple displays, you can create multiple service instances:
+Each GUI client needs its own display (one RFID reader per machine/display —
+HID keyboard input goes to the focused window). You can run multiple client
+instances using a systemd template unit, each on a different display and
+optionally pointing to a different server:
 
 ```bash
-# Copy service file
+# Create template service (note the @ in the filename)
 cp ~/.config/systemd/user/datang-reader-gui.service \
    ~/.config/systemd/user/datang-reader-gui@.service
 ```
 
-Edit and change:
+Edit the template to use the instance identifier (`%i`):
 ```ini
 [Service]
 ExecStart=/home/user/Datang-Reader/client/run-gui.sh --url http://localhost:808%i
 Environment="DISPLAY=:%i"
 ```
 
-Enable for DISPLAY :0 and :1:
+Enable for DISPLAY :0 (port 8080) and DISPLAY :1 (port 8081):
 ```bash
 systemctl --user enable datang-reader-gui@0
 systemctl --user enable datang-reader-gui@1
+```
+
+If all clients should connect to the same server, use a fixed URL instead:
+```ini
+[Service]
+ExecStart=/home/user/Datang-Reader/client/run-gui.sh --url http://192.168.1.100:8080
+Environment="DISPLAY=:%i"
 ```
 
 ### Custom Container URL
