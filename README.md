@@ -37,8 +37,8 @@ Split-architecture RFID attendance tracking for Datang API with Docker deploymen
 
 ```bash
 cd server/
-cp ../.env.example ../.env
-nano ../.env  # Configure credentials
+cp .env.example .env
+nano .env  # Configure credentials
 
 ./deploy.sh
 ```
@@ -52,6 +52,9 @@ nano ../.env  # Configure credentials
 
 ```bash
 cd client/
+cp .env.example .env
+nano .env  # Configure GUI settings (optional)
+
 ./install.sh  # Creates venv automatically
 ./run-gui.sh
 ```
@@ -74,21 +77,26 @@ curl -X POST http://localhost:8080/card \
 
 ### Environment Variables (.env)
 
-Create `.env` in project root:
+Each component has its own `.env` file:
 
+**Server** (`server/.env`):
 ```env
 DATANG_API_BASE_URL=https://datang.my/api/reader/v1
 DATANG_READER_USERNAME=your_username
 DATANG_READER_PASSWORD=your_password
 DATANG_DEVICE_ID=docker-reader-01
 DATANG_MOCK_API=false
+```
+
+**Client** (`client/.env`):
+```env
 DATANG_FULLSCREEN=true   # GUI fullscreen mode
 DATANG_ENABLE_PULSE=true # Breathing animation
 ```
 
 **Security:**
 - Never commit `.env` to git
-- `.env` is in root directory (used by both server and client)
+- Each `.env` file lives next to its `.env.example`
 
 ### RFID Reader Setup
 
@@ -103,14 +111,14 @@ DATANG_ENABLE_PULSE=true # Breathing animation
 
 ```
 datang-reader/
-├── .env                  # Configuration (create from .env.example)
-├── .env.example          # Example configuration
 ├── docker-data/          # Persistent data (auto-created)
 │   ├── token             # Authentication token
 │   ├── queue.db          # Offline queue (BACKUP THIS!)
 │   └── logs/             # Application logs
 │
 ├── server/               # 🐳 DOCKER CONTAINER
+│   ├── .env.example      # Server env template
+│   ├── .env              # Server config (create from .env.example)
 │   ├── deploy.sh         # Deploy Docker container
 │   ├── Dockerfile        # Container image
 │   ├── docker-compose.yml# Docker configuration
@@ -126,8 +134,10 @@ datang-reader/
 │       └── config.py           # Server configuration
 │
 └── client/               # 💻 HOST CLIENTS
+    ├── .env.example      # Client env template
+    ├── .env              # Client config (create from .env.example)
     ├── install.sh        # Setup client venv
-    ├── run-gui.sh        # Launch GUI
+    ├── run-gui.sh        # Launch GUI (auto-loads .env)
     ├── run-console.sh    # Launch console (testing)
     ├── venv/             # Virtual environment (auto-created)
     │
@@ -196,7 +206,7 @@ cd gui && python3 input_client_gui.py
 ```bash
 cd server/
 docker compose logs  # Check logs
-cat ../.env          # Verify credentials
+cat .env             # Verify credentials
 ```
 
 **Check server health:**
@@ -230,7 +240,7 @@ rm -rf venv
 ### Debug Mode
 
 ```bash
-# In .env
+# In server/.env
 DATANG_LOG_LEVEL=DEBUG
 
 # Restart server
@@ -249,7 +259,7 @@ tail -f ~/.datang_reader.log
 Test without real API:
 
 ```bash
-# In .env
+# In server/.env
 DATANG_MOCK_API=true
 
 # Restart server
@@ -278,7 +288,7 @@ cd client/ && ./run-gui.sh --url http://localhost:8081
 - Backup `docker-data/queue.db` regularly (contains attendance records)
 - Restrict file permissions on token files
 - Use firewall rules for port 8080 in production
-- `.env` file should have 600 permissions (`chmod 600 .env`)
+- `.env` files should have 600 permissions (`chmod 600 server/.env client/.env`)
 
 ---
 
@@ -295,7 +305,7 @@ tail -f ~/.datang_reader.log
 
 **Get help:**
 1. Check logs first
-2. Test with mock API: `DATANG_MOCK_API=true` in `.env`
+2. Test with mock API: `DATANG_MOCK_API=true` in `server/.env`
 3. Verify RFID reader works in text editor
 4. Test server: `curl http://localhost:8080/health`
 

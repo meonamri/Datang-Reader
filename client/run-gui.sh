@@ -1,6 +1,13 @@
 #!/bin/bash
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Load client environment variables if .env exists
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    set -a
+    source "$SCRIPT_DIR/.env"
+    set +a
+fi
+
 # Running within an existing desktop (X11/XFCE)
 # Use XCB platform plugin to run as a normal GUI app
 export QT_QPA_PLATFORM=xcb

@@ -142,9 +142,9 @@ sudo apt-get install -y python3-pyqt5 qtbase5-dev python3-dev
    curl -I https://datang.my
    ```
 
-2. Check API base URL in `.env`:
+2. Check API base URL in `server/.env`:
    ```bash
-   cat .env | grep DATANG_API_BASE_URL
+   cat server/.env | grep DATANG_API_BASE_URL
    ```
    Should be: `https://datang.my/api` (or your custom endpoint)
 
@@ -155,8 +155,8 @@ sudo apt-get install -y python3-pyqt5 qtbase5-dev python3-dev
 
 4. Test with mock API:
    ```bash
-   # Edit .env
-   echo "DATANG_MOCK_API=true" >> .env
+   # Edit server/.env
+   echo "DATANG_MOCK_API=true" >> server/.env
    docker compose restart
    ```
 
@@ -188,9 +188,9 @@ sudo apt-get install -y python3-pyqt5 qtbase5-dev python3-dev
    docker compose restart
    ```
 
-3. Check credentials in `.env`:
+3. Check credentials in `server/.env`:
    ```bash
-   cat .env | grep DATANG_
+   cat server/.env | grep DATANG_
    ```
 
 4. Verify credentials work:
@@ -399,7 +399,7 @@ If using a serial-based RFID reader instead of HID keyboard:
    ping -c 5 datang.my
    ```
 
-3. Enable debug logging in `.env`:
+3. Enable debug logging in `server/.env`:
    ```
    DATANG_LOG_LEVEL=DEBUG
    ```
@@ -443,7 +443,7 @@ If none of these solutions work:
 
 2. **Enable debug mode:**
    ```bash
-   # In .env
+   # In server/.env
    DATANG_LOG_LEVEL=DEBUG
    docker compose restart
    ```

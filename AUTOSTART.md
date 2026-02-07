@@ -256,7 +256,7 @@ docker update --restart unless-stopped $(docker compose ps -q)
 1. **Service runs as your user** - No root privileges needed
 2. **X11 access** - Service needs access to your X display
 3. **USB RFID reader** - Ensure user has permissions (usually automatic for desktop users)
-4. **Credentials** - Stored in `/path/to/project/.env` (check permissions: `chmod 600 .env`)
+4. **Credentials** - Stored in `server/.env` and `client/.env` (check permissions: `chmod 600 server/.env client/.env`)
 
 ---
 
