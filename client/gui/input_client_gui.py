@@ -31,7 +31,7 @@ except ImportError:
 
 
 # Configuration
-DEFAULT_CONTAINER_URL = "http://localhost:8080"
+DEFAULT_CONTAINER_URL = Config.CONTAINER_URL
 MAX_RETRIES = 3
 RETRY_DELAY = 2
 REQUEST_TIMEOUT = 5

@@ -12,6 +12,7 @@ This script:
 4. Handles connection errors with retry logic
 """
 
+import os
 import sys
 import time
 import logging
@@ -28,7 +29,7 @@ except ImportError:
 
 
 # Configuration
-DEFAULT_CONTAINER_URL = "http://localhost:8080"
+DEFAULT_CONTAINER_URL = os.getenv("DATANG_CONTAINER_URL", "http://localhost:8080")
 MAX_RETRIES = 3
 RETRY_DELAY = 2  # seconds
 REQUEST_TIMEOUT = 5  # seconds
