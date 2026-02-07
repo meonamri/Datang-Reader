@@ -10,6 +10,9 @@ import os
 class Config:
     """GUI Client Configuration"""
 
+    # Server connection
+    CONTAINER_URL = os.getenv("DATANG_CONTAINER_URL", "http://localhost:8080")
+
     # Window settings
     WINDOW_WIDTH = 800
     WINDOW_HEIGHT = 600
