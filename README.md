@@ -16,12 +16,12 @@ Split-architecture RFID attendance tracking for Datang API with Docker deploymen
 └────────┬────────┘
          │ HTTP POST :8080
          ↓
-┌─────────────────┐
-│  Docker Server  │  server/
-│  - HTTP API     │  Flask HTTP Server
-│  - Auth Manager │
-│  - Offline Queue│
-└─────────────────┘
+┌─────────────────┐       ┌──────────────────────┐
+│  Docker Server  │  ←──  │  Tailscale Serve      │
+│  - HTTP API     │       │  (optional)            │
+│  - Auth Manager │       │  svc:datang-reader     │
+│  - Offline Queue│       │  HTTPS on your tailnet │
+└─────────────────┘       └──────────────────────┘
 ```
 
 **Why split?**
@@ -44,7 +44,7 @@ nano .env  # Configure credentials
 ```
 
 **Deployed:**
-- HTTP server on port 8080
+- HTTP server on port 8080 (configurable via `DATANG_HOST_PORT` in `.env`)
 - Persistent data in `docker-data/`
 - Offline queue with auto-sync
 
@@ -71,6 +71,37 @@ curl -X POST http://localhost:8080/card \
   -d '{"card_id": "1234567890"}'
 ```
 
+### 4. Expose via Tailscale (Optional)
+
+If the server is running on a machine connected to [Tailscale](https://tailscale.com/), you can expose it as a named service accessible from anywhere on your tailnet over HTTPS:
+
+```bash
+cd server/
+./tailscale-serve-setup.sh              # Defaults: port 8081, service name "datang-reader"
+./tailscale-serve-setup.sh 8080         # Custom port
+./tailscale-serve-setup.sh 8081 my-reader  # Custom port and service name
+```
+
+Once configured, the server is reachable at:
+```
+https://svc:datang-reader.<your-tailnet>.ts.net
+```
+
+This uses `tailscale serve --service` to register a **named service** with its own DNS identity, separate from the machine's hostname. Useful when hosting multiple services on the same device.
+
+```bash
+# Test from any device on your tailnet
+curl https://svc:datang-reader.<your-tailnet>.ts.net/health
+
+# Remove the service
+./tailscale-serve-setup.sh --remove
+
+# Check serve status
+tailscale serve status
+```
+
+**Prerequisites:** Tailscale installed and logged in (`tailscale up`) on the host machine.
+
 ---
 
 ## Configuration
@@ -86,6 +117,7 @@ DATANG_READER_USERNAME=your_username
 DATANG_READER_PASSWORD=your_password
 DATANG_DEVICE_ID=docker-reader-01
 DATANG_MOCK_API=false
+DATANG_HOST_PORT=8080            # Host port (container always listens on 8080 internally)
 ```
 
 **Client** (`client/.env`):
@@ -122,6 +154,7 @@ datang-reader/
 │   ├── deploy.sh         # Deploy Docker container
 │   ├── Dockerfile        # Container image
 │   ├── docker-compose.yml# Docker configuration
+│   ├── tailscale-serve-setup.sh  # Expose as Tailscale service
 │   ├── requirements.txt  # Server dependencies (Flask, requests)
 │   ├── datang_reader.py  # Server entry point
 │   └── src/              # Server source code
@@ -331,7 +364,7 @@ cd client/ && ./run-gui.sh --url http://localhost:8081  # Reader 02
 - Never commit `.env` or credentials to git
 - Backup `docker-data/queue.db` regularly (contains attendance records)
 - Restrict file permissions on token files
-- Use firewall rules for port 8080 in production
+- Use firewall rules for port 8080 in production, or use Tailscale Serve to avoid exposing the port publicly
 - `.env` files should have 600 permissions (`chmod 600 server/.env client/.env`)
 
 ---
