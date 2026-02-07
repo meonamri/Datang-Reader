@@ -11,9 +11,9 @@
 #   - Datang Reader server running (Docker or native) on the configured port
 #
 # Usage:
-#   ./tailscale-serve-setup.sh                        # Setup with defaults (port 8081, name "datang-reader")
-#   ./tailscale-serve-setup.sh 8080                   # Custom port
-#   ./tailscale-serve-setup.sh 8081 my-reader         # Custom port and service name
+#   ./tailscale-serve-setup.sh                        # Setup with defaults (port 8080, name "datang-reader")
+#   ./tailscale-serve-setup.sh 8081                   # Custom port
+#   ./tailscale-serve-setup.sh 8080 my-reader         # Custom port and service name
 #   ./tailscale-serve-setup.sh --remove               # Remove (default service name)
 #   ./tailscale-serve-setup.sh --remove my-reader     # Remove specific service name
 #
@@ -28,7 +28,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # Defaults
-DEFAULT_PORT="8081"
+DEFAULT_PORT="8080"
 DEFAULT_SERVICE_NAME="datang-reader"
 
 echo -e "${BLUE}============================================${NC}"
@@ -110,6 +110,21 @@ echo -e "  ${GREEN}https://${SERVICE_FQDN}${NC}"
 echo
 echo "Test it from any device on your tailnet:"
 echo -e "  ${GREEN}curl https://${SERVICE_FQDN}/health${NC}"
+echo
+echo -e "${YELLOW}============================================${NC}"
+echo -e "${YELLOW}  IMPORTANT: Approve ports in admin console${NC}"
+echo -e "${YELLOW}============================================${NC}"
+echo
+echo "The service is now advertising on your tailnet, but you must"
+echo "approve the required ports in the Tailscale admin console:"
+echo
+echo "  1. Go to https://login.tailscale.com/admin/services"
+echo "  2. Find the '${SERVICE_NAME}' service"
+echo "  3. Click on it and add port ${BLUE}443 (HTTPS)${NC} to the service"
+echo "  4. Save the configuration"
+echo
+echo "Until this step is done, the admin console will show:"
+echo -e "  ${YELLOW}\"Advertising the service, but some required ports are missing\"${NC}"
 echo
 echo "Useful commands:"
 echo -e "  View serve status:  ${GREEN}tailscale serve status${NC}"
