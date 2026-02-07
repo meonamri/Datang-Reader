@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Input Client for Datang Reader (Docker Deployment)
+Input Client for Datang Reader
 
 Lightweight script that runs on the host to capture HID RFID reader input
-and forward it to the Dockerized Datang Reader application via HTTP.
+and forward it to the Datang Reader server via HTTP.
 
 This script:
 1. Reads keyboard input from stdin (HID RFID reader types card ID + Enter)
 2. Validates the 10-digit format
-3. POSTs card ID to the Docker container's HTTP endpoint
+3. POSTs card ID to the server's HTTP endpoint
 4. Handles connection errors with retry logic
 """
 
@@ -36,14 +36,14 @@ REQUEST_TIMEOUT = 5  # seconds
 
 
 class InputClient:
-    """RFID input client that forwards card scans to Docker container"""
+    """RFID input client that forwards card scans to the Datang Reader server"""
 
     def __init__(self, container_url: str, log_file: Optional[str] = None):
         """
         Initialize input client
 
         Args:
-            container_url: Base URL of Docker container (e.g., http://localhost:8080)
+            container_url: Base URL of the server (e.g., http://localhost:8080)
             log_file: Optional log file path
         """
         self.container_url = container_url.rstrip('/')
@@ -96,7 +96,7 @@ class InputClient:
 
     def send_card_scan(self, card_id: str, temperature: Optional[float] = None) -> bool:
         """
-        Send card scan to Docker container with retry logic
+        Send card scan to server with retry logic
 
         Args:
             card_id: 10-digit card ID
@@ -128,14 +128,14 @@ class InputClient:
                         self.logger.error(f"✗ Card {card_id[:8]}... ERROR: {result.get('message')}")
                         return False
                 else:
-                    self.logger.error(f"Container returned status {response.status_code}")
+                    self.logger.error(f"Server returned status {response.status_code}")
 
             except requests.exceptions.ConnectionError:
                 if attempt < MAX_RETRIES:
-                    self.logger.warning(f"Container unreachable, retry {attempt}/{MAX_RETRIES}...")
+                    self.logger.warning(f"Server unreachable, retry {attempt}/{MAX_RETRIES}...")
                     time.sleep(RETRY_DELAY)
                 else:
-                    self.logger.error(f"✗ Failed to reach container after {MAX_RETRIES} attempts")
+                    self.logger.error(f"✗ Failed to reach server after {MAX_RETRIES} attempts")
                     return False
 
             except requests.exceptions.Timeout:
@@ -182,21 +182,37 @@ class InputClient:
         Main loop: read card IDs from stdin and forward to container
 
         Reads keyboard input (HID RFID reader types card ID + Enter)
-        and forwards valid scans to the Docker container.
+        and forwards valid scans to the server.
         """
         self.logger.info("="*60)
         self.logger.info("Datang Reader - Input Client")
         self.logger.info("="*60)
-        self.logger.info(f"Container URL: {self.container_url}")
-        self.logger.info("Checking container health...")
+        self.logger.info(f"Server URL: {self.container_url}")
+
+        # Show URL source for troubleshooting
+        env_url = os.getenv("DATANG_CONTAINER_URL")
+        if env_url:
+            self.logger.info("(configured via DATANG_CONTAINER_URL)")
+        elif self.container_url != "http://localhost:8080":
+            self.logger.info("(configured via --url)")
+        else:
+            self.logger.info("(using default URL)")
+
+        self.logger.info("Checking server health...")
 
         # Initial health check
         if not self.check_container_health():
-            self.logger.error("Container is not reachable or unhealthy!")
-            self.logger.error("Make sure the Docker container is running.")
+            self.logger.error("Server is not reachable or unhealthy!")
+            if not env_url and self.container_url == "http://localhost:8080":
+                self.logger.error("You are using the default URL (http://localhost:8080).")
+                self.logger.error("If your server is running elsewhere, configure the URL:")
+                self.logger.error("  1. Copy .env.example to .env and edit DATANG_CONTAINER_URL")
+                self.logger.error("  2. Or run with: ./run-console.sh --url <server-url>")
+            else:
+                self.logger.error(f"Make sure the server at {self.container_url} is running.")
             self.logger.error("Continuing anyway (will retry on each scan)...")
         else:
-            self.logger.info("Container is healthy ✓")
+            self.logger.info("Server is healthy ✓")
 
         self.logger.info("="*60)
         self.logger.info("Ready to capture RFID card scans")
@@ -239,12 +255,12 @@ class InputClient:
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(
-        description='RFID Input Client for Dockerized Datang Reader'
+        description='RFID Input Client for Datang Reader'
     )
     parser.add_argument(
         '--url',
         default=DEFAULT_CONTAINER_URL,
-        help=f'Container URL (default: {DEFAULT_CONTAINER_URL})'
+        help=f'Server URL (default: {DEFAULT_CONTAINER_URL})'
     )
     parser.add_argument(
         '--log-file',
