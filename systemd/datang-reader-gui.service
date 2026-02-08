@@ -1,13 +1,13 @@
 [Unit]
 Description=Datang Reader GUI Client
-Documentation=https://github.com/yourusername/datang-reader
-After=network.target docker.service graphical.target
-Wants=docker.service
+Documentation=https://github.com/meonamri/datang-reader
+After=graphical-session.target docker.service
+Wants=graphical-session.target
 
 [Service]
 Type=simple
 WorkingDirectory=/home/user/Datang-Reader/client
-ExecStartPre=/bin/sleep 10
+ExecStartPre=/bin/sleep 20
 ExecStart=/home/user/Datang-Reader/client/run-gui.sh
 Restart=always
 RestartSec=10
@@ -26,4 +26,4 @@ StandardError=journal
 SyslogIdentifier=datang-reader-gui
 
 [Install]
-WantedBy=graphical.target
+WantedBy=default.target
