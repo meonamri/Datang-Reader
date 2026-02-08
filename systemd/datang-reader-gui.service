@@ -1,0 +1,29 @@
+[Unit]
+Description=Datang Reader GUI Client
+Documentation=https://github.com/meonamri/datang-reader
+After=graphical-session.target docker.service
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/user/Datang-Reader/client
+ExecStartPre=/bin/sleep 20
+ExecStart=/home/user/Datang-Reader/client/run-gui.sh
+Restart=always
+RestartSec=10
+
+# X11 Display configuration
+Environment="DISPLAY=:0"
+Environment="QT_QPA_PLATFORM=xcb"
+Environment="XAUTHORITY=/home/user/.Xauthority"
+
+# Python environment
+Environment="PYTHONUNBUFFERED=1"
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=datang-reader-gui
+
+[Install]
+WantedBy=default.target
