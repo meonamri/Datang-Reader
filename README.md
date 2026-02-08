@@ -19,7 +19,7 @@ Split-architecture RFID attendance tracking for Datang API with Docker deploymen
 ┌─────────────────┐       ┌──────────────────────┐
 │  Docker Server  │  ←──  │  Tailscale Serve      │
 │  - HTTP API     │       │  (optional)            │
-│  - Auth Manager │       │  svc:datang-reader     │
+│  - Auth Manager │       │  datang-reader     │
 │  - Offline Queue│       │  HTTPS on your tailnet │
 └─────────────────┘       └──────────────────────┘
 ```
@@ -91,7 +91,7 @@ This uses `tailscale serve --service` to register a **named service** with its o
 
 ```bash
 # Test from any device on your tailnet
-curl https://svc:datang-reader.<your-tailnet>.ts.net/health
+curl https://datang-reader.<your-tailnet>.ts.net/health
 
 # Remove the service
 ./tailscale-serve-setup.sh --remove
