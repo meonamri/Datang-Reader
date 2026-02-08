@@ -18,9 +18,9 @@ Split-architecture RFID attendance tracking for Datang API with Docker deploymen
          ↓
 ┌─────────────────┐       ┌──────────────────────┐
 │  Docker Server  │  ←──  │  Tailscale Serve      │
-│  - HTTP API     │       │  (optional)            │
-│  - Auth Manager │       │  datang-reader.<your-tailnet>.ts.net     │
-│  - Offline Queue│       │  HTTPS on your tailnet │
+│  - HTTP API     │       │  (optional)           │
+│  - Auth Manager │       │  datang-reader.tailnet│
+│  - Offline Queue│       │  HTTPS on your tailnet│
 └─────────────────┘       └──────────────────────┘
 ```
 
