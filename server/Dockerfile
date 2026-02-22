@@ -1,5 +1,6 @@
 # Datang Reader - Docker Image
 # Multi-stage build for optimized image size
+# Includes Playwright + Firefox for IDME portal automation
 
 # Stage 1: Builder
 FROM python:3.10-slim AS builder
@@ -26,8 +27,8 @@ FROM python:3.10-slim
 
 # Set labels for metadata
 LABEL maintainer="Datang Reader Team" \
-      description="RFID Attendance Tracking System - HTTP Server Mode" \
-      version="1.0.0"
+      description="RFID Attendance Tracking System with IDME Portal Automation" \
+      version="2.0.0"
 
 # Set working directory
 WORKDIR /app
@@ -40,13 +41,17 @@ ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
+# Install Playwright browser (Firefox) and its system dependencies
+# Firefox is required for IDME portal automation (HTTP/2 disabled for Malaysian gov sites)
+RUN playwright install --with-deps firefox
+
 # Copy application code
 COPY src/ ./src/
 COPY datang_reader.py .
 
 # Create directories for persistent data
-RUN mkdir -p /data/logs && \
-    chmod 755 /data
+RUN mkdir -p /data/logs /data/idme/screenshots && \
+    chmod -R 755 /data
 
 # Expose HTTP server port
 EXPOSE 8080
@@ -59,7 +64,11 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 ENV DATANG_API_BASE_URL="" \
     DATANG_READER_USERNAME="" \
     DATANG_READER_PASSWORD="" \
-    DATANG_DEVICE_ID=""
+    DATANG_DEVICE_ID="" \
+    IDME_ENABLED="false" \
+    IDME_CUTOFF_TIME="09:00" \
+    IDME_ENCRYPTION_KEY="" \
+    IDME_DATABASE_PATH="/data/idme/idme_data.db"
 
 # Run HTTP server by default
 CMD ["python", "datang_reader.py", "--http-server"]

@@ -50,6 +50,9 @@ class ServiceManager:
         # Offline Queue
         self.queue = AttendanceQueue()
 
+        # IDME scan tracker (set by init_idme_module if IDME is enabled)
+        self.scan_tracker = None
+
         logger.info("Service manager initialized")
 
     def start(self) -> bool:
@@ -128,6 +131,14 @@ class ServiceManager:
             )
 
             logger.info("Attendance submitted successfully")
+
+            # Record scan for IDME absence detection (if enabled)
+            if self.scan_tracker and response.get("data"):
+                try:
+                    self.scan_tracker.record_scan(card_id, response["data"])
+                except Exception as scan_err:
+                    logger.warning(f"IDME scan recording failed (non-critical): {scan_err}")
+
             return {
                 "success": True,
                 "online": True,

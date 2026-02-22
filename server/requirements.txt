@@ -10,6 +10,12 @@ Flask>=2.0.0
 # Database for offline queue
 # (sqlite3 is included in Python standard library, no need to install)
 
+# IDME Module Dependencies (optional - for IDME portal automation)
+playwright>=1.40.0
+cryptography>=41.0.0
+openpyxl>=3.1.0
+pandas>=2.0.0
+
 # Development/Testing (optional - can be removed for production images)
 pytest>=7.0.0
 pytest-cov>=4.0.0

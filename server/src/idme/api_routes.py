@@ -1,0 +1,383 @@
+"""
+IDME API Routes (Flask Blueprint)
+
+Provides REST API endpoints and the settings Web UI for the IDME module.
+
+Endpoints:
+  GET  /idme/status              - Module status
+  GET  /idme/settings            - Teacher management Web UI
+  POST /idme/teachers            - Add a teacher
+  DELETE /idme/teachers/<id>     - Delete a teacher
+  POST /idme/teachers/<id>/test  - Test IDME login credentials
+  GET  /idme/scans               - Today's scan summary
+  POST /idme/submit              - Manual IDME submission trigger
+  GET  /idme/roster              - Student roster summary
+  POST /idme/roster/import       - Import roster from Excel
+  GET  /idme/submissions         - Submission history
+"""
+
+import logging
+import asyncio
+from datetime import date
+from pathlib import Path
+from flask import Blueprint, request, jsonify, render_template_string
+
+from .idme_config import IDMEConfig
+
+logger = logging.getLogger(__name__)
+
+# Create blueprint
+idme_bp = Blueprint('idme', __name__, url_prefix='/idme')
+
+# Module-level references (set during initialization)
+_orchestrator = None
+_teacher_manager = None
+_roster_manager = None
+_scan_tracker = None
+_absence_detector = None
+_scheduler = None
+
+
+def init_idme_module(service_manager=None):
+    """
+    Initialize the IDME module and return the orchestrator.
+
+    Called from http_server.py during Flask app setup.
+    Sets up all IDME components and optionally starts the scheduler.
+
+    Args:
+        service_manager: Existing Datang ServiceManager (for scan hook).
+
+    Returns:
+        IDMEOrchestrator instance.
+    """
+    global _orchestrator, _teacher_manager, _roster_manager
+    global _scan_tracker, _absence_detector, _scheduler
+
+    if not IDMEConfig.ENABLED:
+        logger.info("IDME module disabled (IDME_ENABLED=false)")
+        return None
+
+    # Validate config
+    is_valid, errors = IDMEConfig.validate()
+    if not is_valid:
+        for err in errors:
+            logger.error(f"IDME config error: {err}")
+        return None
+
+    from .orchestrator import IDMEOrchestrator
+    from .scheduler import IDMEScheduler
+
+    # Initialize orchestrator (creates all sub-components)
+    _orchestrator = IDMEOrchestrator(IDMEConfig.DATABASE_PATH)
+    _teacher_manager = _orchestrator.teacher_manager
+    _roster_manager = _orchestrator.roster_manager
+    _scan_tracker = _orchestrator.scan_tracker
+    _absence_detector = _orchestrator.absence_detector
+
+    # Hook scan tracker into existing Datang ServiceManager
+    if service_manager:
+        service_manager.scan_tracker = _scan_tracker
+        logger.info("IDME scan tracker hooked into ServiceManager")
+
+    # Start scheduler
+    _scheduler = IDMEScheduler(_orchestrator, IDMEConfig.CUTOFF_TIME)
+    _scheduler.start()
+
+    logger.info("IDME module initialized successfully")
+    return _orchestrator
+
+
+# ============================================================
+# Status endpoint
+# ============================================================
+
+@idme_bp.route('/status', methods=['GET'])
+def idme_status():
+    """Get IDME module status."""
+    if not _orchestrator:
+        return jsonify({'enabled': False, 'message': 'IDME module not initialized'}), 200
+
+    teachers = _teacher_manager.get_all_teachers() if _teacher_manager else []
+    scans_today = _scan_tracker.get_all_scans_today() if _scan_tracker else {}
+
+    status = {
+        'enabled': True,
+        'config': IDMEConfig.to_dict(),
+        'teachers': len(teachers),
+        'roster': {
+            'total_students': _roster_manager.get_total_students() if _roster_manager else 0,
+            'total_classes': _roster_manager.get_total_classes() if _roster_manager else 0,
+        },
+        'scans_today': scans_today,
+        'scheduler': _scheduler.get_status() if _scheduler else None,
+    }
+
+    return jsonify(status), 200
+
+
+# ============================================================
+# Settings Web UI
+# ============================================================
+
+@idme_bp.route('/settings', methods=['GET'])
+def settings_page():
+    """Render the teacher management Web UI."""
+    # Read template
+    template_path = Path(__file__).parent / 'templates' / 'settings.html'
+    template_content = template_path.read_text()
+
+    teachers = _teacher_manager.get_all_teachers(include_disabled=True) if _teacher_manager else []
+    total_students = _roster_manager.get_total_students() if _roster_manager else 0
+    total_classes = _roster_manager.get_total_classes() if _roster_manager else 0
+
+    return render_template_string(
+        template_content,
+        teachers=teachers,
+        total_students=total_students,
+        total_classes=total_classes,
+        cutoff_time=IDMEConfig.CUTOFF_TIME,
+    )
+
+
+# ============================================================
+# Teacher management
+# ============================================================
+
+@idme_bp.route('/teachers', methods=['POST'])
+def add_teacher():
+    """Add a new teacher."""
+    if not _teacher_manager:
+        return jsonify({'error': 'IDME module not initialized'}), 503
+
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'JSON body required'}), 400
+
+    required = ['name', 'ic_number', 'password', 'class_name']
+    missing = [f for f in required if not data.get(f)]
+    if missing:
+        return jsonify({'error': f'Missing fields: {", ".join(missing)}'}), 400
+
+    try:
+        teacher = _teacher_manager.add_teacher(
+            name=data['name'],
+            ic_number=data['ic_number'],
+            password=data['password'],
+            class_name=data['class_name'],
+        )
+        return jsonify(teacher), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+
+@idme_bp.route('/teachers/<int:teacher_id>', methods=['PUT'])
+def update_teacher(teacher_id):
+    """Update a teacher."""
+    if not _teacher_manager:
+        return jsonify({'error': 'IDME module not initialized'}), 503
+
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'JSON body required'}), 400
+
+    try:
+        teacher = _teacher_manager.update_teacher(
+            teacher_id,
+            name=data.get('name'),
+            ic_number=data.get('ic_number'),
+            password=data.get('password'),
+            class_name=data.get('class_name'),
+            enabled=data.get('enabled'),
+        )
+        return jsonify(teacher), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+
+@idme_bp.route('/teachers/<int:teacher_id>', methods=['DELETE'])
+def delete_teacher(teacher_id):
+    """Delete a teacher."""
+    if not _teacher_manager:
+        return jsonify({'error': 'IDME module not initialized'}), 503
+
+    try:
+        deleted = _teacher_manager.delete_teacher(teacher_id)
+        if deleted:
+            return jsonify({'success': True}), 200
+        else:
+            return jsonify({'error': 'Teacher not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+
+@idme_bp.route('/teachers/<int:teacher_id>/test', methods=['POST'])
+def test_teacher(teacher_id):
+    """Test IDME login with teacher's credentials."""
+    if not _teacher_manager:
+        return jsonify({'error': 'IDME module not initialized'}), 503
+
+    try:
+        from .login_engine import IDMELoginEngine
+        creds = _teacher_manager.get_teacher_credentials(teacher_id)
+
+        async def _test():
+            engine = IDMELoginEngine(
+                ic_number=creds['ic_number'],
+                password=creds['password'],
+                headless=True,
+                debug=False,
+            )
+            try:
+                result = await engine.login_and_navigate()
+                return {
+                    'success': True,
+                    'duration': f"{result.get('duration', 0):.1f}s",
+                    'cookies': len(result.get('cookies', [])),
+                    'csrf_token': bool(result.get('csrf_token')),
+                }
+            finally:
+                await engine.close()
+
+        result = asyncio.run(_test())
+        return jsonify(result), 200
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 200
+
+
+# ============================================================
+# Scans
+# ============================================================
+
+@idme_bp.route('/scans', methods=['GET'])
+def get_scans():
+    """Get today's scan summary."""
+    if not _absence_detector:
+        return jsonify({'error': 'IDME module not initialized'}), 503
+
+    class_name = request.args.get('class')
+    scan_date = request.args.get('date', date.today().isoformat())
+
+    if class_name:
+        summary = _absence_detector.get_attendance_summary(class_name, scan_date)
+        return jsonify(summary), 200
+    else:
+        # All classes summary
+        scans = _scan_tracker.get_all_scans_today()
+        classes = _roster_manager.get_all_classes() if _roster_manager else []
+
+        result = {
+            'date': scan_date,
+            'classes': {},
+        }
+        for cls in classes:
+            cls_name = cls['class_name']
+            result['classes'][cls_name] = {
+                'roster_count': cls['student_count'],
+                'scanned_count': scans.get(cls_name, 0),
+            }
+
+        return jsonify(result), 200
+
+
+# ============================================================
+# Submit
+# ============================================================
+
+@idme_bp.route('/submit', methods=['POST'])
+def submit_to_idme():
+    """Manually trigger IDME submission for a class."""
+    if not _orchestrator:
+        return jsonify({'error': 'IDME module not initialized'}), 503
+
+    data = request.get_json() or {}
+    class_name = data.get('class_name')
+    submission_date = data.get('date', date.today().isoformat())
+
+    if class_name:
+        # Submit for specific class
+        teacher = _teacher_manager.get_teacher_for_class(class_name)
+        if not teacher:
+            return jsonify({'error': f'No teacher configured for class {class_name}'}), 400
+
+        try:
+            result = _orchestrator.submit_class(
+                teacher_id=teacher['id'],
+                class_name=class_name,
+                submission_date=submission_date,
+            )
+            return jsonify(result), 200
+        except Exception as e:
+            return jsonify({'error': str(e), 'status': 'failed'}), 500
+    else:
+        # Submit all configured classes
+        try:
+            results = _orchestrator.submit_all_classes(submission_date)
+            return jsonify({'results': results}), 200
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+
+# ============================================================
+# Roster
+# ============================================================
+
+@idme_bp.route('/roster', methods=['GET'])
+def get_roster():
+    """Get student roster summary."""
+    if not _roster_manager:
+        return jsonify({'error': 'IDME module not initialized'}), 503
+
+    class_name = request.args.get('class')
+
+    if class_name:
+        students = _roster_manager.get_class_roster(class_name)
+        return jsonify({
+            'class_name': class_name,
+            'count': len(students),
+            'students': students,
+        }), 200
+    else:
+        classes = _roster_manager.get_all_classes()
+        return jsonify({
+            'total_students': _roster_manager.get_total_students(),
+            'total_classes': len(classes),
+            'classes': classes,
+        }), 200
+
+
+@idme_bp.route('/roster/import', methods=['POST'])
+def import_roster():
+    """Import student roster from Excel file."""
+    if not _roster_manager:
+        return jsonify({'error': 'IDME module not initialized'}), 503
+
+    data = request.get_json() or {}
+    excel_path = data.get('excel_path', '')
+
+    if not excel_path:
+        return jsonify({'error': 'excel_path is required'}), 400
+
+    try:
+        result = _roster_manager.import_from_excel(excel_path)
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+
+# ============================================================
+# Submissions
+# ============================================================
+
+@idme_bp.route('/submissions', methods=['GET'])
+def get_submissions():
+    """Get submission history."""
+    if not _orchestrator:
+        return jsonify({'error': 'IDME module not initialized'}), 503
+
+    class_name = request.args.get('class')
+    limit = request.args.get('limit', 50, type=int)
+
+    history = _orchestrator.get_submission_history(class_name, limit)
+    return jsonify({'submissions': history}), 200
