@@ -59,7 +59,18 @@ nano .env  # Configure GUI settings (optional)
 ./run-gui.sh
 ```
 
-### 3. Test the System
+### 3. Enable Auto-start (Optional)
+
+To have the GUI client start automatically on login:
+
+```bash
+cd client/
+./install-autostart.sh
+```
+
+See [AUTOSTART.md](AUTOSTART.md) for full details and troubleshooting.
+
+### 4. Test the System
 
 ```bash
 # Check server health
