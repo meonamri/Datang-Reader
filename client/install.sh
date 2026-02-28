@@ -94,7 +94,7 @@ install_user_mode() {
             echo
             if [[ $REPLY =~ ^[Yy]$ ]]; then
                 print_msg "$YELLOW" "Installing Qt5 dependencies (requires password)..."
-                sudo apt-get update
+                sudo apt-get update || true
                 sudo apt-get install -y python3-pyqt5 qtbase5-dev python3-dev
                 print_msg "$GREEN" "✓ System dependencies installed"
                 USE_SYSTEM_PYQT5=true
@@ -346,7 +346,7 @@ print_header "Installing Dependencies"
 case $OS in
     ubuntu|debian)
         print_msg "$YELLOW" "Installing Python and dependencies..."
-        apt-get update
+        apt-get update || true
         apt-get install -y python3 python3-pip python3-venv python3-pyqt5
         apt-get install -y git
         ;;
