@@ -325,6 +325,32 @@ class AttendanceQueue:
             logger.error(f"Failed to get failed count: {e}")
             return 0
 
+    def get_failed_records(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Get permanently failed attendance records
+
+        Args:
+            limit: Maximum number of records to retrieve
+
+        Returns:
+            List of failed attendance records, newest first
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT id, card_id, timestamp, device_id, retry_count, last_error, queued_at
+                    FROM attendance_queue
+                    WHERE status = 'failed'
+                    ORDER BY queued_at DESC
+                    LIMIT ?
+                ''', (limit,))
+                return [dict(row) for row in cursor.fetchall()]
+
+        except sqlite3.Error as e:
+            logger.error(f"Failed to get failed records: {e}")
+            return []
+
     def get_statistics(self) -> Dict[str, Any]:
         """
         Get queue statistics

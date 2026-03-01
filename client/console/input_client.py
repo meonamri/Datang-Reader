@@ -113,6 +113,45 @@ class InputClient:
 
         self.logger.setLevel(logging.INFO)
 
+    def get_failed_scans(self) -> bool:
+        """
+        Fetch and print failed scan records from the server
+
+        Returns:
+            True if request succeeded, False otherwise
+        """
+        url = f"{self.container_url}/failed"
+        try:
+            response = requests.get(url, timeout=REQUEST_TIMEOUT)
+            if response.status_code != 200:
+                self.logger.error(f"Server returned status {response.status_code}")
+                return False
+
+            data = response.json()
+            records = data.get("failed_records", [])
+            count = data.get("count", len(records))
+
+            print(f"\nFailed Scans ({count} total):")
+            if not records:
+                print("  No failed scans found.")
+            else:
+                print(f"  {'ID':<6}  {'Card ID':<12}  {'Timestamp':<25}  {'Retries':<7}  Last Error")
+                print(f"  {'-'*6}  {'-'*12}  {'-'*25}  {'-'*7}  {'-'*30}")
+                for r in records:
+                    print(
+                        f"  {r['id']:<6}  {r['card_id']:<12}  {r['timestamp']:<25}  "
+                        f"{r['retry_count']:<7}  {r.get('last_error') or 'N/A'}"
+                    )
+            print()
+            return True
+
+        except requests.exceptions.ConnectionError:
+            self.logger.error(f"Could not connect to server at {self.container_url}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Error fetching failed scans: {e}")
+            return False
+
     def check_container_health(self) -> bool:
         """
         Check if container is reachable and healthy
@@ -307,10 +346,15 @@ def main():
         action='store_true',
         help='Enable debug logging'
     )
+    parser.add_argument(
+        '--failed',
+        action='store_true',
+        help='Show failed scan records and exit'
+    )
 
     args = parser.parse_args()
 
-    # Create and run client
+    # Create client
     client = InputClient(
         container_url=args.url,
         log_file=args.log_file
@@ -318,6 +362,10 @@ def main():
 
     if args.debug:
         client.logger.setLevel(logging.DEBUG)
+
+    if args.failed:
+        client.get_failed_scans()
+        return
 
     client.run()
 
