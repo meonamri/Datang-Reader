@@ -11,6 +11,8 @@ import time
 import logging
 import signal
 import re
+import json
+import os
 from datetime import datetime
 from typing import Optional
 from PyQt5.QtWidgets import (
@@ -35,6 +37,7 @@ DEFAULT_CONTAINER_URL = Config.CONTAINER_URL
 MAX_RETRIES = 3
 RETRY_DELAY = 2
 REQUEST_TIMEOUT = 5
+STATS_FILE = os.path.expanduser("~/.datang_stats.json")
 
 # SMKSAT Professional Color Palette - Dark Elegant Theme
 COLORS = {
@@ -332,6 +335,9 @@ class AttendanceApp(QMainWindow):
         self.last_scan_time = None
         self.container_online = False
         self.container_queue_size = 0
+
+        # Load persisted daily stats (resets automatically on a new day)
+        self._load_stats()
 
         # Threads
         self.health_thread = None
@@ -845,6 +851,11 @@ class AttendanceApp(QMainWindow):
         self.ui_timer.timeout.connect(self.update_time)
         self.ui_timer.start(1000)  # Update every second
 
+        # Timer to auto-reset stats at midnight
+        self.daily_reset_timer = QTimer()
+        self.daily_reset_timer.timeout.connect(self._check_daily_reset)
+        self.daily_reset_timer.start(60_000)  # Check every minute
+
         # Health check thread
         self.health_thread = HealthCheckThread(self.client)
         self.health_thread.health_status.connect(self.on_health_status)
@@ -973,6 +984,51 @@ class AttendanceApp(QMainWindow):
         self.update_stat_value(self.success_stat, str(self.successful_scans))
         self.update_stat_value(self.failed_stat, str(self.failed_scans))
         self.update_status_bar()
+        self._save_stats()
+
+    def _load_stats(self):
+        """Load today's statistics from disk, resetting if it's a new day."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        try:
+            with open(STATS_FILE, "r") as f:
+                data = json.load(f)
+            if data.get("date") == today:
+                self.total_scans = data.get("total_scans", 0)
+                self.successful_scans = data.get("successful_scans", 0)
+                self.failed_scans = data.get("failed_scans", 0)
+            else:
+                # New day — reset counters and overwrite file
+                self._save_stats()
+        except (FileNotFoundError, json.JSONDecodeError, KeyError):
+            self._save_stats()
+
+    def _save_stats(self):
+        """Persist today's statistics to disk."""
+        data = {
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "total_scans": self.total_scans,
+            "successful_scans": self.successful_scans,
+            "failed_scans": self.failed_scans,
+        }
+        try:
+            with open(STATS_FILE, "w") as f:
+                json.dump(data, f)
+        except OSError as e:
+            logging.warning(f"Could not save daily stats: {e}")
+
+    def _check_daily_reset(self):
+        """Reset statistics if the date has changed since last save."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        try:
+            with open(STATS_FILE, "r") as f:
+                data = json.load(f)
+            if data.get("date") != today:
+                self.total_scans = 0
+                self.successful_scans = 0
+                self.failed_scans = 0
+                self.update_statistics()
+        except (FileNotFoundError, json.JSONDecodeError, KeyError):
+            pass
 
     def show_scan_result(self, success: bool, message: str, name: str = "",
                          section: str = "", online: bool = False):
