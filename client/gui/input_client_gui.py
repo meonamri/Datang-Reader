@@ -13,6 +13,7 @@ import signal
 import re
 import json
 import os
+import subprocess
 from datetime import datetime
 from typing import Optional
 from PyQt5.QtWidgets import (
@@ -338,6 +339,9 @@ class AttendanceApp(QMainWindow):
 
         # Load persisted daily stats (resets automatically on a new day)
         self._load_stats()
+
+        # Consecutive unhealthy health check counter (reboot after 30)
+        self.consecutive_unhealthy = 0
 
         # Threads
         self.health_thread = None
@@ -877,6 +881,8 @@ class AttendanceApp(QMainWindow):
         self.container_online = is_healthy
 
         if is_healthy:
+            self.consecutive_unhealthy = 0
+
             # Update connection indicator
             self.connection_indicator.set_status(True, COLORS['success'])
 
@@ -903,6 +909,8 @@ class AttendanceApp(QMainWindow):
                     queue_color
                 )
         else:
+            self.consecutive_unhealthy += 1
+
             # Update connection indicator
             self.connection_indicator.set_status(False, COLORS['error'])
 
@@ -912,6 +920,13 @@ class AttendanceApp(QMainWindow):
                 "Offline",
                 COLORS['error']
             )
+
+            # Reboot after 30 consecutive unhealthy polls (150 seconds)
+            if self.consecutive_unhealthy >= 30:
+                logging.getLogger('AttendanceApp').warning(
+                    "Server unreachable for 30 consecutive polls — rebooting system"
+                )
+                subprocess.run(["sudo", "reboot"])
 
     def on_card_input(self):
         """Handle card scan from RFID reader"""
