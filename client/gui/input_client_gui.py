@@ -182,7 +182,7 @@ class RfidPuck(QWidget):
     Processing: rotating arc at ~30 fps. Success/Error: static (timer paused).
     """
 
-    BREATHE_FPS = 20
+    BREATHE_FPS = 30
     SPIN_FPS = 30
 
     def __init__(self, parent=None):
