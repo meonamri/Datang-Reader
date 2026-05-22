@@ -182,7 +182,6 @@ class RfidPuck(QWidget):
     Processing: rotating arc at ~30 fps. Success/Error: static (timer paused).
     """
 
-    BREATHE_FPS = 30
     SPIN_FPS = 30
 
     def __init__(self, parent=None):
@@ -217,7 +216,11 @@ class RfidPuck(QWidget):
 
     def _restart_timer(self):
         if self._state == 'idle':
-            self._timer.start(1000 // self.BREATHE_FPS)
+            if Config.ENABLE_PULSE_ANIMATION:
+                self._timer.start(1000 // Config.PULSE_ANIMATION_FPS)
+            else:
+                self._timer.stop()
+                self.update()
         elif self._state == 'processing':
             self._timer.start(1000 // self.SPIN_FPS)
         else:
@@ -251,6 +254,8 @@ class RfidPuck(QWidget):
         # ring 1 (outermost)
         if self._state in ('success', 'error'):
             pen = QPen(QColor(accent.red(), accent.green(), accent.blue(), 90), 1.4)
+        elif self._state == 'idle':
+            pen = QPen(QColor(accent.red(), accent.green(), accent.blue(), int(15 + 55 * self._phase)), 1.4)
         else:
             pen = self._pen_hair
         p.setPen(pen)
@@ -271,6 +276,8 @@ class RfidPuck(QWidget):
         else:
             if self._state in ('success', 'error'):
                 p.setPen(QPen(QColor(accent.red(), accent.green(), accent.blue(), 56), 1.2))
+            elif self._state == 'idle':
+                p.setPen(QPen(QColor(accent.red(), accent.green(), accent.blue(), int(10 + 36 * self._phase)), 1.2))
             else:
                 p.setPen(self._pen_hair2)
             p.drawEllipse(QPointF(cx, cy), r_mid, r_mid)
@@ -290,9 +297,9 @@ class RfidPuck(QWidget):
             grad.setColorAt(1.0, QColor(255, 69, 58, 6))
             border = QColor(255, 69, 58, 90)
         else:
-            grad.setColorAt(0.0, QColor(255, 255, 255, 22))
+            grad.setColorAt(0.0, QColor(accent.red(), accent.green(), accent.blue(), int(10 + 32 * self._phase)))
             grad.setColorAt(1.0, QColor(255, 255, 255, 4))
-            border = QColor(255, 255, 255, 36)
+            border = QColor(accent.red(), accent.green(), accent.blue(), int(22 + 44 * self._phase))
         p.setBrush(QBrush(grad))
         p.setPen(QPen(border, 1.2))
         p.drawEllipse(QPointF(cx, cy), r_core, r_core)
@@ -327,7 +334,7 @@ class RfidPuck(QWidget):
             p.drawArc(rect, int(-self._spin_deg * 16), int(95 * 16))
         else:
             # idle: stylised RFID waves — centre dot + three arcs
-            p.setBrush(QBrush(QColor('#ffffff')))
+            p.setBrush(QBrush(accent))
             p.setPen(Qt.NoPen)
             dot_r = glyph_r * 0.16
             p.drawEllipse(QPointF(cx - glyph_r * 0.30, cy), dot_r, dot_r)
@@ -336,7 +343,7 @@ class RfidPuck(QWidget):
             wave_pen.setWidthF(gpen.widthF())
             wave_pen.setCapStyle(Qt.RoundCap)
             alpha = int(140 + 90 * self._phase)
-            wave_pen.setColor(QColor(255, 255, 255, alpha))
+            wave_pen.setColor(QColor(accent.red(), accent.green(), accent.blue(), alpha))
             p.setPen(wave_pen)
             p.setBrush(Qt.NoBrush)
             for r_mult in (0.55, 0.85, 1.15):
@@ -382,7 +389,7 @@ class AttendanceApp(QMainWindow):
             QMainWindow, QWidget {{
                 background-color: {COLORS['bg_0']};
                 color: {COLORS['fg_0']};
-                font-family: -apple-system, "SF Pro Display", "Inter",
+                font-family: "Helvetica Neue", "Inter",
                              "Noto Sans", "DejaVu Sans", "Arial", sans-serif;
             }}
             QLineEdit#cardInput {{
@@ -413,16 +420,6 @@ class AttendanceApp(QMainWindow):
         outer.addWidget(self._hairline())
         outer.addWidget(self._build_statusbar())
 
-        # Card input (HID keyboard reader) — kept near-invisible but focusable.
-        self.card_input = QLineEdit()
-        self.card_input.setObjectName("cardInput")
-        self.card_input.setPlaceholderText("Scan card…")
-        self.card_input.returnPressed.connect(self.on_card_input)
-        self.card_input.setMaximumHeight(22)
-        self.card_input.setMaximumWidth(160)
-        self.card_input.setParent(central)
-        self.card_input.move(12, 12)
-        self.card_input.raise_()
 
         if QSystemTrayIcon.isSystemTrayAvailable():
             self.create_system_tray()
@@ -650,9 +647,9 @@ class AttendanceApp(QMainWindow):
     def _build_statusbar(self) -> QWidget:
         bar = QWidget()
         bar.setStyleSheet("background: transparent;")
-        bar.setFixedHeight(52)
+        bar.setFixedHeight(64)
         grid = QGridLayout(bar)
-        grid.setContentsMargins(40, 12, 40, 12)
+        grid.setContentsMargins(40, 10, 40, 10)
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 0)
         grid.setColumnStretch(2, 1)
@@ -681,7 +678,21 @@ class AttendanceApp(QMainWindow):
         )
         grid.addWidget(self.last_scan_label, 0, 1, alignment=Qt.AlignVCenter | Qt.AlignHCenter)
 
-        # host (right)
+        # right column: card input (top) + host label (bottom)
+        right_col = QWidget()
+        right_col.setStyleSheet("background: transparent;")
+        rc_l = QVBoxLayout(right_col)
+        rc_l.setContentsMargins(0, 0, 0, 0)
+        rc_l.setSpacing(4)
+
+        self.card_input = QLineEdit()
+        self.card_input.setObjectName("cardInput")
+        self.card_input.setPlaceholderText("Scan card…")
+        self.card_input.returnPressed.connect(self.on_card_input)
+        self.card_input.setMaximumHeight(22)
+        self.card_input.setFixedWidth(160)
+        rc_l.addWidget(self.card_input, alignment=Qt.AlignRight)
+
         self.host_label = QLabel(self._host_string())
         self.host_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.host_label.setStyleSheet(
@@ -689,7 +700,9 @@ class AttendanceApp(QMainWindow):
             f" font-family: 'SF Mono', Menlo, Consolas, monospace;"
             f" background: transparent;"
         )
-        grid.addWidget(self.host_label, 0, 2, alignment=Qt.AlignVCenter | Qt.AlignRight)
+        rc_l.addWidget(self.host_label, alignment=Qt.AlignRight)
+
+        grid.addWidget(right_col, 0, 2, alignment=Qt.AlignVCenter | Qt.AlignRight)
 
         self._refresh_stats_labels()
         return bar
