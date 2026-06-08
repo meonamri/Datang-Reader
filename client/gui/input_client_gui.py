@@ -191,7 +191,7 @@ class RfidPuck(QWidget):
         self._spin_deg = 0.0
         self._t0 = time.monotonic()
 
-        self.setMinimumSize(260, 260)
+        self.setMinimumSize(220, 220)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
 
         # Cached pens (Qt construction is not free on ARM)
@@ -563,7 +563,11 @@ class AttendanceApp(QMainWindow):
         v.addStretch(2)
 
         self.puck = RfidPuck()
-        self.puck.setMinimumSize(320, 320)
+        # Keep the puck compressible: on success the taller attendee_box
+        # replaces the one-line subline, so the stage needs vertical slack or
+        # the bottom overflows on a 720p kiosk panel (fits at idle, not on
+        # success). A 240px floor frees ~80px versus the old rigid 320.
+        self.puck.setMinimumSize(240, 240)
         self.puck.setMaximumSize(480, 480)
         puck_row = QHBoxLayout()
         puck_row.addStretch()
@@ -597,6 +601,7 @@ class AttendanceApp(QMainWindow):
 
         self.name_label = QLabel("")
         self.name_label.setAlignment(Qt.AlignCenter)
+        self.name_label.setWordWrap(True)
         self.name_label.setStyleSheet(
             f"color: {COLORS['fg_0']}; font-size: 44px; font-weight: 500;"
             f" letter-spacing: -1px; background: transparent;"
