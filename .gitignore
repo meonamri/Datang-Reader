@@ -136,6 +136,11 @@ ENV/
 env.bak/
 venv.bak/
 
+# IDME local test harness (never commit credentials/artifacts)
+server/.venv-idme/
+server/.idme-test.env
+server/idme-test-screenshots/
+
 # Spyder project settings
 .spyderproject
 .spyproject
@@ -182,7 +187,7 @@ cython_debug/
 
 # Claude Code agents
 .claude/
-CLAUDE.md
+# CLAUDE.md is tracked on the idme-integration branch (see the file's banner).
 
 # Serena agents
 .serena/
