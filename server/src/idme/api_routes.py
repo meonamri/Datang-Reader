@@ -12,15 +12,20 @@ Endpoints:
   GET  /idme/scans               - Today's scan summary
   POST /idme/submit              - Manual IDME submission trigger
   GET  /idme/roster              - Student roster summary
-  POST /idme/roster/import       - Import roster from Excel
+  POST /idme/roster/import       - Import roster from Excel (path on server)
+  POST /idme/roster/upload       - Upload + import roster Excel (optional replace)
+  GET  /idme/roster/template     - Download a blank roster Excel template
   GET  /idme/submissions         - Submission history
 """
 
 import logging
 import asyncio
+import os
+import tempfile
+from io import BytesIO
 from datetime import date
 from pathlib import Path
-from flask import Blueprint, request, jsonify, render_template_string
+from flask import Blueprint, request, jsonify, render_template_string, send_file
 
 from .idme_config import IDMEConfig
 
@@ -364,6 +369,91 @@ def import_roster():
         return jsonify(result), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 400
+
+
+# Roster Excel template columns (matched case-insensitively on import)
+ROSTER_TEMPLATE_COLUMNS = ['Name', 'Class', 'IC', 'Tag', 'ID']
+MAX_ROSTER_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+@idme_bp.route('/roster/upload', methods=['POST'])
+def upload_roster():
+    """
+    Upload an Excel file from the browser and import it.
+
+    Multipart form fields:
+      - file:    the .xlsx/.xls file
+      - replace: 'true' to clear the existing roster before importing
+                 (avoids duplicate students on re-import)
+    """
+    if not _roster_manager:
+        return jsonify({'error': 'IDME module not initialized'}), 503
+
+    if request.content_length and request.content_length > MAX_ROSTER_UPLOAD_BYTES:
+        return jsonify({'error': 'File too large (max 10 MB)'}), 413
+
+    file = request.files.get('file')
+    if file is None or not file.filename:
+        return jsonify({'error': 'No file uploaded (field name must be "file")'}), 400
+
+    if not file.filename.lower().endswith(('.xlsx', '.xls')):
+        return jsonify({'error': 'File must be an Excel .xlsx or .xls'}), 400
+
+    replace = request.form.get('replace', 'false').lower() == 'true'
+
+    # Save to a temp file so the existing path-based importer can read it
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
+    tmp_path = tmp.name
+    tmp.close()
+    try:
+        file.save(tmp_path)
+
+        cleared = _roster_manager.clear_roster() if replace else 0
+        result = _roster_manager.import_from_excel(tmp_path)
+        result['replaced'] = replace
+        result['cleared'] = cleared
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+@idme_bp.route('/roster/template', methods=['GET'])
+def roster_template():
+    """Generate and download a blank roster Excel template with sample rows."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Students'
+
+    ws.append(ROSTER_TEMPLATE_COLUMNS)
+    # Example rows (clearly marked — admin should delete before importing)
+    ws.append(['(EXAMPLE) AHMAD BIN ALI', '5 UKM', '120101010101', '1234567890', 'S001'])
+    ws.append(['(EXAMPLE) SITI BINTI ABU', '5 UKM', '120202020202', '1234567891', 'S002'])
+
+    # Style: bold header, sensible column widths
+    for col_idx in range(1, len(ROSTER_TEMPLATE_COLUMNS) + 1):
+        ws.cell(row=1, column=col_idx).font = Font(bold=True)
+    for col_idx, width in enumerate([30, 12, 16, 16, 10], start=1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = width
+    ws.freeze_panes = 'A2'
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name='roster_template.xlsx',
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
 
 
 # ============================================================

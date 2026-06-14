@@ -191,15 +191,21 @@
         <div class="card">
             <h2>Student Roster</h2>
             <p style="color: #94a3b8; margin-bottom: 12px; font-size: 0.9em;">
-                Import students from the school's Excel export file.
+                Upload the school's student Excel file. Need the format?
+                <a href="/idme/roster/template" class="btn btn-secondary btn-sm" style="margin-left: 4px;">Download Template</a>
             </p>
-            <form id="roster-form" onsubmit="importRoster(event)">
+            <form id="roster-form" onsubmit="uploadRoster(event)">
                 <div class="form-group">
-                    <label>Excel File Path (on server)</label>
-                    <input type="text" id="excel-path" required
-                           placeholder="/path/to/SMK_SULTAN_AHMAD_TAJUDDIN-Pelajar-export.xlsx">
+                    <label>Excel File (.xlsx)</label>
+                    <input type="file" id="roster-file" accept=".xlsx,.xls" required>
                 </div>
-                <button type="submit" class="btn btn-success">Import Roster</button>
+                <div class="form-group" style="display: flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" id="roster-replace" style="width: auto;">
+                    <label for="roster-replace" style="margin: 0;">
+                        Replace existing roster (clears all current students first &mdash; recommended to avoid duplicates)
+                    </label>
+                </div>
+                <button type="submit" class="btn btn-success">Upload &amp; Import</button>
             </form>
         </div>
     </div>
@@ -278,24 +284,38 @@
             }
         }
 
-        async function importRoster(e) {
+        async function uploadRoster(e) {
             e.preventDefault();
-            const path = document.getElementById('excel-path').value;
+            const fileInput = document.getElementById('roster-file');
+            const replace = document.getElementById('roster-replace').checked;
 
-            showAlert('info', 'Importing roster...');
+            if (!fileInput.files.length) {
+                showAlert('error', 'Please choose an Excel file');
+                return;
+            }
+
+            if (replace && !confirm('Replace the entire roster? All current students will be cleared first.')) {
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('replace', replace ? 'true' : 'false');
+
+            showAlert('info', 'Uploading and importing roster...');
 
             try {
-                const resp = await fetch('/idme/roster/import', {
+                const resp = await fetch('/idme/roster/upload', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ excel_path: path }),
+                    body: formData,
                 });
                 const result = await resp.json();
 
                 if (resp.ok) {
-                    showAlert('success',
-                        `Imported ${result.imported} students across ${result.classes} classes`
-                    );
+                    let msg = `Imported ${result.imported} students across ${result.classes} classes`;
+                    if (result.replaced) msg += ` (cleared ${result.cleared} existing)`;
+                    if (result.skipped) msg += `, ${result.skipped} skipped`;
+                    showAlert('success', msg);
                     setTimeout(() => location.reload(), 1500);
                 } else {
                     showAlert('error', result.error || 'Import failed');
