@@ -24,8 +24,8 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, QRectF, QPointF
 from PyQt5.QtGui import (
-    QFont, QColor, QIcon, QPainter, QPixmap, QPen, QBrush, QPainterPath,
-    QRadialGradient,
+    QFont, QFontMetrics, QColor, QIcon, QPainter, QPixmap, QPen, QBrush,
+    QPainterPath, QRadialGradient,
 )
 
 from config import Config
@@ -586,6 +586,7 @@ class AttendanceApp(QMainWindow):
 
         self.subline_label = QLabel("Place your RFID card on the reader to check in")
         self.subline_label.setAlignment(Qt.AlignCenter)
+        self.subline_label.setWordWrap(True)
         self.subline_label.setStyleSheet(
             f"color: {COLORS['fg_2']}; font-size: 18px; font-weight: 400;"
             f" background: transparent;"
@@ -642,11 +643,43 @@ class AttendanceApp(QMainWindow):
         return stage
 
     @staticmethod
-    def _headline_qss(color: str) -> str:
+    def _headline_qss(color: str, px: int = 72) -> str:
         return (
-            f"color: {color}; font-size: 72px; font-weight: 300;"
+            f"color: {color}; font-size: {px}px; font-weight: 300;"
             f" letter-spacing: -2.5px; background: transparent;"
         )
+
+    def _apply_headline(self, text: str, color: str):
+        """Set the hero headline, shrinking the font so it never overflows the
+        fixed-width kiosk panel.
+
+        The 72px headline holds variable-length strings: Malay greetings
+        ("Selamat Tengah Hari" wants 1321px) and any fallback text. On a 1280px
+        panel these exceed the width and clip horizontally. We pick the largest
+        size up to 72px that fits the stage's inner width, so headlines scale
+        down instead of running off the edges. Width is the only axis touched —
+        the line count stays at one, so the vertical budget is unaffected.
+        """
+        self._headline_text = text
+        self._headline_color = color
+        self.headline_label.setText(text)
+        # Stage content margins are 40px on each side (see _build_stage).
+        avail = max(self.width() - 80, 200)
+        f = QFont(self.headline_label.font())
+        px = 72
+        while px > 34:
+            f.setPixelSize(px)
+            if QFontMetrics(f).horizontalAdvance(text) <= avail:
+                break
+            px -= 2
+        self.headline_label.setStyleSheet(self._headline_qss(color, px))
+
+    def resizeEvent(self, event):
+        # Re-fit the headline whenever the panel size changes (e.g. the
+        # switch to fullscreen after show, or a resolution change).
+        super().resizeEvent(event)
+        if getattr(self, "_headline_text", None) is not None:
+            self._apply_headline(self._headline_text, self._headline_color)
 
     # ------------------------------------------------------------- statusbar
     def _build_statusbar(self) -> QWidget:
@@ -752,8 +785,7 @@ class AttendanceApp(QMainWindow):
         self.puck.set_state(state)
 
         if state == 'idle':
-            self.headline_label.setText(headline or "Tap your card")
-            self.headline_label.setStyleSheet(self._headline_qss(COLORS['fg_0']))
+            self._apply_headline(headline or "Tap your card", COLORS['fg_0'])
             self.subline_label.setText(subline or "Place your RFID card on the reader to check in")
             self.subline_label.setStyleSheet(
                 f"color: {COLORS['fg_2']}; font-size: 18px; font-weight: 400;"
@@ -762,8 +794,7 @@ class AttendanceApp(QMainWindow):
             self.subline_label.setVisible(True)
             self.attendee_box.setVisible(False)
         elif state == 'processing':
-            self.headline_label.setText(headline or "Reading…")
-            self.headline_label.setStyleSheet(self._headline_qss(COLORS['amber']))
+            self._apply_headline(headline or "Reading…", COLORS['amber'])
             self.subline_label.setText(subline or "Verifying your card with the server")
             self.subline_label.setStyleSheet(
                 f"color: {COLORS['fg_2']}; font-size: 18px; font-weight: 400;"
@@ -772,8 +803,7 @@ class AttendanceApp(QMainWindow):
             self.subline_label.setVisible(True)
             self.attendee_box.setVisible(False)
         elif state == 'success':
-            self.headline_label.setText(headline or malay_greeting(datetime.now()))
-            self.headline_label.setStyleSheet(self._headline_qss(COLORS['green']))
+            self._apply_headline(headline or malay_greeting(datetime.now()), COLORS['green'])
             self.subline_label.setVisible(False)
             self.name_label.setText(name or "—")
             self.section_label.setText(section or "")
@@ -782,8 +812,7 @@ class AttendanceApp(QMainWindow):
             )
             self.attendee_box.setVisible(True)
         elif state == 'error':
-            self.headline_label.setText(headline or "Card not recognised")
-            self.headline_label.setStyleSheet(self._headline_qss(COLORS['red']))
+            self._apply_headline(headline or "Card not recognised", COLORS['red'])
             self.subline_label.setText(subline or "Please report to the front office")
             self.subline_label.setStyleSheet(
                 f"color: {COLORS['red']}; font-size: 18px; font-weight: 400;"
@@ -915,8 +944,12 @@ class AttendanceApp(QMainWindow):
                 checkin_time=timestamp_full,
             )
         else:
-            self.set_hero_state('error', headline=message or "Error",
-                                subline="Please try again or report to the office")
+            # The server message can be arbitrarily long (e.g. "Request
+            # timeout - container not responding"). Keep it out of the 72px
+            # headline (which would clip horizontally) and show it in the
+            # word-wrapped subline instead.
+            self.set_hero_state('error', headline="Scan failed",
+                                subline=message or "Please try again or report to the office")
 
         self._refresh_stats_labels()
         self._update_last_scan_label()
