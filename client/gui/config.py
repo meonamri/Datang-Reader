@@ -57,4 +57,4 @@ class Config:
 
     # Animation settings
     ENABLE_PULSE_ANIMATION = os.getenv("DATANG_ENABLE_PULSE", "true").lower() == "true"
-    PULSE_ANIMATION_FPS = 12  # Updates per second (lower = less CPU usage for ARM)
+    PULSE_ANIMATION_FPS = int(os.getenv("DATANG_PULSE_FPS", "30"))

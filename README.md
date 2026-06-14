@@ -18,9 +18,9 @@ Split-architecture RFID attendance tracking for Datang API with Docker deploymen
          ↓
 ┌─────────────────┐       ┌──────────────────────┐
 │  Docker Server  │  ←──  │  Tailscale Serve      │
-│  - HTTP API     │       │  (optional)            │
-│  - Auth Manager │       │  svc:datang-reader     │
-│  - Offline Queue│       │  HTTPS on your tailnet │
+│  - HTTP API     │       │  (optional)           │
+│  - Auth Manager │       │  datang-reader.tailnet│
+│  - Offline Queue│       │  HTTPS on your tailnet│
 │  - IDME Module  │       └──────────────────────┘
 └────────┬────────┘
          │ At cutoff time (e.g. 09:00)
@@ -67,7 +67,18 @@ nano .env  # Configure GUI settings (optional)
 ./run-gui.sh
 ```
 
-### 3. Test the System
+### 3. Enable Auto-start (Optional)
+
+To have the GUI client start automatically on login:
+
+```bash
+cd client/
+./install-autostart.sh
+```
+
+See [AUTOSTART.md](AUTOSTART.md) for full details and troubleshooting.
+
+### 4. Test the System
 
 ```bash
 # Check server health
@@ -99,7 +110,7 @@ This uses `tailscale serve --service` to register a **named service** with its o
 
 ```bash
 # Test from any device on your tailnet
-curl https://svc:datang-reader.<your-tailnet>.ts.net/health
+curl https://datang-reader.<your-tailnet>.ts.net/health
 
 # Remove the service
 ./tailscale-serve-setup.sh --remove
@@ -242,6 +253,9 @@ curl -X POST http://localhost:8080/sync
 
 # Check status
 curl http://localhost:8080/status
+
+# List failed scan records (card IDs, timestamps, error messages)
+curl http://localhost:8080/failed
 ```
 
 ### GUI Client
@@ -254,6 +268,9 @@ cd client/
 
 # Start console version (testing)
 ./run-console.sh
+
+# Show failed scan records (card IDs, timestamps, error messages)
+./run-console.sh --failed
 
 # Custom container URL
 ./run-gui.sh --url http://192.168.1.100:8080
@@ -393,6 +410,26 @@ rm -rf venv
 1. Test in text editor (should type card ID + Enter)
 2. Ensure GUI window has focus
 3. Check USB connection
+
+### Failed Scans
+
+**Identify which card IDs failed:**
+```bash
+# Via console client
+cd client/ && ./run-console.sh --failed
+
+# Via HTTP endpoint
+curl http://localhost:8080/failed
+
+# Directly in the SQLite database
+sqlite3 -column -header ~/.datang_reader_queue.db \
+  "SELECT id, card_id, timestamp, retry_count, last_error FROM attendance_queue WHERE status='failed';"
+```
+
+A scan is permanently marked `failed` after 5 retry attempts. The `last_error` column shows why it failed (e.g. token expired, attendance submission error). To retry failed scans, resolve the underlying issue and then trigger a manual sync:
+```bash
+curl -X POST http://localhost:8080/sync
+```
 
 ### Debug Mode
 

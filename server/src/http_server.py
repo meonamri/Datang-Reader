@@ -151,6 +151,29 @@ def create_app(use_mock_api: bool = False) -> tuple[Flask, ServiceManager]:
                 "message": f"Internal error: {str(e)}"
             }), 500
 
+    @app.route('/failed', methods=['GET'])
+    def failed_scans():
+        """
+        Get list of permanently failed scan records
+
+        Returns:
+            List of failed records with card IDs, timestamps, and error messages
+        """
+        try:
+            records = service_manager.queue.get_failed_records()
+            return jsonify({
+                "status": "ok",
+                "timestamp": datetime.now().isoformat(),
+                "count": len(records),
+                "failed_records": records
+            }), 200
+        except Exception as e:
+            logger.error(f"Error retrieving failed records: {e}")
+            return jsonify({
+                "status": "error",
+                "message": str(e)
+            }), 500
+
     @app.route('/sync', methods=['POST'])
     def sync_queue():
         """
@@ -206,6 +229,7 @@ def run_http_server(host: str = '0.0.0.0', port: int = 8080, use_mock_api: bool 
     print(f"  POST /card     - Submit card scan")
     print(f"  GET  /health   - Health check")
     print(f"  GET  /status   - Service status")
+    print(f"  GET  /failed   - List failed scan records")
     print(f"  POST /sync     - Manual queue sync")
     print(f"  GET  /idme/*   - IDME module (if enabled)")
     print("="*60 + "\n")
