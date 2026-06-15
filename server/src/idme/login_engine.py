@@ -110,6 +110,11 @@ class IDMELoginEngine:
                 'network.http.http2.enabled': False,
                 'network.http.spdy.enabled': False,
                 'network.http.spdy.enabled.http2': False,
+                # MOEIS SSO sometimes redirects to http://moeispel.moe.gov.my/
+                # (port 80 is closed → NS_ERROR_CONNECTION_REFUSED). Force
+                # Firefox to upgrade every http navigation to https, which is
+                # the automated equivalent of manually re-adding the "s".
+                'dom.security.https_only_mode': True,
             }
         )
 
@@ -291,7 +296,7 @@ class IDMELoginEngine:
         """Step 3: Navigate to 'Aplikasi' section."""
         self.logger.info("STEP 3: Navigating to Aplikasi...")
 
-        await self.page.wait_for_load_state('networkidle', timeout=10000)
+        await self.page.wait_for_load_state('domcontentloaded', timeout=10000)
         await self.page.wait_for_timeout(500)
 
         selectors = [
@@ -313,7 +318,7 @@ class IDMELoginEngine:
             self.logger.warning("Aplikasi link not found (may already be on correct page)")
             return
 
-        async with self.page.expect_navigation(wait_until='networkidle', timeout=15000):
+        async with self.page.expect_navigation(wait_until='domcontentloaded', timeout=15000):
             await link.click()
 
         self.logger.info("Navigated to Aplikasi")
@@ -322,7 +327,7 @@ class IDMELoginEngine:
         """Step 4: Select 'Pengurusan Murid' and navigate to MOEIS."""
         self.logger.info("STEP 4: Selecting Pengurusan Murid...")
 
-        await self.page.wait_for_load_state('networkidle', timeout=10000)
+        await self.page.wait_for_load_state('domcontentloaded', timeout=10000)
         await self.page.wait_for_timeout(1000)
 
         link = await self.page.query_selector('a:has-text("Pengurusan Murid")')
@@ -337,17 +342,68 @@ class IDMELoginEngine:
 
         self.logger.info(f"SSO URL: {href[:80]}...")
 
-        # Navigate to SSO URL
-        await self.page.goto(href, wait_until='networkidle', timeout=30000)
+        # SSO hop: this establishes the MOEIS session cookie in the browser
+        # context. The moeispel home page never reaches a settled load state
+        # (it perpetually re-polls failing http:// dashboard endpoints), so we
+        # only need it to commit. We then open the attendance page on a FRESH
+        # page in the same context — navigating away from the stuck home
+        # document directly raises NS_ERROR_FAILURE.
+        try:
+            await self.page.goto(href, wait_until='domcontentloaded', timeout=30000)
+        except PlaywrightError as e:
+            self.logger.warning(f"SSO landing reported {e}; continuing on fresh page")
+        await self.page.wait_for_timeout(2000)
         self.logger.info(f"On MOEIS: {self.page.url}")
 
-        # Navigate to attendance page
-        await self.page.wait_for_timeout(2000)
-        if 'moeispel' in self.page.url:
-            await self.page.goto(
-                self.ATTENDANCE_URL, wait_until='networkidle', timeout=30000
-            )
-            self.logger.info(f"On attendance page: {self.page.url}")
+        if 'moeispel' not in self.page.url:
+            self.logger.warning("Not on MOEIS after SSO; cannot open attendance page")
+            return
+
+        # Fresh page in the same context (shares the auth cookies set above).
+        attendance_page = await self.context.new_page()
+        await attendance_page.goto(
+            self.ATTENDANCE_URL, wait_until='domcontentloaded', timeout=30000
+        )
+
+        # The portal hardcodes http:// AJAX URLs. With HTTPS-Only mode each one
+        # takes a cross-scheme 307 to https, and the browser strips the
+        # X-CSRF-TOKEN header across that redirect -> HTTP 419 (Page Expired)
+        # and an empty student table. Rewrite jQuery AJAX URLs to https BEFORE
+        # they are sent so the CSRF header survives.
+        await attendance_page.evaluate(
+            """() => {
+                if (window.jQuery) {
+                    jQuery.ajaxPrefilter(function(opts) {
+                        if (opts.url) {
+                            opts.url = opts.url.replace(/^http:\\/\\/moeispel/i,
+                                                        'https://moeispel');
+                        }
+                    });
+                }
+            }"""
+        )
+
+        # Student rows load via AJAX on the class-select 'change' event, which
+        # does not fire for the pre-selected class — trigger it explicitly.
+        await attendance_page.evaluate(
+            """() => {
+                if (window.jQuery && jQuery('#txtNamakelas').length) {
+                    jQuery('#txtNamakelas').trigger('change');
+                }
+            }"""
+        )
+        await attendance_page.wait_for_selector('input.case-hadir', timeout=20000)
+
+        # Hand the attendance page to the remaining steps (CSRF, cookies,
+        # form filling all operate on self.page). Close the stuck home page so
+        # its failing dashboard polling stops churning the network.
+        old_page = self.page
+        self.page = attendance_page
+        try:
+            await old_page.close()
+        except Exception:
+            pass
+        self.logger.info(f"On attendance page: {self.page.url}")
 
     async def step5_extract_csrf_token(self):
         """Step 5: Extract CSRF token from the page."""

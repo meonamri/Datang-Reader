@@ -17,32 +17,62 @@ Plus (commit `4cbc2c9`) roster Excel upload with replace option + template downl
 
 ## Current testing status (2026-06-15)
 
-- **Login automation (`login_engine.py`): VALIDATED against the live portal.**
-  All 6 login steps and selectors fire correctly; no 2FA/OTP appeared.
-  Last test run failed only on **invalid credentials** ("No Kad Pengenalan dan
-  kata laluan tidak sepadan"), not on automation logic. Re-test pending valid
-  teacher IC + password.
-- **Student-table read (`form_filler.get_student_list`): not yet confirmed**
-  (blocked behind a successful login).
-- **Mark + submit (`form_filler.mark_absences_and_submit`): UNTESTED and not to
-  be run casually** — it submits REAL absence records to a live government
-  portal. Hard to reverse.
+- **Login + navigation + student-table read: VALIDATED end-to-end against the
+  live portal** (with valid teacher credentials; no 2FA/OTP). All 6 login steps
+  pass, SSO into MOEIS works, CSRF + cookies extract, and
+  `form_filler.get_student_list` returns the real class roster (25 students for
+  the test teacher's class). Reproduced over multiple consecutive headless runs.
+- **Mark + submit (`form_filler.mark_absences_and_submit`): STILL UNTESTED and
+  not to be run casually** — it submits REAL absence records to a live
+  government portal. Hard to reverse. (Note: the submit AJAX endpoints
+  `kemaskiniKehadiranHarian` / `sahkanharian*` are also hardcoded `http://` and
+  depend on the same CSRF-preserving fix below to ever succeed.)
+
+### Engine changes made this session (for the eventual merge review)
+
+All in `login_engine.py`, required to reach the attendance table on the live
+portal. The MOEIS portal hardcodes `http://` URLs but only serves `https`
+(port 80 is closed), which broke the automation in three distinct ways:
+
+1. **`dom.security.https_only_mode = True`** added to `firefox_user_prefs`
+   (alongside the HTTP/2-disabled prefs). The SSO step redirects to
+   `http://moeispel…` → `NS_ERROR_CONNECTION_REFUSED` without this; it forces
+   the http→https upgrade (the automated equivalent of manually adding the "s").
+2. **`networkidle` → `domcontentloaded`** for all 5 waits/navigations. The
+   MOEIS pages never reach `networkidle` (perpetual dashboard polling), so the
+   old waits timed out.
+3. **`step4` restructured**: after the SSO hop establishes the session, the
+   attendance page is opened on a **fresh page in the same context** (the
+   moeispel home document never settles; navigating away from it raises
+   `NS_ERROR_FAILURE`). On that page we inject a **jQuery `$.ajaxPrefilter`**
+   that rewrites `http://moeispel`→`https://` *before* requests are sent
+   (the cross-scheme 307 strips the `X-CSRF-TOKEN` header → HTTP 419 / empty
+   table), then trigger the class-select `change` event to load the rows.
+   `self.page` is reassigned to this attendance page so steps 5/6 + form_filler
+   operate on it.
 
 ## Local test harness (not part of the Docker app)
 
-Created for manual Playwright testing on this machine (macOS, no Docker):
+For manual Playwright testing. **This machine is Windows** (the venv was rebuilt
+here; the activate path is `Scripts\`, not `bin/`). On Windows, invoke the venv
+python directly rather than activating:
 
 - `server/.venv-idme/` — isolated venv (Playwright 1.60 + Firefox). Gitignored.
 - `server/test_idme_login.py` — **read-only** driver: login → navigate → read
-  student list. Does NOT mark or submit. Run:
-  ```bash
-  cd server && . .venv-idme/bin/activate && python test_idme_login.py      # visible
-  python test_idme_login.py --headless                                      # no window
+  student list. Does NOT mark or submit. Run (Windows):
+  ```powershell
+  cd server
+  .\.venv-idme\Scripts\python.exe test_idme_login.py             # visible
+  .\.venv-idme\Scripts\python.exe test_idme_login.py --headless  # no window
   ```
+- `server/diag_idme_attendance.py` — **read-only** diagnostic used to reverse-
+  engineer the attendance-page navigation/AJAX issues (dumps page state to
+  `server/idme-diag/`). Gitignored. Its `idme-diag/` dumps contain **real
+  student PII** — never commit them.
 - `server/.idme-test.env` — teacher IC + password for the test (gitignored;
   copy from `.idme-test.env.example`). Never commit real credentials.
 
-All three are gitignored (see `.gitignore` → "IDME local test harness").
+All gitignored (see `.gitignore` → "IDME local test harness").
 
 ## Notes / known issues
 
