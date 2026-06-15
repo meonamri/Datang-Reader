@@ -6,6 +6,28 @@
 > testing banner** (a committed file carries over on merge; git cannot pin a
 > file to a branch permanently).
 
+## NEXT STEP (handoff — read me first, 2026-06-15)
+
+We finished the **design phase** for student identity resolution and stopped
+**right before starting Phase 1**. Pick up there.
+
+- **Read first:** `server/src/idme/IDENTITY_RESOLUTION_DESIGN.md` (the agreed
+  plan). It supersedes ad-hoc name matching with: a persistent identity registry
+  seeded from the portal, **passively-learned RFID tags** from the scan stream,
+  mark-by-`idpelajar` for form-filling, and a settings-UI tag-coverage panel.
+- **Settled facts (don't re-investigate):** IC is **unavailable on both sides**
+  (Datang response has no IC; portal row exposes only `data-idpelajar` +
+  `data-namapelajar` — confirmed via `diag_idme_pipeline.py --probe-portal-attrs`).
+  So name is the only scan↔roster bridge; RFID tag is the daily key once learned.
+- **Phase 1 (START HERE):** harden `absence_detector._normalize_name` (currently
+  only uppercases + collapses spaces; docstring's "bin/binti" claim is FALSE —
+  see Notes/known issues) AND add the variant cases as assertions in
+  `server/diag_idme_pipeline.py`. Calibration caveat: a false *present* (two
+  students collapsing to one) is worse than a false absent — when fuzzy is
+  ambiguous, prefer no-match + alert over a guess.
+- Phases 2 (portal "Initialise Roster" + mark-by-idpelajar) and 3 (tag learning +
+  tag-first detection + coverage UI) follow — see the design doc's phased plan.
+
 ## What this branch adds
 
 The **IDME module** (`server/src/idme/`): automated absence submission to
@@ -17,6 +39,19 @@ Plus (commit `4cbc2c9`) roster Excel upload with replace option + template downl
 
 ## Current testing status (2026-06-15)
 
+- **Offline data pipeline (absence detection + credential round-trip):
+  VALIDATED** via `diag_idme_pipeline.py` against the *real* 25-student roster
+  (pulled read-only from the portal) seeded into a throwaway `idme_data.db`.
+  `AbsenceDetector.detect_absences` computes `roster − scans = absent` correctly,
+  emits dicts whose shape (`student_name`/`category`/`sebab_id`) feeds
+  `form_filler.mark_absences_and_submit` unchanged, and `CredentialManager`
+  Fernet encrypt/decrypt round-trips (wrong key → `DecryptionError`). **Caveat
+  surfaced:** `absence_detector._normalize_name` only uppercases + collapses
+  spaces — its docstring claim of "handle bin/binti variations" is FALSE. Scan
+  names that differ structurally from the roster (BIN↔B., BINTI↔BT, appended
+  titles/aliases) are NOT matched, so a *present* student gets FALSELY marked
+  absent. Whitespace/case variants are fine. **Harden the normalizer before any
+  live orchestrator run** (see Notes / known issues).
 - **Login + navigation + student-table read: VALIDATED end-to-end against the
   live portal** (with valid teacher credentials; no 2FA/OTP). All 6 login steps
   pass, SSO into MOEIS works, CSRF + cookies extract, and
@@ -160,13 +195,31 @@ python directly rather than activating:
   selected `select.selectsebab` value — it unchecks a checkbox + sets dropdowns
   in the live DOM but **never clicks Kemaskini/Simpan, so nothing is submitted**.
   Gitignored. Run: `.\.venv-idme\Scripts\python.exe diag_idme_reasons.py --headless [--validate-mark]`.
+- `server/diag_idme_pipeline.py` — **offline** pipeline diagnostic for the
+  untested data half (absence detection + Fernet round-trip). Pulls the real
+  roster **read-only** (`--refresh-roster`, caches to gitignored
+  `server/idme-pipeline/roster.json`), then seeds a throwaway
+  `idme-pipeline/pipeline_test.db` and runs `AbsenceDetector` against synthesized
+  scans incl. mangled name variants. **Never logs in for marking; never submits.**
+  Names are masked in console output (no PII printed). Run:
+  `.\.venv-idme\Scripts\python.exe diag_idme_pipeline.py [--refresh-roster --headless]`
+  (omit `--refresh-roster` to reuse the cached roster, fully offline).
 - `server/.idme-test.env` — teacher IC + password for the test (gitignored;
   copy from `.idme-test.env.example`). Never commit real credentials.
 
-All gitignored (see `.gitignore` → "IDME local test harness").
+All gitignored (see `.gitignore` → "IDME local test harness"); `idme-pipeline/`
+holds the cached real roster + temp DB and is also gitignored.
 
 ## Notes / known issues
 
+- **`absence_detector._normalize_name` is too weak (BUG, found 2026-06-15).** It
+  only `.upper()`s + collapses double-spaces, but its docstring claims it
+  "handle[s] bin/binti variations" — it does not. If the school-Excel roster name
+  and the Datang-API scan name for the *same* student differ structurally
+  (BIN↔B./BINTI↔BT, appended titles, `@` aliases, token reordering), the diff
+  treats the present student as absent and would submit a real false absence.
+  Must be hardened (token-set comparison, bin/binti canonicalization) before the
+  live orchestrator run. Reproduced by `diag_idme_pipeline.py`.
 - `login_engine.py:421` logs the teacher IC at INFO level — leaks it into test
   output. Consider masking before sharing logs.
 - Debug screenshots target `/data/idme/screenshots` (a Docker path) — won't
