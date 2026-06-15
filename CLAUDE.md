@@ -6,16 +6,85 @@
 > testing banner** (a committed file carries over on merge; git cannot pin a
 > file to a branch permanently).
 
-## NEXT STEP (handoff — read me first, updated 2026-06-15)
+## NEXT STEP (handoff — read me first, updated 2026-06-15 PM)
 
-The **identity-resolution design is now IMPLEMENTED — all 3 phases** (see
-`server/src/idme/IDENTITY_RESOLUTION_DESIGN.md` for the plan). Offline + live
-read-only validation are green, and the **live confirm-submit through the new
-idpelajar mark path is now VALIDATED end-to-end** (2026-06-15, explicit user
-authorization: draft→MENUNGGU PENGESAHAN, confirm→TELAH DISAHKAN with a
-`kemaskiniKehadiranHarian` POST = HTTP 200; test class left confirmed, reset in
-the portal afterward). Any future live submit still needs fresh authorization
-each time — do NOT run it casually or autonomously.
+**WHERE WE'RE AT: the engine is fully proven end-to-end; the NEXT STEP is the
+PRODUCTION ROLLOUT, which the user will drive with a FRESH Claude instance.**
+Read the "PROD ROLLOUT PLAN" block just below — that's your job if you're that
+new instance.
+
+Full container e2e was validated **live on the Pi** 2026-06-15 PM via the **real
+`Orchestrator.submit_class` path** (not the diag script): `/card` scan → Datang
+resolve → `record_scan` → tag-learning (coverage 0→25/25 for class "3 USM") →
+`detect_absences` → live login → mark-by-idpelajar → submit. **Both** paths hit
+the live portal: draft (`confirm=false`) → MENUNGGU PENGESAHAN, confirm
+(`confirm=true`) → TELAH DISAHKAN. Any future live submit still needs fresh
+user authorization each time — do NOT run it casually or autonomously.
+
+**TWO BUGS found during this live e2e and FIXED + PUSHED to `idme-integration`:**
+- **`cb9c68d`** — the IDME scan hook NEVER recorded. `api_client.submit_attendance()`
+  returns the *unwrapped* student dict (`{name,section,pid,...}`), but
+  `service_manager.process_attendance` gated on `response.get("data")` (a key that
+  never exists) → `record_scan` never called → `daily_scans` empty → absence
+  detector would mark the WHOLE roster absent → scheduler would submit everyone
+  absent. Fixed via shared `_record_idme_scan()` (pass `response` directly, gate
+  on `name`), called on the main AND token-refresh-retry paths.
+- **`19182fd`** — the offline-queue `/sync` path (`offline_queue.sync_with_api`)
+  submitted queued scans to Datang but never fed them to the IDME tracker (same
+  bug class, one layer over). Fixed with an optional `on_synced(card_id, response)`
+  callback wired to `_record_idme_scan` from `ServiceManager.sync_queue`. Verified
+  on the container (enqueue → `/sync` → `daily_scans` row appears).
+
+**PROD ROLLOUT PLAN (the actual NEXT STEP):**
+IDME is NOT a separate service — it's a module inside the same `datang-reader`
+image/container. Rolling out = an *in-place upgrade* of the prod `datang-reader`
+container (host port **8081**, project dir `~/Datang-Reader/server`, project name
+`server`): rebuild from merged code + `docker compose up -d` recreates the SAME
+8081 container with IDME enabled. Datang scanning for every student is unchanged;
+the only new behavior is MOEIS submission for *onboarded* classes. **Scope is
+opt-in per teacher:** `submit_all_classes` iterates configured teachers only, so
+classes WITHOUT a teacher are never submitted to MOEIS (Datang-only, as today).
+The user currently has **2 teachers' credentials** → only those 2 classes would
+be automated; onboard the rest gradually.
+Rollout checklist:
+  1. **Merge `idme-integration` → `main`** and REMOVE the testing banner at the
+     top of this file (it carries over on merge). Merging with `IDME_ENABLED=false`
+     is safe/dormant (gated, additive, `_record_idme_scan` no-ops when
+     `scan_tracker` is None).
+  2. **Prod `.env`** (`~/Datang-Reader/server/.env`): add `IDME_ENABLED=true`,
+     `IDME_ENCRYPTION_KEY=<FRESH Fernet key — generate prod its OWN, don't reuse
+     test>` (`server/gen_fernet_key.py`), `IDME_CUTOFF_TIME=HH:MM`.
+  3. **Prod volume**: the merged compose adds `../docker-data/idme:/data/idme`
+     (prod's current mounts DON'T have it). Pre-create `~/Datang-Reader/docker-data/idme`.
+     Also ensure `queue.db`/`token` bind sources stay FILES (Docker auto-creates
+     missing bind sources as DIRS → sqlite "unable to open database file"); prod
+     already has them as files.
+  4. **Recreate** the 8081 container; add teachers via `/idme/settings`; init
+     roster per class. **Class string must match across 3 places** (roster Class
+     / Datang scan `section` / teacher `class_name`) or a class silently misfires.
+  5. **TURN-ON IS GATED — do NOT trust unattended auto-confirm yet.** The
+     scheduler's `submit_all_classes`→`submit_class` HARD-DEFAULTS `confirm=True`
+     (auto-confirms LOCKED TELAH DISAHKAN daily, unattended). RECOMMENDED before
+     any unattended run: (a) make the scheduler submit DRAFTS (`confirm=False`) for
+     a supervised period so a human confirms each morning — this is a SMALL code
+     change, NOT yet done; (b) observe ONE real scheduled fire end-to-end (every
+     submit so far was a MANUAL `/idme/submit`); (c) per-class roster/name
+     alignment + `no_match`/coverage review. Name-mismatch = a student absent EVERY
+     day (a `no_match` never learns a tag).
+
+**OPEN CLEANUP (from the e2e session):** the test left a CONFIRMED (locked) false
+absence for **AHMAD DANISH RYAN BIN HASNUL FAIZ** in class "3 USM" on the live
+MOEIS portal — the user said they would reset it (verify it's cleared). The
+throwaway test deployment (`~/test build`, compose project `datangtest`, port
+8082, image `datang-reader:testbuild`) was TORN DOWN; its data dir
+`~/test build/docker-data` persists if you want to bring it back
+(`docker compose -p datangtest up -d` — ALWAYS pass `-p datangtest`: both prod and
+test compose dirs are named `server`, so a bare `up` collides and recreates the
+PROD container).
+
+**Older milestone (still true):** the identity-resolution design — all 3 phases —
+is IMPLEMENTED (see `server/src/idme/IDENTITY_RESOLUTION_DESIGN.md`); offline +
+live read-only validation green. History below.
 
 - **Phase 1 DONE (commit `43169e0`):** `_normalize_name` hardened — bin/binti
   canonicalization (`B.`/`BN`→BIN, `BT`/`BTE`/`BTI`→BINTI, medial-only),
