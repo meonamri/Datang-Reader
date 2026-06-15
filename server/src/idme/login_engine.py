@@ -5,9 +5,17 @@ IDME Login Engine for Datang-Reader
 of Education's IDME portal (idme.moe.gov.my) and navigating to the
 MOEIS attendance page.
 
+!!! The networking workarounds here are load-bearing against the LIVE portal,
+    which hardcodes http:// but serves only https (port 80 closed) and never
+    goes network-idle. HTTP/2-disabled, `https_only_mode`, `domcontentloaded`
+    (never `networkidle`), the fresh-page SSO hop, and the jQuery
+    `$.ajaxPrefilter` CSRF fix are NOT optional. Before changing any of them,
+    READ `DESIGN_NOTES.md` in this package and re-test — they fail silently
+    (empty table / HTTP 419 / NS_ERROR_*) otherwise.
+
 Ported from: idme-attendance-automation/automation/engine.py
 Key features preserved:
-  - Firefox with HTTP/2 disabled (required for Malaysian gov portals)
+  - Firefox with HTTP/2 disabled (gov portals stall/reset over HTTP/2)
   - 6-step login flow (IC → checkbox → password → submit → navigate → CSRF)
   - CSRF token extraction
   - Cookie extraction
@@ -103,7 +111,10 @@ class IDMELoginEngine:
 
         self.playwright = await async_playwright().start()
 
-        # Firefox with HTTP/2 disabled — required for Malaysian gov portals
+        # Firefox with HTTP/2 disabled — REQUIRED, not legacy cruft. Malaysian
+        # gov portals stall / reset connections over HTTP/2; with it on,
+        # navigations hang intermittently. Do not remove these prefs or switch
+        # to Chromium. See DESIGN_NOTES.md §login_engine.1.
         self.browser = await self.playwright.firefox.launch(
             headless=self.headless,
             firefox_user_prefs={

@@ -7,12 +7,18 @@ Students are CHECKED (present) by default. Marking absent = UNCHECKING.
 Phase 1: All absences use PONTENG / MALAS KE SEKOLAH (N0040027).
 The form filler supports arbitrary category/reason for future expansion.
 
+!!! Several choices here are NON-OBVIOUS and load-bearing against the LIVE
+    portal (reason select = `select.selectsebab`; submit clicks fire via jQuery
+    `.trigger('click')`, NOT `page.click()`; confirm button is `.simpansah`, not
+    "Simpan & Sahkan"). Before "simplifying" any of them, READ `DESIGN_NOTES.md`
+    in this package and re-test — they break silently otherwise.
+
 Ported from: idme-attendance-automation/automation/form_filler.py
 Key patterns preserved:
   - Select2 dropdown manipulation via jQuery
-  - Category set first, wait 800ms, then reason
+  - Category set first, then poll for the lazily-added reason select
   - 600ms delay between students
-  - Submit flow: Kemaskini → Simpan & Sahkan → OK
+  - Submit flow: Kemaskini → (.simpan draft | .simpansah confirm)  [see DESIGN_NOTES.md]
 """
 
 import logging
