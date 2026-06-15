@@ -7,8 +7,11 @@ Provides lookup by class, RFID tag, and name for absence detection.
 
 import sqlite3
 import logging
+from datetime import datetime
 from typing import Dict, List, Optional, Any
 from pathlib import Path
+
+from .migrations import apply_migrations
 
 
 class RosterManagerError(Exception):
@@ -50,6 +53,7 @@ class RosterManager:
             if schema_path.exists():
                 conn.executescript(schema_path.read_text())
             conn.commit()
+            apply_migrations(conn)
         finally:
             conn.close()
 
@@ -180,6 +184,113 @@ class RosterManager:
         finally:
             conn.close()
 
+    def upsert_from_portal(
+        self,
+        class_name: str,
+        portal_students: List[Dict[str, str]],
+    ) -> Dict[str, Any]:
+        """
+        Seed/refresh the identity registry for a class from the MOEIS portal
+        ("Initialise Roster" — IDENTITY_RESOLUTION_DESIGN.md §5.1).
+
+        Makes the portal authoritative for name + class + idpelajar. Each portal
+        student is matched to an existing row by `idpelajar` (preferred), else by
+        normalized (name, class). Learned RFID tags are PRESERVED across re-init
+        (integration_tag / tag_source are never touched here).
+
+        Args:
+            class_name: the teacher's class (e.g. '5 UKM').
+            portal_students: [{'id': idpelajar, 'name': name}, ...] as returned
+                by form_filler.get_student_list().
+
+        Returns:
+            {'class_name', 'total', 'added', 'updated', 'renamed': [...],
+             'removed': [...]}  (removed students are REPORTED, not deleted).
+        """
+        from .names import normalize_name
+
+        now = datetime.now().isoformat()
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT id, name, idpelajar, class_name FROM students"
+            ).fetchall()
+            by_id = {r['idpelajar']: r for r in rows if r['idpelajar']}
+            by_namekey = {
+                (normalize_name(r['name']), r['class_name']): r for r in rows
+            }
+
+            added = 0
+            updated = 0
+            renamed: List[Dict[str, str]] = []
+            seen_ids = set()
+            seen_namekeys = set()
+
+            for ps in portal_students:
+                idp = (ps.get('id') or '').strip() or None
+                name = (ps.get('name') or '').strip().upper()
+                if not name:
+                    continue
+                namekey = (normalize_name(name), class_name)
+
+                match = None
+                if idp and idp in by_id:
+                    match = by_id[idp]
+                elif namekey in by_namekey:
+                    match = by_namekey[namekey]
+
+                if match:
+                    if match['name'] != name:
+                        renamed.append({'from': match['name'], 'to': name})
+                    conn.execute(
+                        "UPDATE students SET name = ?, class_name = ?, "
+                        "idpelajar = COALESCE(?, idpelajar), source = 'portal', "
+                        "enabled = 1 WHERE id = ?",
+                        (name, class_name, idp, match['id'])
+                    )
+                    updated += 1
+                else:
+                    conn.execute(
+                        "INSERT INTO students (name, class_name, idpelajar, "
+                        "source, enabled) VALUES (?, ?, ?, 'portal', 1)",
+                        (name, class_name, idp)
+                    )
+                    added += 1
+
+                if idp:
+                    seen_ids.add(idp)
+                seen_namekeys.add(namekey)
+
+            # Report (do not delete) registry students in this class the portal
+            # no longer lists — likely transfers/withdrawals for an admin to check.
+            current = conn.execute(
+                "SELECT name, idpelajar FROM students "
+                "WHERE class_name = ? AND enabled = 1",
+                (class_name,)
+            ).fetchall()
+            removed = [
+                r['name'] for r in current
+                if not ((r['idpelajar'] and r['idpelajar'] in seen_ids)
+                        or (normalize_name(r['name']), class_name) in seen_namekeys)
+            ]
+
+            conn.commit()
+            result = {
+                'class_name': class_name,
+                'total': len(portal_students),
+                'added': added,
+                'updated': updated,
+                'renamed': renamed,
+                'removed': removed,
+            }
+            self.logger.info(
+                f"Portal init for '{class_name}': +{added} added, {updated} updated, "
+                f"{len(renamed)} renamed, {len(removed)} no longer listed"
+            )
+            return result
+        finally:
+            conn.close()
+
     def get_class_roster(self, class_name: str) -> List[Dict[str, Any]]:
         """
         Get all students in a class.
@@ -188,13 +299,15 @@ class RosterManager:
             class_name: Class name (e.g., '5 UKM').
 
         Returns:
-            List of student dicts with 'name', 'ic_number', 'integration_tag', 'student_id'.
+            List of student dicts with 'name', 'ic_number', 'integration_tag',
+            'idpelajar', 'tag_source', 'student_id'.
         """
         conn = self._get_conn()
         try:
             rows = conn.execute(
-                "SELECT name, ic_number, integration_tag, student_id "
-                "FROM students WHERE class_name = ? AND enabled = 1 ORDER BY name",
+                "SELECT name, ic_number, integration_tag, idpelajar, tag_source, "
+                "student_id FROM students WHERE class_name = ? AND enabled = 1 "
+                "ORDER BY name",
                 (class_name,)
             ).fetchall()
             return [dict(row) for row in rows]

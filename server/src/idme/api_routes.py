@@ -352,6 +352,37 @@ def get_roster():
         }), 200
 
 
+@idme_bp.route('/roster/init', methods=['POST'])
+def init_roster():
+    """
+    Initialise (seed/refresh) the identity registry for a class from the MOEIS
+    portal. READ-ONLY against the portal — logs in, reads the student table, and
+    upserts into the local registry. Learned RFID tags are preserved.
+
+    JSON body: {"class_name": "5 UKM"}  (a teacher must be configured for it).
+    """
+    if not _orchestrator or not _teacher_manager:
+        return jsonify({'error': 'IDME module not initialized'}), 503
+
+    data = request.get_json() or {}
+    class_name = data.get('class_name')
+    if not class_name:
+        return jsonify({'error': 'class_name is required'}), 400
+
+    teacher = _teacher_manager.get_teacher_for_class(class_name)
+    if not teacher:
+        return jsonify({'error': f'No teacher configured for class {class_name}'}), 400
+
+    try:
+        result = _orchestrator.init_roster_from_portal(
+            teacher_id=teacher['id'],
+            class_name=class_name,
+        )
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({'error': str(e), 'status': 'failed'}), 500
+
+
 @idme_bp.route('/roster/import', methods=['POST'])
 def import_roster():
     """Import student roster from Excel file."""

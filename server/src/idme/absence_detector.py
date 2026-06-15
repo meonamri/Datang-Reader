@@ -7,12 +7,12 @@ PONTENG - MALAS KE SEKOLAH (N0040027).
 """
 
 import logging
-import re
 from typing import Dict, List, Optional, Any
 from datetime import date
 
 from .roster_manager import RosterManager
 from .scan_tracker import ScanTracker
+from .names import normalize_name
 from .moeis_codes import DEFAULT_CATEGORY, DEFAULT_SEBAB_ID, DEFAULT_CATEGORY_MALAY, DEFAULT_SEBAB_DESCRIPTION
 
 
@@ -28,13 +28,6 @@ class AbsenceDetector:
     Logic: roster(all students) - scanned(present students) = absent students.
     All detected absences are assigned the default reason (N0040027).
     """
-
-    # bin/binti connector tokens (the "son of" / "daughter of" particle). These
-    # drift heavily between systems (BIN/B./BN, BINTI/BT/BTE) so they are
-    # canonicalised to one form each. Kept DISTINCT (BIN != BINTI) to avoid
-    # collapsing two genuinely different students onto one key.
-    _BIN_TOKENS = {'BIN', 'B', 'BN', 'IBN'}
-    _BINTI_TOKENS = {'BINTI', 'BT', 'BTE', 'BTI', 'BINTE'}
 
     def __init__(self, roster_manager: RosterManager, scan_tracker: ScanTracker):
         """
@@ -104,24 +97,28 @@ class AbsenceDetector:
 
         # Step 4: Find absent students (in roster but not scanned). Iterate the
         # roster directly — never key a dict on the normalized name, or colliding
-        # students would overwrite each other and silently vanish.
-        absent_names = sorted(
-            s['name'] for s in roster
-            if self._normalize_name(s['name']) not in scanned_normalized
+        # students would overwrite each other and silently vanish. Keep the full
+        # row so we can carry idpelajar through to form_filler (Seam B).
+        absent_rows = sorted(
+            (s for s in roster
+             if self._normalize_name(s['name']) not in scanned_normalized),
+            key=lambda s: s['name'],
         )
 
         self.logger.info(
             f"Class '{class_name}' on {scan_date}: "
             f"roster={len(roster)}, scanned={len(scanned_normalized)}, "
-            f"absent={len(absent_names)}"
+            f"absent={len(absent_rows)}"
         )
 
-        # Step 5: Assign default reason
+        # Step 5: Assign default reason. `idpelajar` (when present) lets
+        # form_filler mark by the portal id instead of the name (Seam B).
         absences = []
-        for name in absent_names:
+        for s in absent_rows:
             absences.append({
-                'student_name': name,
+                'student_name': s['name'],
                 'class_name': class_name,
+                'idpelajar': s.get('idpelajar'),
                 'category': DEFAULT_CATEGORY,
                 'category_malay': DEFAULT_CATEGORY_MALAY,
                 'sebab_id': DEFAULT_SEBAB_ID,
@@ -203,56 +200,13 @@ class AbsenceDetector:
             )
         return list(collisions.keys())
 
-    @classmethod
-    def _normalize_name(cls, name: str) -> str:
+    @staticmethod
+    def _normalize_name(name: str) -> str:
         """
         Normalize a Malaysian name for cross-system comparison.
 
-        The roster name (from the portal / school Excel) and the Datang scan name
-        for the SAME student routinely differ in formatting. This canonicalises
-        the common, SAFE-to-merge drifts so they compare equal:
-
-        - Uppercase + strip + collapse internal whitespace.
-        - Drop parenthetical / bracketed extras: ``(KETUA)``, ``(KP)``, ``[..]``.
-        - Canonicalise the bin/binti connector family (``B.``/``BN`` -> ``BIN``,
-          ``BT``/``BTE``/``BTI`` -> ``BINTI``) — but ONLY when the token sits
-          *between* other tokens, so a leading/trailing initial like ``B`` is not
-          mistaken for "bin".
-        - Normalise spacing around ``@`` aliases so ``X@Y`` == ``X @ Y`` (both
-          sides of the alias are retained verbatim — we do not guess which side
-          the other system used).
-
-        Deliberately CONSERVATIVE: token ORDER is preserved (no token-set sort),
-        because sorting risks collapsing two distinct students onto one key — a
-        false *present* (worse than a false absent). Reordering / dropped-middle-
-        token cases are left to the RFID-tag path, not fuzzy name matching.
-
-        Args:
-            name: Raw student name.
-
-        Returns:
-            Normalized name string.
+        Thin wrapper around :func:`names.normalize_name` (shared with
+        roster_manager). See that function for the full canonicalization rules
+        and the deliberately-conservative calibration choices.
         """
-        if not name:
-            return ''
-
-        n = name.upper().strip()
-        # Drop parenthetical / bracketed extras: (KETUA), (KP), [..]
-        n = re.sub(r'[\(\[][^\)\]]*[\)\]]', ' ', n)
-        # Make '@' a standalone token so spacing variants align.
-        n = n.replace('@', ' @ ')
-        # Tokenise; treat '.' as a separator so "B." -> "B", "BT." -> "BT".
-        raw = n.replace('.', ' ').split()
-
-        tokens = []
-        last = len(raw) - 1
-        for i, t in enumerate(raw):
-            medial = 0 < i < last  # connector particles are never first/last
-            if medial and t in cls._BIN_TOKENS:
-                tokens.append('BIN')
-            elif medial and t in cls._BINTI_TOKENS:
-                tokens.append('BINTI')
-            else:
-                tokens.append(t)
-
-        return ' '.join(tokens)
+        return normalize_name(name)

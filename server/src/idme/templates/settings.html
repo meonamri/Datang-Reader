@@ -208,6 +208,24 @@
                 <button type="submit" class="btn btn-success">Upload &amp; Import</button>
             </form>
         </div>
+
+        <!-- Initialise Roster from Portal -->
+        <div class="card">
+            <h2>Initialise Roster from Portal</h2>
+            <p style="color: #94a3b8; margin-bottom: 12px; font-size: 0.9em;">
+                Seed/refresh a class roster directly from the MOEIS portal
+                (read-only login &mdash; reads the student table, never marks or
+                submits). The portal becomes authoritative for name + class +
+                student id. Learned RFID card mappings are preserved.
+            </p>
+            <form id="roster-init-form" onsubmit="initRoster(event)">
+                <div class="form-group">
+                    <label>Class (must have a configured teacher)</label>
+                    <input type="text" id="roster-init-class" placeholder="e.g. 5 UKM" required>
+                </div>
+                <button type="submit" class="btn btn-primary">Initialise from Portal</button>
+            </form>
+        </div>
     </div>
 
     <script>
@@ -319,6 +337,39 @@
                     setTimeout(() => location.reload(), 1500);
                 } else {
                     showAlert('error', result.error || 'Import failed');
+                }
+            } catch (err) {
+                showAlert('error', `Error: ${err.message}`);
+            }
+        }
+
+        async function initRoster(e) {
+            e.preventDefault();
+            const className = document.getElementById('roster-init-class').value.trim();
+            if (!className) {
+                showAlert('error', 'Please enter a class name');
+                return;
+            }
+
+            showAlert('info', `Logging into the portal and reading "${className}"...`);
+
+            try {
+                const resp = await fetch('/idme/roster/init', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ class_name: className }),
+                });
+                const result = await resp.json();
+
+                if (resp.ok) {
+                    let msg = `Roster initialised for ${result.class_name}: `
+                        + `+${result.added} added, ${result.updated} updated`;
+                    if (result.renamed && result.renamed.length) msg += `, ${result.renamed.length} renamed`;
+                    if (result.removed && result.removed.length) msg += `, ${result.removed.length} no longer listed`;
+                    showAlert('success', msg);
+                    setTimeout(() => location.reload(), 1800);
+                } else {
+                    showAlert('error', result.error || 'Roster init failed');
                 }
             } catch (err) {
                 showAlert('error', `Error: ${err.message}`);

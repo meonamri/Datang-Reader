@@ -108,22 +108,28 @@ class IDMEFormFiller:
         self,
         student_name: str,
         category: str = DEFAULT_CATEGORY,
-        sebab_id: str = DEFAULT_SEBAB_ID
+        sebab_id: str = DEFAULT_SEBAB_ID,
+        idpelajar: str = None
     ) -> bool:
         """
         Mark a single student as absent.
 
         Process:
-        1. Find checkbox by data-namapelajar
+        1. Find checkbox by data-idpelajar (exact, name-free) when an idpelajar is
+           given; fall back to data-namapelajar otherwise (Seam B,
+           IDENTITY_RESOLUTION_DESIGN.md §6).
         2. Uncheck it (mark absent)
         3. Set category dropdown (via jQuery/Select2)
         4. Wait 800ms for reason dropdown to populate
         5. Set reason dropdown
 
         Args:
-            student_name: Student name (must match data-namapelajar).
+            student_name: Student name (matches data-namapelajar; used for the
+                fallback path and for logging).
             category: MOEIS category code (default: 'N').
             sebab_id: MOEIS sebab code (default: 'N0040027').
+            idpelajar: MOEIS portal student id (data-idpelajar). When provided,
+                the checkbox is located by this exact id rather than by name.
 
         Returns:
             True if successful, False otherwise.
@@ -141,14 +147,25 @@ class IDMEFormFiller:
         try:
             result = await self.page.evaluate(
                 """
-                async ({ studentName, categoryMalay, sebabDescription }) => {
+                async ({ studentName, categoryMalay, sebabDescription, idpelajar }) => {
                     // Helper: wait with timeout
                     const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-                    // Step 1: Find checkbox by name
-                    const checkbox = document.querySelector(
-                        `input.case-hadir[data-namapelajar="${studentName}"]`
-                    );
+                    // Step 1: Find checkbox. Prefer data-idpelajar (exact, name-
+                    // free, Seam B); fall back to data-namapelajar by name.
+                    const cssEscape = (s) => (window.CSS && CSS.escape)
+                        ? CSS.escape(s) : String(s).replace(/"/g, '\\\\"');
+                    let checkbox = null;
+                    if (idpelajar) {
+                        checkbox = document.querySelector(
+                            `input.case-hadir[data-idpelajar="${cssEscape(idpelajar)}"]`
+                        );
+                    }
+                    if (!checkbox) {
+                        checkbox = document.querySelector(
+                            `input.case-hadir[data-namapelajar="${studentName}"]`
+                        );
+                    }
                     if (!checkbox) {
                         return { success: false, error: 'Student checkbox not found' };
                     }
@@ -237,6 +254,7 @@ class IDMEFormFiller:
                     'studentName': student_name,
                     'categoryMalay': category_malay,
                     'sebabDescription': sebab_description,
+                    'idpelajar': idpelajar,
                 }
             )
 
@@ -313,9 +331,10 @@ class IDMEFormFiller:
             name = absence['student_name']
             category = absence.get('category', DEFAULT_CATEGORY)
             sebab_id = absence.get('sebab_id', DEFAULT_SEBAB_ID)
+            idpelajar = absence.get('idpelajar')
 
             self.logger.info(f"[{i}/{total}] {name}...")
-            result = await self.mark_student_absent(name, category, sebab_id)
+            result = await self.mark_student_absent(name, category, sebab_id, idpelajar)
 
             if result:
                 success += 1

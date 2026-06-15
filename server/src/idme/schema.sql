@@ -1,20 +1,48 @@
 -- IDME Module Database Schema
 -- Separate database: idme_data.db (does NOT touch Datang's queue database)
 
--- Student roster (imported from school Excel export)
+-- Student identity registry (seeded from the MOEIS portal and/or school Excel;
+-- learns RFID tags passively from the scan stream). See
+-- src/idme/IDENTITY_RESOLUTION_DESIGN.md.
+-- NOTE: the identity columns below (idpelajar/tag_source/tag_updated_at/source)
+-- are also added to EXISTING databases by migrations.apply_migrations(), because
+-- CREATE TABLE IF NOT EXISTS is a no-op once the table exists.
 CREATE TABLE IF NOT EXISTS students (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     student_id TEXT,                    -- School ID from Excel
     name TEXT NOT NULL,                 -- Full name (uppercase)
     ic_number TEXT,                     -- Malaysian IC (12 digits), nullable
     class_name TEXT NOT NULL,           -- e.g., '5 UKM'
-    integration_tag TEXT,              -- RFID card ID (nullable)
+    integration_tag TEXT,              -- CURRENT (possibly learned) RFID card ID
+    idpelajar TEXT,                    -- MOEIS data-idpelajar (portal student id)
+    tag_source TEXT,                   -- 'excel' | 'learned' | NULL
+    tag_updated_at TIMESTAMP,          -- when integration_tag was last set/changed
+    source TEXT,                       -- 'portal' | 'excel'
     enabled BOOLEAN DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_students_class ON students(class_name);
 CREATE INDEX IF NOT EXISTS idx_students_tag ON students(integration_tag);
 CREATE INDEX IF NOT EXISTS idx_students_name ON students(name);
+-- idx_students_idpelajar is created by migrations.apply_migrations() AFTER the
+-- column is guaranteed present (an existing DB won't have it when this script
+-- runs, so referencing it here would error inside executescript).
+
+-- Scans we could not tie to any registry student (the alert surface for the
+-- settings-UI coverage panel). Deduped per (card_id, scan_date).
+CREATE TABLE IF NOT EXISTS unmatched_scans (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    card_id      TEXT NOT NULL,
+    scan_name    TEXT NOT NULL,      -- name Datang returned
+    scan_class   TEXT,              -- section Datang returned
+    scan_date    DATE NOT NULL,
+    reason       TEXT,              -- 'no_match' | 'ambiguous'
+    resolved     BOOLEAN DEFAULT 0,  -- set when an admin maps/ignores it
+    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unmatched_unique
+    ON unmatched_scans(card_id, scan_date);
+CREATE INDEX IF NOT EXISTS idx_unmatched_date ON unmatched_scans(scan_date);
 
 -- Teacher credentials (managed via Web UI at /idme/settings)
 CREATE TABLE IF NOT EXISTS teachers (

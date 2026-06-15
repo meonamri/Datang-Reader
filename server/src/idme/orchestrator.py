@@ -251,6 +251,72 @@ class IDMEOrchestrator:
             )
             raise OrchestratorError(f"Submission failed: {e}")
 
+    def init_roster_from_portal(
+        self,
+        teacher_id: int,
+        class_name: str
+    ) -> Dict[str, Any]:
+        """
+        Seed/refresh the identity registry for a class from the MOEIS portal
+        ("Initialise Roster"). READ-ONLY against the portal — logs in, reads the
+        student table, and upserts into the local registry. Never marks/submits.
+
+        Synchronous wrapper around the async workflow.
+
+        Returns:
+            The diff dict from RosterManager.upsert_from_portal
+            ({'added', 'updated', 'renamed', 'removed', ...}).
+        """
+        return asyncio.run(
+            self._init_roster_from_portal_async(teacher_id, class_name)
+        )
+
+    async def _init_roster_from_portal_async(
+        self,
+        teacher_id: int,
+        class_name: str
+    ) -> Dict[str, Any]:
+        """Async implementation of init_roster_from_portal (read-only)."""
+        self.logger.info(
+            f"Initialising roster for '{class_name}' (teacher ID={teacher_id})"
+        )
+        try:
+            creds = self.teacher_manager.get_teacher_credentials(teacher_id)
+        except (TeacherManagerError, DecryptionError) as e:
+            raise OrchestratorError(f"Credential error: {e}")
+
+        engine = IDMELoginEngine(
+            ic_number=creds['ic_number'],
+            password=creds['password'],
+            headless=IDMEConfig.HEADLESS,
+            debug=IDMEConfig.DEBUG,
+        )
+        try:
+            login_result = await engine.login_and_navigate()
+            if not login_result.get('success'):
+                raise OrchestratorError("IDME login returned failure")
+
+            self.session_cache.store_session(
+                teacher_id=teacher_id,
+                cookies=login_result.get('cookies', []),
+                csrf_token=login_result.get('csrf_token'),
+                expires_in_hours=IDMEConfig.SESSION_EXPIRY_HOURS,
+            )
+
+            filler = IDMEFormFiller(login_result['page'], debug=IDMEConfig.DEBUG)
+            portal_students = await filler.get_student_list()
+        except OrchestratorError:
+            raise
+        except Exception as e:
+            self.logger.error(f"Roster init failed: {e}")
+            raise OrchestratorError(f"Roster init failed: {e}")
+        finally:
+            await engine.close()
+
+        diff = self.roster_manager.upsert_from_portal(class_name, portal_students)
+        diff['status'] = 'completed'
+        return diff
+
     def submit_all_classes(
         self,
         submission_date: Optional[str] = None

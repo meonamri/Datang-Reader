@@ -12,6 +12,8 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime, date
 from pathlib import Path
 
+from .migrations import apply_migrations
+
 
 class ScanTrackerError(Exception):
     """Base exception for scan tracker errors."""
@@ -54,6 +56,7 @@ class ScanTracker:
             if schema_path.exists():
                 conn.executescript(schema_path.read_text())
             conn.commit()
+            apply_migrations(conn)
         finally:
             conn.close()
 
