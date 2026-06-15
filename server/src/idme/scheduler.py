@@ -38,11 +38,13 @@ class IDMEScheduler:
 
     def start(self):
         """Start the scheduler."""
+        from .idme_config import IDMEConfig
         self.running = True
         self._schedule_next()
+        mode = 'CONFIRM (TELAH DISAHKAN, locked)' if IDMEConfig.SCHEDULER_CONFIRM else 'DRAFT (MENUNGGU PENGESAHAN)'
         self.logger.info(
             f"IDME scheduler started. Daily submission at "
-            f"{self.cutoff_hour:02d}:{self.cutoff_minute:02d}"
+            f"{self.cutoff_hour:02d}:{self.cutoff_minute:02d} — mode: {mode}"
         )
 
     def stop(self):

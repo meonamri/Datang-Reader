@@ -301,7 +301,7 @@ def submit_to_idme():
     submission_date = data.get('date', date.today().isoformat())
     # Manual triggers default to a re-editable DRAFT (confirm=False) — the safer
     # path. Pass {"confirm": true} to hard-confirm (TELAH DISAHKAN). The daily
-    # scheduler (submit_all_classes) still confirms by default.
+    # scheduler submits with IDMEConfig.SCHEDULER_CONFIRM (drafts by default).
     confirm = bool(data.get('confirm', False))
 
     if class_name:
@@ -323,7 +323,7 @@ def submit_to_idme():
     else:
         # Submit all configured classes
         try:
-            results = _orchestrator.submit_all_classes(submission_date)
+            results = _orchestrator.submit_all_classes(submission_date, confirm=confirm)
             return jsonify({'results': results}), 200
         except Exception as e:
             return jsonify({'error': str(e)}), 500

@@ -327,12 +327,20 @@ class IDMEOrchestrator:
 
     def submit_all_classes(
         self,
-        submission_date: Optional[str] = None
+        submission_date: Optional[str] = None,
+        confirm: Optional[bool] = None
     ) -> List[Dict[str, Any]]:
         """
         Submit absences for ALL configured teacher-class pairs.
 
         Called by the scheduler at cutoff time.
+
+        Args:
+            submission_date: Date in YYYY-MM-DD (default: today).
+            confirm: True = confirm each class (TELAH DISAHKAN, locked). False =
+                save re-editable DRAFTS (MENUNGGU PENGESAHAN). When None (the
+                scheduler's call), falls back to IDMEConfig.SCHEDULER_CONFIRM,
+                which defaults to False (drafts) for the supervised rollout.
 
         Returns:
             List of per-class results.
@@ -340,7 +348,11 @@ class IDMEOrchestrator:
         if submission_date is None:
             submission_date = date.today().isoformat()
 
-        self.logger.info(f"Starting bulk submission for {submission_date}")
+        if confirm is None:
+            confirm = IDMEConfig.SCHEDULER_CONFIRM
+
+        mode = 'CONFIRM (TELAH DISAHKAN, locked)' if confirm else 'DRAFT (MENUNGGU PENGESAHAN)'
+        self.logger.info(f"Starting bulk submission for {submission_date} — mode: {mode}")
 
         teachers = self.teacher_manager.get_all_teachers()
         if not teachers:
@@ -355,7 +367,7 @@ class IDMEOrchestrator:
             self.logger.info(f"Processing: {teacher['name']} → {class_name}")
 
             try:
-                result = self.submit_class(teacher_id, class_name, submission_date)
+                result = self.submit_class(teacher_id, class_name, submission_date, confirm=confirm)
                 results.append(result)
             except Exception as e:
                 self.logger.error(f"Failed for {class_name}: {e}")

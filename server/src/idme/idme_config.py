@@ -23,6 +23,13 @@ class IDMEConfig:
     # Scheduler
     CUTOFF_TIME = os.getenv('IDME_CUTOFF_TIME', '09:00')
 
+    # Scheduler auto-confirm. When False (default), the scheduled bulk submission
+    # saves re-editable DRAFTS (MENUNGGU PENGESAHAN) so a human confirms each
+    # morning during the supervised rollout period. Set true ONLY after a
+    # supervised period — true auto-confirms LOCKED (TELAH DISAHKAN) records
+    # daily and unattended, which is hard to reverse.
+    SCHEDULER_CONFIRM = os.getenv('IDME_SCHEDULER_CONFIRM', 'false').lower() == 'true'
+
     # Encryption key for teacher passwords
     ENCRYPTION_KEY = os.getenv('IDME_ENCRYPTION_KEY', '')
 
@@ -93,6 +100,7 @@ class IDMEConfig:
         return {
             'enabled': cls.ENABLED,
             'cutoff_time': cls.CUTOFF_TIME,
+            'scheduler_confirm': cls.SCHEDULER_CONFIRM,
             'database_path': cls.DATABASE_PATH,
             'headless': cls.HEADLESS,
             'debug': cls.DEBUG,
