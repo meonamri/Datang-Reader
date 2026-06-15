@@ -8,7 +8,7 @@ and automatic synchronization when connection is restored.
 import sqlite3
 import logging
 import json
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 from datetime import datetime
 from contextlib import contextmanager
 from .config import Config
@@ -216,12 +216,21 @@ class AttendanceQueue:
         except sqlite3.Error as e:
             logger.error(f"Failed to mark record as failed: {e}")
 
-    def sync_with_api(self, api_client: DatangAPIClient) -> Dict[str, int]:
+    def sync_with_api(
+        self,
+        api_client: DatangAPIClient,
+        on_synced: Optional[Callable[[str, Any], None]] = None,
+    ) -> Dict[str, int]:
         """
         Synchronize pending records with API
 
         Args:
             api_client: Authenticated API client
+            on_synced: Optional callback invoked as on_synced(card_id, response)
+                after each record syncs successfully. Used to feed offline scans
+                into the IDME scan tracker (same as the online path), so queued
+                scans aren't missed by absence detection. Best-effort: callback
+                exceptions are logged, never raised.
 
         Returns:
             Dictionary with sync statistics
@@ -262,6 +271,17 @@ class AttendanceQueue:
                 # Mark as synced
                 self.mark_synced(entry_id)
                 stats["synced"] += 1
+
+                # Feed the synced scan into the IDME tracker (if wired up), so
+                # offline scans aren't missed by absence detection.
+                if on_synced:
+                    try:
+                        on_synced(card_id, response)
+                    except Exception as hook_err:
+                        logger.warning(
+                            f"post-sync hook failed for record {entry_id} "
+                            f"(non-critical): {hook_err}"
+                        )
 
                 logger.info(f"Synced record {entry_id} (card: {card_id[:8]}...)")
 

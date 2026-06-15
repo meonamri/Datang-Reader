@@ -14,29 +14,37 @@ services:
     # Environment variables for configuration
     # IMPORTANT: Set these values or use .env file
     environment:
-      # API Configuration
+      # === Datang API Configuration ===
       - DATANG_API_BASE_URL=${DATANG_API_BASE_URL}
-
-      # Reader Credentials
       - DATANG_READER_USERNAME=${DATANG_READER_USERNAME}
       - DATANG_READER_PASSWORD=${DATANG_READER_PASSWORD}
-
-      # Device Identification
       - DATANG_DEVICE_ID=${DATANG_DEVICE_ID:-docker-reader}
-
-      # Optional: Mock API mode for testing (true/false)
       - DATANG_MOCK_API=${DATANG_MOCK_API:-false}
+
+      # === IDME Module (Optional) ===
+      - IDME_ENABLED=${IDME_ENABLED:-false}
+      - IDME_CUTOFF_TIME=${IDME_CUTOFF_TIME:-09:00}
+      # Scheduler auto-confirm. Default false = scheduled submits save re-editable
+      # DRAFTS (MENUNGGU PENGESAHAN). Set true ONLY after a supervised period —
+      # true auto-confirms LOCKED (TELAH DISAHKAN) records daily, unattended.
+      - IDME_SCHEDULER_CONFIRM=${IDME_SCHEDULER_CONFIRM:-false}
+      - IDME_ENCRYPTION_KEY=${IDME_ENCRYPTION_KEY:-}
+      - IDME_DEBUG=${IDME_DEBUG:-false}
+      - IDME_DATABASE_PATH=/data/idme/idme_data.db
 
     # Volume mounts for persistent data
     volumes:
-      # Authentication token (persists across container restarts)
+      # Datang authentication token
       - ../docker-data/token:/root/.datang_reader_token
 
-      # Offline queue database (critical - stores pending attendance records)
+      # Datang offline queue database
       - ../docker-data/queue.db:/root/.datang_reader_queue.db
 
-      # Logs (optional, for debugging)
+      # Logs
       - ../docker-data/logs:/data/logs
+
+      # IDME data (database, screenshots)
+      - ../docker-data/idme:/data/idme
 
     # Restart policy
     restart: unless-stopped
@@ -52,14 +60,15 @@ services:
         max-file: "3"
 
     # Resource limits (optional, adjust based on your needs)
+    # Note: Playwright/Firefox needs more memory than before (~512M recommended)
     # deploy:
     #   resources:
     #     limits:
-    #       cpus: '0.5'
-    #       memory: 256M
+    #       cpus: '1.0'
+    #       memory: 512M
     #     reservations:
     #       cpus: '0.25'
-    #       memory: 128M
+    #       memory: 256M
 
 # Networks (using default bridge network)
 networks:

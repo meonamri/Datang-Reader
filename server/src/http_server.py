@@ -31,6 +31,18 @@ def create_app(use_mock_api: bool = False) -> tuple[Flask, ServiceManager]:
     # Initialize service manager
     service_manager = ServiceManager(use_mock_api=use_mock_api)
 
+    # Initialize IDME module (optional - won't break if disabled or missing)
+    try:
+        from .idme import init_idme_module, idme_bp
+        idme_orchestrator = init_idme_module(service_manager)
+        if idme_orchestrator:
+            app.register_blueprint(idme_bp)
+            logger.info("IDME module registered at /idme/*")
+    except ImportError:
+        logger.debug("IDME module not available (optional)")
+    except Exception as e:
+        logger.warning(f"IDME module failed to initialize: {e}")
+
     @app.route('/health', methods=['GET'])
     def health():
         """
@@ -219,6 +231,7 @@ def run_http_server(host: str = '0.0.0.0', port: int = 8080, use_mock_api: bool 
     print(f"  GET  /status   - Service status")
     print(f"  GET  /failed   - List failed scan records")
     print(f"  POST /sync     - Manual queue sync")
+    print(f"  GET  /idme/*   - IDME module (if enabled)")
     print("="*60 + "\n")
 
     try:

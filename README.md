@@ -1,6 +1,6 @@
 # Datang Reader - RFID Attendance System
 
-Split-architecture RFID attendance tracking for Datang API with Docker deployment and offline queue support.
+Split-architecture RFID attendance tracking for Datang API with Docker deployment, offline queue support, and automated IDME portal submission.
 
 ## Architecture
 
@@ -21,13 +21,20 @@ Split-architecture RFID attendance tracking for Datang API with Docker deploymen
 │  - HTTP API     │       │  (optional)           │
 │  - Auth Manager │       │  datang-reader.tailnet│
 │  - Offline Queue│       │  HTTPS on your tailnet│
-└─────────────────┘       └──────────────────────┘
+│  - IDME Module  │       └──────────────────────┘
+└────────┬────────┘
+         │ At cutoff time (e.g. 09:00)
+         ↓
+┌─────────────────┐
+│  IDME/MOEIS     │  Playwright (Firefox)
+│  Portal         │  Auto-submit absences
+└─────────────────┘
 ```
 
 **Why split?**
 - **Docker Server**: Easy deployment, updates, isolation
 - **Host GUI**: Direct USB RFID reader access
-- Best of both worlds!
+- **IDME Module**: Auto-detects absent students and submits to MOEIS portal
 
 ---
 
@@ -47,6 +54,7 @@ nano .env  # Configure credentials
 - HTTP server on port 8080 (configurable via `DATANG_HOST_PORT` in `.env`)
 - Persistent data in `docker-data/`
 - Offline queue with auto-sync
+- IDME module (disabled by default, enable via `IDME_ENABLED=true`)
 
 ### 2. Setup GUI Client
 
@@ -123,12 +131,19 @@ Each component has its own `.env` file:
 
 **Server** (`server/.env`):
 ```env
+# Datang API
 DATANG_API_BASE_URL=https://datang.my/api/reader/v1
 DATANG_READER_USERNAME=your_username
 DATANG_READER_PASSWORD=your_password
 DATANG_DEVICE_ID=docker-reader-01
 DATANG_MOCK_API=false
 DATANG_HOST_PORT=8080            # Host port (container always listens on 8080 internally)
+
+# IDME Module (optional)
+IDME_ENABLED=false               # Set true to enable IDME portal automation
+IDME_CUTOFF_TIME=09:00           # Daily auto-submission time (24h format)
+IDME_ENCRYPTION_KEY=             # Fernet key for teacher password encryption
+IDME_DEBUG=false                 # Save screenshots during automation
 ```
 
 **Client** (`client/.env`):
@@ -157,16 +172,17 @@ datang-reader/
 ├── docker-data/          # Persistent data (auto-created)
 │   ├── token             # Authentication token
 │   ├── queue.db          # Offline queue (BACKUP THIS!)
-│   └── logs/             # Application logs
+│   ├── logs/             # Application logs
+│   └── idme/             # IDME data (database, screenshots)
 │
 ├── server/               # 🐳 DOCKER CONTAINER
 │   ├── .env.example      # Server env template
 │   ├── .env              # Server config (create from .env.example)
 │   ├── deploy.sh         # Deploy Docker container
-│   ├── Dockerfile        # Container image
+│   ├── Dockerfile        # Container image (includes Playwright/Firefox)
 │   ├── docker-compose.yml# Docker configuration
 │   ├── tailscale-serve-setup.sh  # Expose as Tailscale service
-│   ├── requirements.txt  # Server dependencies (Flask, requests)
+│   ├── requirements.txt  # Server dependencies
 │   ├── datang_reader.py  # Server entry point
 │   └── src/              # Server source code
 │       ├── http_server.py      # Flask HTTP API
@@ -175,7 +191,25 @@ datang-reader/
 │       ├── auth_manager.py     # Authentication
 │       ├── offline_queue.py    # SQLite queue
 │       ├── rfid_reader.py      # Serial RFID support
-│       └── config.py           # Server configuration
+│       ├── gui_app.py          # PyQt5 kiosk GUI (optional)
+│       ├── config.py           # Server configuration
+│       └── idme/               # IDME portal automation module
+│           ├── schema.sql           # IDME database schema
+│           ├── idme_config.py       # Module configuration
+│           ├── moeis_codes.py       # 97 MOEIS absence reason codes
+│           ├── credential_manager.py# Fernet password encryption
+│           ├── teacher_manager.py   # Teacher CRUD (Web UI backed)
+│           ├── roster_manager.py    # Student roster (Excel import)
+│           ├── scan_tracker.py      # Daily RFID scan tracking
+│           ├── absence_detector.py  # Roster - scans = absent
+│           ├── session_cache.py     # IDME session/CSRF caching
+│           ├── login_engine.py      # 6-step IDME login (Playwright)
+│           ├── form_filler.py       # MOEIS form automation
+│           ├── orchestrator.py      # Main submission workflow
+│           ├── scheduler.py         # Daily cutoff timer
+│           ├── api_routes.py        # Flask blueprint (/idme/*)
+│           └── templates/
+│               └── settings.html    # Teacher management Web UI
 │
 └── client/               # 💻 HOST CLIENTS
     ├── .env.example      # Client env template
@@ -245,6 +279,96 @@ cd client/
 source venv/bin/activate
 cd gui && python3 input_client_gui.py
 ```
+
+---
+
+## IDME Module (Automated MOEIS Submission)
+
+The IDME module automates absence submission to Malaysia's IDME/MOEIS portal. It detects which students didn't scan their RFID card by a cutoff time and submits them as absent.
+
+### How It Works
+
+```
+RFID Scan → Datang API (unchanged)
+               │
+               └──→ scan_tracker records scan locally
+
+...at cutoff time (default 09:00)...
+
+Scheduler triggers → absence_detector: roster - scans = absent students
+                   → login_engine: 6-step IDME login (Playwright/Firefox)
+                   → form_filler: uncheck absent students, set reason code
+                   → submit to MOEIS portal
+```
+
+All absences default to reason code `N0040027` (PONTENG - MALAS KE SEKOLAH). The module supports all 97 MOEIS reason codes for future expansion.
+
+### Setup
+
+**1. Enable the module** in `server/.env`:
+```env
+IDME_ENABLED=true
+IDME_CUTOFF_TIME=09:00
+IDME_ENCRYPTION_KEY=your_fernet_key_here
+```
+
+Generate the encryption key:
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+**2. Rebuild the Docker container** (first time only — installs Playwright/Firefox):
+```bash
+cd server/
+./deploy.sh
+```
+
+**3. Add teachers** via Web UI at `http://localhost:8080/idme/settings`
+
+Each teacher needs: name, IC number (12 digits), IDME password, and class name. Passwords are encrypted with Fernet before storage.
+
+**4. Import student roster** via API:
+```bash
+curl -X POST http://localhost:8080/idme/roster/import \
+  -H "Content-Type: application/json" \
+  -d '{"excel_path": "/path/to/students.xlsx"}'
+```
+
+### API Endpoints
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/idme/status` | Module status and scan counts |
+| GET | `/idme/settings` | Teacher management Web UI |
+| POST | `/idme/teachers` | Add a teacher |
+| PUT | `/idme/teachers/<id>` | Update a teacher |
+| DELETE | `/idme/teachers/<id>` | Delete a teacher |
+| POST | `/idme/teachers/<id>/test` | Test IDME login credentials |
+| GET | `/idme/scans` | Today's scans (filter by `?class=5 UKM`) |
+| POST | `/idme/submit` | Manual submission trigger |
+| GET | `/idme/roster` | Student roster summary |
+| POST | `/idme/roster/import` | Import roster from Excel |
+| GET | `/idme/submissions` | Submission history |
+
+### Manual Submission
+
+Trigger IDME submission without waiting for the cutoff time:
+
+```bash
+# Submit for a specific class
+curl -X POST http://localhost:8080/idme/submit \
+  -H "Content-Type: application/json" \
+  -d '{"class_name": "5 UKM"}'
+
+# Submit all configured classes
+curl -X POST http://localhost:8080/idme/submit \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+### Disabling
+
+Set `IDME_ENABLED=false` in `server/.env` and restart. The Datang reader continues working normally without the IDME module.
 
 ---
 
@@ -403,6 +527,9 @@ cd client/ && ./run-gui.sh --url http://localhost:8081  # Reader 02
 - Restrict file permissions on token files
 - Use firewall rules for port 8080 in production, or use Tailscale Serve to avoid exposing the port publicly
 - `.env` files should have 600 permissions (`chmod 600 server/.env client/.env`)
+- IDME teacher passwords are encrypted with Fernet (AES-128-CBC) before database storage
+- The `IDME_ENCRYPTION_KEY` should be generated once and never changed — changing it invalidates all stored passwords
+- IDME session cookies are cached for 6 hours to reduce login frequency
 
 ---
 

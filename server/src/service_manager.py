@@ -50,6 +50,9 @@ class ServiceManager:
         # Offline Queue
         self.queue = AttendanceQueue()
 
+        # IDME scan tracker (set by init_idme_module if IDME is enabled)
+        self.scan_tracker = None
+
         logger.info("Service manager initialized")
 
     def start(self) -> bool:
@@ -105,6 +108,21 @@ class ServiceManager:
 
         logger.info("Service stopped")
 
+    def _record_idme_scan(self, card_id: str, response: Any) -> None:
+        """
+        Record a successful scan into the IDME scan tracker (if enabled).
+
+        api_client.submit_attendance() returns the unwrapped student dict
+        ({name, section, pid, ...}) on success, so the response IS the data
+        dict that record_scan expects — pass it directly. Best-effort: never
+        raise, so IDME tracking can't break the proven attendance path.
+        """
+        if self.scan_tracker and isinstance(response, dict) and response.get("name"):
+            try:
+                self.scan_tracker.record_scan(card_id, response)
+            except Exception as scan_err:
+                logger.warning(f"IDME scan recording failed (non-critical): {scan_err}")
+
     def process_attendance(self, card_id: str, temperature: Optional[float] = None) -> Dict[str, Any]:
         """
         Process attendance for a scanned card
@@ -128,6 +146,10 @@ class ServiceManager:
             )
 
             logger.info("Attendance submitted successfully")
+
+            # Record scan for IDME absence detection (if enabled)
+            self._record_idme_scan(card_id, response)
+
             return {
                 "success": True,
                 "online": True,
@@ -147,6 +169,8 @@ class ServiceManager:
                         timestamp=timestamp,
                         temperature=temperature
                     )
+                    # Record scan for IDME absence detection (if enabled)
+                    self._record_idme_scan(card_id, response)
                     return {
                         "success": True,
                         "online": True,
@@ -237,8 +261,8 @@ class ServiceManager:
                 logger.warning("Cannot sync queue: not authenticated")
                 return {"total": 0, "synced": 0, "failed": 0, "skipped": 0}
 
-        # Perform sync
-        stats = self.queue.sync_with_api(self.api_client)
+        # Perform sync (feed synced offline scans into the IDME tracker too)
+        stats = self.queue.sync_with_api(self.api_client, on_synced=self._record_idme_scan)
 
         # Cleanup old records periodically
         self.queue.cleanup_old_records(days=30)
