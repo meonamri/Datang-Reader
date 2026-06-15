@@ -24,6 +24,10 @@ services:
       # === IDME Module (Optional) ===
       - IDME_ENABLED=${IDME_ENABLED:-false}
       - IDME_CUTOFF_TIME=${IDME_CUTOFF_TIME:-09:00}
+      # Scheduler auto-confirm. Default false = scheduled submits save re-editable
+      # DRAFTS (MENUNGGU PENGESAHAN). Set true ONLY after a supervised period —
+      # true auto-confirms LOCKED (TELAH DISAHKAN) records daily, unattended.
+      - IDME_SCHEDULER_CONFIRM=${IDME_SCHEDULER_CONFIRM:-false}
       - IDME_ENCRYPTION_KEY=${IDME_ENCRYPTION_KEY:-}
       - IDME_DEBUG=${IDME_DEBUG:-false}
       - IDME_DATABASE_PATH=/data/idme/idme_data.db
