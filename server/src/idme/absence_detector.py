@@ -7,6 +7,7 @@ PONTENG - MALAS KE SEKOLAH (N0040027).
 """
 
 import logging
+import re
 from typing import Dict, List, Optional, Any
 from datetime import date
 
@@ -27,6 +28,13 @@ class AbsenceDetector:
     Logic: roster(all students) - scanned(present students) = absent students.
     All detected absences are assigned the default reason (N0040027).
     """
+
+    # bin/binti connector tokens (the "son of" / "daughter of" particle). These
+    # drift heavily between systems (BIN/B./BN, BINTI/BT/BTE) so they are
+    # canonicalised to one form each. Kept DISTINCT (BIN != BINTI) to avoid
+    # collapsing two genuinely different students onto one key.
+    _BIN_TOKENS = {'BIN', 'B', 'BN', 'IBN'}
+    _BINTI_TOKENS = {'BINTI', 'BT', 'BTE', 'BTI', 'BINTE'}
 
     def __init__(self, roster_manager: RosterManager, scan_tracker: ScanTracker):
         """
@@ -82,27 +90,29 @@ class AbsenceDetector:
             self.logger.warning(f"No students found in roster for class '{class_name}'")
             return []
 
-        roster_names = {s['name'] for s in roster}
-
         # Step 2: Get scanned students
         scanned_names_raw = self.scans.get_scanned_students(class_name, scan_date)
-
-        # Step 3: Normalize for comparison
-        # Build a mapping: normalized_name -> original_roster_name
-        normalized_roster = {}
-        for name in roster_names:
-            normalized_roster[self._normalize_name(name)] = name
-
         scanned_normalized = {self._normalize_name(n) for n in scanned_names_raw}
 
-        # Step 4: Find absent students (in roster but not scanned)
-        absent_normalized = set(normalized_roster.keys()) - scanned_normalized
-        absent_names = [normalized_roster[n] for n in absent_normalized]
-        absent_names.sort()  # Alphabetical order
+        # Step 3: Surface normalizer COLLISIONS (calibration guard). If two
+        # distinct roster students normalize to the same key, fuzzy name matching
+        # can no longer tell them apart — a tap for one would mark BOTH present
+        # (a false present, worse than a false absent). We do NOT silently merge
+        # them; each roster row is evaluated independently below, and the
+        # collision is logged loudly so the tag path (Phase 3) can disambiguate.
+        self._warn_on_collisions(class_name, roster)
+
+        # Step 4: Find absent students (in roster but not scanned). Iterate the
+        # roster directly — never key a dict on the normalized name, or colliding
+        # students would overwrite each other and silently vanish.
+        absent_names = sorted(
+            s['name'] for s in roster
+            if self._normalize_name(s['name']) not in scanned_normalized
+        )
 
         self.logger.info(
             f"Class '{class_name}' on {scan_date}: "
-            f"roster={len(roster_names)}, scanned={len(scanned_normalized)}, "
+            f"roster={len(roster)}, scanned={len(scanned_normalized)}, "
             f"absent={len(absent_names)}"
         )
 
@@ -147,42 +157,75 @@ class AbsenceDetector:
             scan_date = date.today().isoformat()
 
         roster = self.roster.get_class_roster(class_name)
-        roster_names = {s['name'] for s in roster}
 
         scanned_raw = self.scans.get_scanned_students(class_name, scan_date)
-
-        # Normalize for comparison
-        normalized_roster = {}
-        for name in roster_names:
-            normalized_roster[self._normalize_name(name)] = name
-
         scanned_normalized = {self._normalize_name(n) for n in scanned_raw}
 
-        absent_normalized = set(normalized_roster.keys()) - scanned_normalized
-        present_normalized = set(normalized_roster.keys()) & scanned_normalized
-
-        absent_names = sorted([normalized_roster[n] for n in absent_normalized])
-        present_names = sorted([normalized_roster[n] for n in present_normalized])
+        # Iterate the roster directly (see detect_absences): keying a dict on the
+        # normalized name would silently drop collision pairs.
+        present_names = sorted(
+            s['name'] for s in roster
+            if self._normalize_name(s['name']) in scanned_normalized
+        )
+        absent_names = sorted(
+            s['name'] for s in roster
+            if self._normalize_name(s['name']) not in scanned_normalized
+        )
 
         return {
             'class_name': class_name,
             'date': scan_date,
-            'roster_count': len(roster_names),
+            'roster_count': len(roster),
             'scanned_count': len(present_names),
             'absent_count': len(absent_names),
             'scanned_students': present_names,
             'absent_students': absent_names,
         }
 
-    @staticmethod
-    def _normalize_name(name: str) -> str:
+    def _warn_on_collisions(self, class_name: str, roster: List[Dict[str, Any]]) -> List[str]:
         """
-        Normalize a Malaysian name for comparison.
+        Log a loud warning when two distinct roster students normalize to the
+        same key (the calibration failure mode named in the design: a false
+        *present* is worse than a false absent).
 
-        - Uppercase
-        - Strip extra whitespace
-        - Collapse multiple spaces
-        - Handle bin/binti variations
+        Returns the list of colliding normalized keys (for tests / callers).
+        """
+        seen: Dict[str, List[str]] = {}
+        for s in roster:
+            seen.setdefault(self._normalize_name(s['name']), []).append(s['name'])
+
+        collisions = {k: v for k, v in seen.items() if len(v) > 1}
+        for key, names in collisions.items():
+            self.logger.warning(
+                f"Name-normalization COLLISION in class '{class_name}': "
+                f"{len(names)} students share key '{key}' ({names}). "
+                f"A scan for one would mark all present — disambiguate via RFID tag."
+            )
+        return list(collisions.keys())
+
+    @classmethod
+    def _normalize_name(cls, name: str) -> str:
+        """
+        Normalize a Malaysian name for cross-system comparison.
+
+        The roster name (from the portal / school Excel) and the Datang scan name
+        for the SAME student routinely differ in formatting. This canonicalises
+        the common, SAFE-to-merge drifts so they compare equal:
+
+        - Uppercase + strip + collapse internal whitespace.
+        - Drop parenthetical / bracketed extras: ``(KETUA)``, ``(KP)``, ``[..]``.
+        - Canonicalise the bin/binti connector family (``B.``/``BN`` -> ``BIN``,
+          ``BT``/``BTE``/``BTI`` -> ``BINTI``) — but ONLY when the token sits
+          *between* other tokens, so a leading/trailing initial like ``B`` is not
+          mistaken for "bin".
+        - Normalise spacing around ``@`` aliases so ``X@Y`` == ``X @ Y`` (both
+          sides of the alias are retained verbatim — we do not guess which side
+          the other system used).
+
+        Deliberately CONSERVATIVE: token ORDER is preserved (no token-set sort),
+        because sorting risks collapsing two distinct students onto one key — a
+        false *present* (worse than a false absent). Reordering / dropped-middle-
+        token cases are left to the RFID-tag path, not fuzzy name matching.
 
         Args:
             name: Raw student name.
@@ -194,8 +237,22 @@ class AbsenceDetector:
             return ''
 
         n = name.upper().strip()
-        # Collapse multiple spaces
-        while '  ' in n:
-            n = n.replace('  ', ' ')
+        # Drop parenthetical / bracketed extras: (KETUA), (KP), [..]
+        n = re.sub(r'[\(\[][^\)\]]*[\)\]]', ' ', n)
+        # Make '@' a standalone token so spacing variants align.
+        n = n.replace('@', ' @ ')
+        # Tokenise; treat '.' as a separator so "B." -> "B", "BT." -> "BT".
+        raw = n.replace('.', ' ').split()
 
-        return n
+        tokens = []
+        last = len(raw) - 1
+        for i, t in enumerate(raw):
+            medial = 0 < i < last  # connector particles are never first/last
+            if medial and t in cls._BIN_TOKENS:
+                tokens.append('BIN')
+            elif medial and t in cls._BINTI_TOKENS:
+                tokens.append('BINTI')
+            else:
+                tokens.append(t)
+
+        return ' '.join(tokens)
