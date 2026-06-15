@@ -31,12 +31,18 @@ Plus (commit `4cbc2c9`) roster Excel upload with replace option + template downl
 - **Reason mapping VALIDATED:** all 12 `MOEIS_CATEGORIES` and all 5 PONTENG (N)
   `COMPLETE_MOEIS_SEBAB` codes match the live portal dropdowns text-for-text,
   and the portal's option `value` *is* the sebab code (e.g. `value="N0040027"`).
-- **Submit (`form_filler.mark_absences_and_submit` → `_submit_form`): STILL
-  UNTESTED and not to be run casually** — the Kemaskini → Simpan & Sahkan → OK
-  flow writes REAL absence records to a live government portal. Hard to reverse.
-  (Note: the submit AJAX endpoints `kemaskiniKehadiranHarian` / `sahkanharian*`
-  are also hardcoded `http://` and depend on the same CSRF-preserving fix below
-  to ever succeed.)
+- **Submit (`form_filler._submit_form`): VALIDATED live end-to-end 2026-06-15**
+  (with explicit user authorization; the test class was left CONFIRMED and the
+  user reset it afterward). After the `_submit_form` rewrite (see "Submit-path
+  rewrite" below): the **draft** path (`.simpan`) produced status **MENUNGGU
+  PENGESAHAN**, and the **confirm** path (`.simpansah`) produced **TELAH
+  DISAHKAN**, which persisted across a fresh login. The submit AJAX
+  (`kemaskiniKehadiranHarian`) fired through the http→https `ajaxPrefilter`
+  successfully (no 419). **Still writes REAL records — do not run casually.**
+  Known limitation: `_submit_form`'s status read-back is best-effort (the portal
+  updates the badge asynchronously; the function now waits for the *expected*
+  status string but may still mis-read if the portal only refreshes on reload —
+  the submit itself is unaffected).
 
 ### Reason-targeting fix in `form_filler.py` (this session)
 
@@ -79,6 +85,32 @@ rewritten before any live submit:**
   (no native `fetch`, which the prefilter would miss). The `tabguru` daily
   submit is the relevant endpoint; the `pkhem/sahkanharian*` endpoints are a
   *separate* monthly-confirmation flow, not the teacher daily submit.
+
+### Submit-path rewrite in `form_filler.py` (2026-06-15, then LIVE-VALIDATED)
+
+`_submit_form` rewritten per the audit and the live test:
+
+- **New signature `_submit_form(confirm: bool = True)`** (threaded through
+  `mark_absences_and_submit(..., confirm=True)`). `confirm=True` clicks
+  `.simpansah` (Sahkan → TELAH DISAHKAN, production); `confirm=False` clicks
+  `.simpan` (Simpan → MENUNGGU PENGESAHAN, re-editable draft). Returns the
+  detected **status string** ('' on failure) instead of a bare bool;
+  `mark_absences_and_submit` now also returns `status`.
+- **Clicks fire via jQuery `.trigger('click')` inside `page.evaluate`, NOT
+  Playwright `.click()`** — the portal shows a `.loadover` overlay that
+  intercepts pointer events and hangs actionability-based clicks (observed: a
+  30s timeout on `#kemaskiniKehadiran`). Triggering the bound handler directly
+  is reliable (same pattern as the dropdown code). Kemaskini opens a SweetAlert
+  modal; we poll for `.simpan`/`.simpansah` to be in the DOM, then trigger it.
+- **Status verification is best-effort.** It waits for the *expected* status
+  string to appear (so a just-confirmed day isn't misread as the prior
+  MENUNGGU), but the portal may only refresh the badge on reload, so the
+  read-back can still lag. The submit action itself is unaffected.
+- A **confirmed day (TELAH DISAHKAN) locks the form** — re-running submit on it
+  is a no-op (no AJAX fires). To re-test the draft→confirm transition the day
+  must first be reset in the portal.
+- Exercised by `diag_idme_reasons.py --do-submit` (draft then confirm; captures
+  the `kemaskiniKehadiranHarian` POST + dumps the dialog/status each phase).
 
 ### Engine changes made this session (for the eventual merge review)
 

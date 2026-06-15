@@ -255,7 +255,8 @@ class IDMEFormFiller:
     async def mark_absences_and_submit(
         self,
         absent_students: List[Dict[str, str]],
-        delay_between: float = 0.6
+        delay_between: float = 0.6,
+        confirm: bool = True
     ) -> Dict[str, Any]:
         """
         Mark all absent students and submit the form.
@@ -263,6 +264,10 @@ class IDMEFormFiller:
         Args:
             absent_students: List of dicts with 'student_name', 'category', 'sebab_id'.
             delay_between: Delay between students in seconds (default: 0.6).
+            confirm: If True (default, production), click "Sahkan" (.simpansah) to
+                CONFIRM the day (status TELAH DISAHKAN — hard to reverse). If False,
+                click "Simpan" (.simpan) to save a re-editable DRAFT (MENUNGGU
+                PENGESAHAN).
 
         Returns:
             {
@@ -270,6 +275,7 @@ class IDMEFormFiller:
                 'success': 4,
                 'failed': 0,
                 'submitted': True,
+                'status': 'TELAH DISAHKAN',
                 'duration': 12.3,
             }
         """
@@ -316,95 +322,144 @@ class IDMEFormFiller:
         self.logger.info(f"Marking complete: {success}/{total} success, {failed} failed")
 
         # Submit the form
-        submitted = False
+        status = ''
         if success > 0:
-            submitted = await self._submit_form()
+            status = await self._submit_form(confirm=confirm)
         else:
             self.logger.warning("No students marked, skipping submission")
 
+        submitted = bool(status)
         duration = time.time() - start
         return {
             'total': total,
+            'status': status,
             'success': success,
             'failed': failed,
             'submitted': submitted,
             'duration': duration,
         }
 
-    async def _submit_form(self) -> bool:
+    async def _submit_form(self, confirm: bool = True) -> str:
         """
         Submit the MOEIS attendance form.
 
-        3-step process:
-        1. Click 'Kemaskini' button
-        2. Click 'Simpan & Sahkan' in confirmation modal
-        3. Click 'OK' in success modal
+        Live-portal flow (verified 2026-06-15):
+        1. Click 'Kemaskini' (button#kemaskiniKehadiran). Its handler only builds
+           a client-side confirmation modal — no server write happens yet.
+        2. In that modal, click the action button:
+             - confirm=True  -> '.simpansah' ("Sahkan"): CONFIRM (TELAH DISAHKAN)
+             - confirm=False -> '.simpan'    ("Simpan"): DRAFT  (MENUNGGU PENGESAHAN)
+           This click is what fires the $.ajax POST to kemaskiniKehadiranHarian.
+           (The old '.has-text("Simpan & Sahkan")' selector matched only a DISABLED
+           button and never actually submitted.)
+        3. Dismiss an optional trailing success dialog (SweetAlert), then read the
+           resulting day status.
+
+        Args:
+            confirm: True = confirm the day (production); False = save a draft.
 
         Returns:
-            True if submission confirmed.
+            The detected status string ('TELAH DISAHKAN' / 'MENUNGGU PENGESAHAN'),
+            or '' on failure. Truthy means the submit landed.
         """
-        self.logger.info("Submitting to IDME...")
+        action_selector = '.simpansah' if confirm else '.simpan'
+        action_label = 'Sahkan/CONFIRM' if confirm else 'Simpan/DRAFT'
+        self.logger.info(f"Submitting to IDME ({action_label})...")
 
         try:
-            # Step 1: Click Kemaskini
-            self.logger.info("  Clicking 'Kemaskini'...")
+            # Step 1: open the confirmation modal (client-side only, no write).
+            # Fire via jQuery .trigger('click') rather than Playwright .click():
+            # the portal shows a `.loadover` overlay that intercepts pointer
+            # events and hangs actionability-based clicks. Triggering the bound
+            # handler directly is reliable and matches the dropdown handling.
             await self._take_screenshot("submit_01_before_kemaskini")
-            await self.page.wait_for_selector(
-                'button:has-text("Kemaskini")', timeout=5000
-            )
-            await self.page.click('button:has-text("Kemaskini")')
-            await asyncio.sleep(2)
+            self.logger.info("  Clicking 'Kemaskini'...")
+            opened = await self.page.evaluate("""() => {
+                if (window.jQuery && jQuery('#kemaskiniKehadiran').length) {
+                    jQuery('#kemaskiniKehadiran').trigger('click'); return true;
+                }
+                const el = document.querySelector('#kemaskiniKehadiran');
+                if (el) { el.click(); return true; }
+                return false;
+            }""")
+            if not opened:
+                self.logger.error("'Kemaskini' button not found. Nothing submitted.")
+                return ''
+
+            # The Kemaskini handler renders a SweetAlert modal with the action
+            # buttons (.batal/.simpan/.simpansah). Poll for the chosen one to be
+            # in the DOM (the swal renders a beat after the trigger).
+            present = False
+            for _ in range(20):
+                await asyncio.sleep(0.25)
+                present = await self.page.evaluate(
+                    "(sel) => document.querySelectorAll(sel).length > 0",
+                    action_selector)
+                if present:
+                    break
             await self._take_screenshot("submit_02_after_kemaskini")
+            if not present:
+                self.logger.error(
+                    f"Modal action button '{action_selector}' did not appear "
+                    f"(confirm={confirm}). Nothing submitted.")
+                await self._take_screenshot("submit_modal_missing")
+                return ''
 
-            # Step 2: Click Simpan & Sahkan
-            self.logger.info("  Clicking 'Simpan & Sahkan'...")
-            button = await self.page.wait_for_selector(
-                'button:has-text("Simpan & Sahkan")',
-                state='visible', timeout=10000
-            )
-            if not button:
-                self.logger.error("'Simpan & Sahkan' not found")
-                return False
+            # Step 2: click the chosen modal action (this triggers the AJAX write).
+            self.logger.info(f"  Clicking modal action '{action_selector}'...")
+            await self.page.evaluate("""(sel) => {
+                if (window.jQuery) { jQuery(sel).trigger('click'); }
+                else { document.querySelector(sel).click(); }
+            }""", action_selector)
+            await self._take_screenshot("submit_03_after_action")
 
-            await button.click()
-            await asyncio.sleep(2)
-            await self._take_screenshot("submit_03_after_simpan")
+            # Step 3: dismiss an optional trailing success/confirm dialog.
+            for sel in ('.swal-button--confirm', 'button.confirm',
+                        'button:has-text("OK")', 'button:has-text("Ya")'):
+                try:
+                    el = self.page.locator(sel).first
+                    if await el.count() and await el.is_visible():
+                        await el.click(timeout=2000)
+                        break
+                except Exception:
+                    pass
 
-            # Step 3: Click OK in success modal
-            self.logger.info("  Clicking 'OK'...")
+            # Step 4: wait for the page to reflect the EXPECTED new status, not
+            # just any status. The portal updates the badge asynchronously after
+            # the AJAX; reading once can return the *previous* status (e.g. a
+            # just-confirmed day still showing MENUNGGU for a beat). Wait for the
+            # specific target string so the confirm path isn't misreported.
+            expected = 'TELAH DISAHKAN' if confirm else 'MENUNGGU PENGESAHAN'
             try:
-                ok_button = await self.page.wait_for_selector(
-                    'button:has-text("OK")',
-                    state='visible', timeout=5000
-                )
-                if ok_button:
-                    await ok_button.click()
-                    await asyncio.sleep(1)
-                    await self._take_screenshot("submit_04_after_ok")
+                await self.page.wait_for_function(
+                    """(want) => ((document.body && document.body.innerText) || '')
+                        .includes(want)""",
+                    arg=expected, timeout=15000)
             except Exception:
-                self.logger.warning("OK button not found (may have auto-closed)")
+                self.logger.warning(
+                    f"Expected status '{expected}' did not appear within timeout")
+            await self._take_screenshot("submit_04_after_status")
 
-            # Verify submission
-            verification = await self.page.evaluate('''() => {
-                const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, strong'))
-                    .map(h => h.textContent.trim());
-                return {
-                    confirmed: headings.some(h => h.includes('TELAH DISAHKAN')),
-                    pending: headings.some(h => h.includes('MENUNGGU PENGESAHAN')),
-                };
+            status = await self.page.evaluate('''() => {
+                const els = Array.from(document.querySelectorAll(
+                    'h1,h2,h3,h4,strong,.swal-title,.swal-text,td,.badge'))
+                    .map(h => (h.textContent || '').trim());
+                if (els.some(t => t.includes('TELAH DISAHKAN'))) return 'TELAH DISAHKAN';
+                if (els.some(t => t.includes('MENUNGGU PENGESAHAN'))) return 'MENUNGGU PENGESAHAN';
+                return '';
             }''')
 
-            if verification.get('confirmed'):
-                self.logger.info("SUBMISSION CONFIRMED (TELAH DISAHKAN)")
-                return True
-            elif verification.get('pending'):
-                self.logger.warning("Status: MENUNGGU PENGESAHAN (pending)")
-                return True  # Still counts as submitted
+            if status == expected:
+                self.logger.info(f"Submit status: {status}")
+            elif status:
+                self.logger.warning(
+                    f"Submit status '{status}' != expected '{expected}' "
+                    f"(confirm={confirm})")
             else:
-                self.logger.warning("Could not verify submission status")
-                return True  # Assume success if no error
+                self.logger.warning("Submit completed but status not detected")
+            return status
 
         except Exception as e:
             self.logger.error(f"Submission failed: {e}")
             await self._take_screenshot("submit_ERROR")
-            return False
+            return ''
