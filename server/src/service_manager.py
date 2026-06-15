@@ -261,8 +261,8 @@ class ServiceManager:
                 logger.warning("Cannot sync queue: not authenticated")
                 return {"total": 0, "synced": 0, "failed": 0, "skipped": 0}
 
-        # Perform sync
-        stats = self.queue.sync_with_api(self.api_client)
+        # Perform sync (feed synced offline scans into the IDME tracker too)
+        stats = self.queue.sync_with_api(self.api_client, on_synced=self._record_idme_scan)
 
         # Cleanup old records periodically
         self.queue.cleanup_old_records(days=30)
