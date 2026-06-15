@@ -110,20 +110,120 @@ class ScanTracker:
             )
             conn.commit()
 
-            if cursor.rowcount > 0:
+            recorded = cursor.rowcount > 0
+            if recorded:
                 self.logger.debug(
                     f"Recorded scan: {student_name} ({class_name}) at {scan_time}"
                 )
-                return True
             else:
                 self.logger.debug(
                     f"Duplicate scan ignored: {student_name} ({class_name})"
                 )
-                return False
-
         except sqlite3.Error as e:
             self.logger.error(f"Failed to record scan: {e}")
             return False
+        finally:
+            conn.close()
+
+        # Passive tag learning (best-effort; runs even on a duplicate daily scan
+        # so a same-day card replacement is still picked up). Never raises — tag
+        # learning must not break the proven scan-recording path.
+        try:
+            self._learn_tag(card_id, student_name, class_name, today)
+        except Exception as e:
+            self.logger.warning(f"Tag learning failed (non-critical): {e}")
+
+        return recorded
+
+    def _learn_tag(
+        self, card_id: str, scan_name: str, scan_class: str, scan_date: str
+    ) -> None:
+        """
+        Attach the scanned RFID tag to the matching registry student
+        (IDENTITY_RESOLUTION_DESIGN.md §5.2). Resolution is by normalized
+        (name, class):
+
+        - exactly one match -> set integration_tag (if NULL or changed),
+          tag_source='learned', tag_updated_at=now. (A changed card_id is a card
+          replacement; the old tag is simply overwritten.)
+        - no match          -> record an 'no_match' unmatched_scan (deduped/day).
+        - multiple matches  -> AMBIGUOUS (duplicate names): do NOT auto-attach;
+          record an 'ambiguous' unmatched_scan so an admin can resolve it. RFID
+          tags disambiguate the twins from then on.
+        """
+        from .names import normalize_name
+
+        if not card_id or not scan_class:
+            return
+        key = normalize_name(scan_name)
+
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT id, name, integration_tag FROM students "
+                "WHERE class_name = ? AND enabled = 1",
+                (scan_class,)
+            ).fetchall()
+            matches = [r for r in rows if normalize_name(r['name']) == key]
+
+            if len(matches) == 1:
+                m = matches[0]
+                if m['integration_tag'] != card_id:  # NULL or replaced card
+                    conn.execute(
+                        "UPDATE students SET integration_tag = ?, "
+                        "tag_source = 'learned', tag_updated_at = ? WHERE id = ?",
+                        (card_id, datetime.now().isoformat(), m['id'])
+                    )
+                    conn.commit()
+                    action = "learned" if m['integration_tag'] is None else "updated"
+                    self.logger.info(
+                        f"Tag {action} for student id={m['id']} in '{scan_class}'"
+                    )
+            elif not matches:
+                self._record_unmatched(
+                    conn, card_id, scan_name, scan_class, scan_date, 'no_match'
+                )
+            else:
+                self._record_unmatched(
+                    conn, card_id, scan_name, scan_class, scan_date, 'ambiguous'
+                )
+        finally:
+            conn.close()
+
+    def _record_unmatched(
+        self, conn, card_id, scan_name, scan_class, scan_date, reason
+    ) -> None:
+        """Insert an unmatched_scans alert row (deduped per card_id+date)."""
+        conn.execute(
+            "INSERT OR IGNORE INTO unmatched_scans "
+            "(card_id, scan_name, scan_class, scan_date, reason) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (card_id, scan_name, scan_class, scan_date, reason)
+        )
+        conn.commit()
+        self.logger.warning(
+            f"Unmatched scan ({reason}) in '{scan_class}': card={card_id} "
+            f"matched no single registry student"
+        )
+
+    def get_scanned_tags(
+        self, class_name: str, scan_date: Optional[str] = None
+    ) -> set:
+        """
+        Get the set of RFID tags (integration_tag) that scanned for a class on a
+        date. This is the name-free key for tag-first absence detection.
+        """
+        if scan_date is None:
+            scan_date = date.today().isoformat()
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT DISTINCT integration_tag FROM daily_scans "
+                "WHERE class_name = ? AND scan_date = ? "
+                "AND integration_tag IS NOT NULL",
+                (class_name, scan_date)
+            ).fetchall()
+            return {r['integration_tag'] for r in rows}
         finally:
             conn.close()
 
@@ -206,6 +306,27 @@ class ScanTracker:
             return {row['class_name']: row['cnt'] for row in rows}
         finally:
             conn.close()
+
+    def get_unmatched_summary(self) -> Dict[str, Any]:
+        """
+        Counts of pending (unresolved) unmatched scans for the coverage panel:
+        scans that matched no registry student ('no_match') and duplicate-name
+        first-taps that couldn't be auto-attached ('ambiguous').
+        """
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT reason, COUNT(*) AS c FROM unmatched_scans "
+                "WHERE resolved = 0 GROUP BY reason"
+            ).fetchall()
+        finally:
+            conn.close()
+        counts = {(r['reason'] or 'unknown'): r['c'] for r in rows}
+        return {
+            'no_match': counts.get('no_match', 0),
+            'ambiguous': counts.get('ambiguous', 0),
+            'total': sum(counts.values()),
+        }
 
     def cleanup_old_scans(self, days: int = 30) -> int:
         """

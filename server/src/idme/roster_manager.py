@@ -353,6 +353,62 @@ class RosterManager:
         finally:
             conn.close()
 
+    def get_tag_coverage(self) -> Dict[str, Any]:
+        """
+        Tag-mapping coverage for the settings-UI panel
+        (IDENTITY_RESOLUTION_DESIGN.md §5.4): how many enabled students have a
+        learned/known RFID tag, per class and school-wide, plus the list of
+        still-unmapped students (the stragglers an admin should chase).
+
+        Returns:
+            {
+              'total': 50, 'mapped': 46,
+              'classes': [
+                {'class_name': '5 UKM', 'total': 25, 'mapped': 23,
+                 'unmapped': ['NAME', ...],
+                 'recent': [{'name': .., 'tag_updated_at': ..}, ...]},
+                ...
+              ],
+            }
+        """
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT class_name, name, integration_tag, tag_source, "
+                "tag_updated_at FROM students WHERE enabled = 1 "
+                "ORDER BY class_name, name"
+            ).fetchall()
+        finally:
+            conn.close()
+
+        classes: Dict[str, Dict[str, Any]] = {}
+        for r in rows:
+            c = classes.setdefault(r['class_name'], {
+                'class_name': r['class_name'],
+                'total': 0, 'mapped': 0, 'unmapped': [], 'recent': [],
+            })
+            c['total'] += 1
+            if r['integration_tag']:
+                c['mapped'] += 1
+                if r['tag_updated_at']:
+                    c['recent'].append({
+                        'name': r['name'], 'tag_updated_at': r['tag_updated_at'],
+                    })
+            else:
+                c['unmapped'].append(r['name'])
+
+        class_list = sorted(classes.values(), key=lambda c: c['class_name'])
+        for c in class_list:
+            # Most-recently changed tags first (a freshly-changed card is visible).
+            c['recent'].sort(key=lambda x: x['tag_updated_at'], reverse=True)
+            c['recent'] = c['recent'][:5]
+
+        return {
+            'total': sum(c['total'] for c in class_list),
+            'mapped': sum(c['mapped'] for c in class_list),
+            'classes': class_list,
+        }
+
     def get_total_students(self) -> int:
         """Get total number of enabled students."""
         conn = self._get_conn()

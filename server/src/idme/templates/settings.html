@@ -226,6 +226,20 @@
                 <button type="submit" class="btn btn-primary">Initialise from Portal</button>
             </form>
         </div>
+
+        <!-- Tag-mapping coverage -->
+        <div class="card">
+            <h2>RFID Tag Coverage</h2>
+            <p style="color: #94a3b8; margin-bottom: 12px; font-size: 0.9em;">
+                Cards are learned automatically as students tap. During the
+                warm-up, un-mapped students are still matched by name. Tag-based
+                (name-free) detection is fully trustworthy once a class reaches
+                100%.
+            </p>
+            <div id="coverage-content" style="color: #94a3b8; font-size: 0.9em;">
+                Loading coverage&hellip;
+            </div>
+        </div>
     </div>
 
     <script>
@@ -375,6 +389,58 @@
                 showAlert('error', `Error: ${err.message}`);
             }
         }
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[c]));
+        }
+
+        async function loadCoverage() {
+            const el = document.getElementById('coverage-content');
+            try {
+                const resp = await fetch('/idme/roster/coverage');
+                const c = await resp.json();
+                if (!resp.ok) {
+                    el.textContent = c.error || 'Failed to load coverage';
+                    return;
+                }
+                if (!c.classes || !c.classes.length) {
+                    el.textContent = 'No students in the registry yet. Import a roster or initialise from the portal.';
+                    return;
+                }
+                const pct = c.total ? Math.round((c.mapped / c.total) * 100) : 0;
+                const um = c.unmatched || { no_match: 0, ambiguous: 0 };
+                let html = `<div style="margin-bottom:10px;color:#e2e8f0;">`
+                    + `<strong>${c.mapped} / ${c.total}</strong> cards mapped school-wide (${pct}%)`;
+                if (um.no_match || um.ambiguous) {
+                    html += ` &middot; <span style="color:#fbbf24;">`
+                        + `${um.no_match} unmatched, ${um.ambiguous} ambiguous scan(s) need attention</span>`;
+                }
+                html += `</div>`;
+                html += `<table style="width:100%;border-collapse:collapse;font-size:0.88em;">`;
+                for (const cl of c.classes) {
+                    const cpct = cl.total ? Math.round((cl.mapped / cl.total) * 100) : 0;
+                    const bar = `<div style="background:#334155;border-radius:4px;height:8px;width:120px;display:inline-block;vertical-align:middle;overflow:hidden;">`
+                        + `<div style="background:${cpct === 100 ? '#22c55e' : '#3b82f6'};height:8px;width:${cpct}%;"></div></div>`;
+                    html += `<tr style="border-top:1px solid #1e293b;">`
+                        + `<td style="padding:6px 8px;color:#e2e8f0;">${escapeHtml(cl.class_name)}</td>`
+                        + `<td style="padding:6px 8px;">${bar}</td>`
+                        + `<td style="padding:6px 8px;color:#94a3b8;white-space:nowrap;">${cl.mapped}/${cl.total}</td>`
+                        + `<td style="padding:6px 8px;color:#94a3b8;">`
+                        + (cl.unmapped && cl.unmapped.length
+                            ? `unmapped: ${cl.unmapped.map(escapeHtml).join(', ')}`
+                            : '<span style="color:#22c55e;">all mapped</span>')
+                        + `</td></tr>`;
+                }
+                html += `</table>`;
+                el.innerHTML = html;
+            } catch (err) {
+                el.textContent = `Error loading coverage: ${err.message}`;
+            }
+        }
+
+        loadCoverage();
     </script>
 </body>
 </html>

@@ -83,7 +83,10 @@ class AbsenceDetector:
             self.logger.warning(f"No students found in roster for class '{class_name}'")
             return []
 
-        # Step 2: Get scanned students
+        # Step 2: Get today's presence keys. Tag-first: a student is present if
+        # their learned RFID tag scanned (name-free, exact). Name set is the
+        # fallback for students whose tag hasn't been learned yet.
+        present_tags = self.scans.get_scanned_tags(class_name, scan_date)
         scanned_names_raw = self.scans.get_scanned_students(class_name, scan_date)
         scanned_normalized = {self._normalize_name(n) for n in scanned_names_raw}
 
@@ -95,13 +98,13 @@ class AbsenceDetector:
         # collision is logged loudly so the tag path (Phase 3) can disambiguate.
         self._warn_on_collisions(class_name, roster)
 
-        # Step 4: Find absent students (in roster but not scanned). Iterate the
+        # Step 4: Find absent students (in roster but not present). Iterate the
         # roster directly — never key a dict on the normalized name, or colliding
         # students would overwrite each other and silently vanish. Keep the full
         # row so we can carry idpelajar through to form_filler (Seam B).
         absent_rows = sorted(
             (s for s in roster
-             if self._normalize_name(s['name']) not in scanned_normalized),
+             if not self._is_present(s, present_tags, scanned_normalized)),
             key=lambda s: s['name'],
         )
 
@@ -155,18 +158,19 @@ class AbsenceDetector:
 
         roster = self.roster.get_class_roster(class_name)
 
+        present_tags = self.scans.get_scanned_tags(class_name, scan_date)
         scanned_raw = self.scans.get_scanned_students(class_name, scan_date)
         scanned_normalized = {self._normalize_name(n) for n in scanned_raw}
 
         # Iterate the roster directly (see detect_absences): keying a dict on the
-        # normalized name would silently drop collision pairs.
+        # normalized name would silently drop collision pairs. Tag-first presence.
         present_names = sorted(
             s['name'] for s in roster
-            if self._normalize_name(s['name']) in scanned_normalized
+            if self._is_present(s, present_tags, scanned_normalized)
         )
         absent_names = sorted(
             s['name'] for s in roster
-            if self._normalize_name(s['name']) not in scanned_normalized
+            if not self._is_present(s, present_tags, scanned_normalized)
         )
 
         return {
@@ -178,6 +182,24 @@ class AbsenceDetector:
             'scanned_students': present_names,
             'absent_students': absent_names,
         }
+
+    def _is_present(
+        self,
+        student: Dict[str, Any],
+        present_tags: set,
+        scanned_normalized: set,
+    ) -> bool:
+        """
+        Decide whether a roster student attended today.
+
+        Tag-first (IDENTITY_RESOLUTION_DESIGN.md §5.3): present if their learned
+        RFID tag is in today's scanned tags (exact, name-free). Falls back to the
+        normalized-name set for students whose tag hasn't been learned yet.
+        """
+        tag = student.get('integration_tag')
+        if tag and tag in present_tags:
+            return True
+        return self._normalize_name(student['name']) in scanned_normalized
 
     def _warn_on_collisions(self, class_name: str, roster: List[Dict[str, Any]]) -> List[str]:
         """

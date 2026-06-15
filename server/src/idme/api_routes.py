@@ -352,6 +352,25 @@ def get_roster():
         }), 200
 
 
+@idme_bp.route('/roster/coverage', methods=['GET'])
+def roster_coverage():
+    """
+    Tag-mapping coverage for the settings UI (read-only aggregate; no PII beyond
+    names already shown in the roster view). Reports mapped/total per class and
+    school-wide, the still-unmapped students, and pending unmatched/ambiguous
+    scan counts. See IDENTITY_RESOLUTION_DESIGN.md §5.4.
+    """
+    if not _roster_manager:
+        return jsonify({'error': 'IDME module not initialized'}), 503
+
+    coverage = _roster_manager.get_tag_coverage()
+    coverage['unmatched'] = (
+        _scan_tracker.get_unmatched_summary() if _scan_tracker
+        else {'no_match': 0, 'ambiguous': 0, 'total': 0}
+    )
+    return jsonify(coverage), 200
+
+
 @idme_bp.route('/roster/init', methods=['POST'])
 def init_roster():
     """
