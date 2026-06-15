@@ -76,7 +76,8 @@ class IDMEOrchestrator:
         self,
         teacher_id: int,
         class_name: str,
-        submission_date: Optional[str] = None
+        submission_date: Optional[str] = None,
+        confirm: bool = True
     ) -> Dict[str, Any]:
         """
         Submit absences for one class to IDME portal.
@@ -87,6 +88,9 @@ class IDMEOrchestrator:
             teacher_id: Teacher database ID.
             class_name: Class name (e.g., '5 UKM').
             submission_date: Date in YYYY-MM-DD (default: today).
+            confirm: True (default, production) = confirm the day (TELAH DISAHKAN,
+                hard to reverse). False = save a re-editable DRAFT (MENUNGGU
+                PENGESAHAN) — the safer first-live-test path.
 
         Returns:
             {
@@ -103,14 +107,15 @@ class IDMEOrchestrator:
             }
         """
         return asyncio.run(
-            self._submit_class_async(teacher_id, class_name, submission_date)
+            self._submit_class_async(teacher_id, class_name, submission_date, confirm)
         )
 
     async def _submit_class_async(
         self,
         teacher_id: int,
         class_name: str,
-        submission_date: Optional[str] = None
+        submission_date: Optional[str] = None,
+        confirm: bool = True
     ) -> Dict[str, Any]:
         """Async implementation of submit_class."""
         if submission_date is None:
@@ -198,6 +203,7 @@ class IDMEOrchestrator:
                 fill_result = await filler.mark_absences_and_submit(
                     absent_students=absences,
                     delay_between=IDMEConfig.DELAY_BETWEEN_STUDENTS,
+                    confirm=confirm,
                 )
 
                 duration = (datetime.now() - start).total_seconds()
@@ -224,6 +230,8 @@ class IDMEOrchestrator:
                     'submitted': success_count,
                     'failed': failed_count,
                     'form_submitted': form_submitted,
+                    'confirmed': confirm,
+                    'portal_status': fill_result.get('status', ''),
                     'duration': duration,
                     'status': status,
                 }

@@ -299,6 +299,10 @@ def submit_to_idme():
     data = request.get_json() or {}
     class_name = data.get('class_name')
     submission_date = data.get('date', date.today().isoformat())
+    # Manual triggers default to a re-editable DRAFT (confirm=False) — the safer
+    # path. Pass {"confirm": true} to hard-confirm (TELAH DISAHKAN). The daily
+    # scheduler (submit_all_classes) still confirms by default.
+    confirm = bool(data.get('confirm', False))
 
     if class_name:
         # Submit for specific class
@@ -311,6 +315,7 @@ def submit_to_idme():
                 teacher_id=teacher['id'],
                 class_name=class_name,
                 submission_date=submission_date,
+                confirm=confirm,
             )
             return jsonify(result), 200
         except Exception as e:

@@ -235,6 +235,11 @@ holds the cached real roster + temp DB and is also gitignored.
   left unmatched and resolved by the RFID-tag path instead. `detect_absences`
   iterates the roster directly so collisions can't silently drop a student.
   Validated by `diag_idme_pipeline.py` (no-collision on the real 25-roster).
+  *Latent warm-up caveat:* if two roster names DO collide and only one twin has
+  scanned, `_is_present`'s name-fallback marks the still-untagged twin present too
+  (a false present during the unresolved window). Consistent with the design's
+  "flag, don't guess" stance — `_warn_on_collisions` logs it — but detection
+  itself doesn't yet hold the absence; distinct RFID tags fix it once learned.
 - `login_engine.py:421` logs the teacher IC at INFO level — leaks it into test
   output. Consider masking before sharing logs.
 - Debug screenshots target `/data/idme/screenshots` (a Docker path) — won't
