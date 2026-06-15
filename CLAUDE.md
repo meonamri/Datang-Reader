@@ -10,10 +10,12 @@
 
 The **identity-resolution design is now IMPLEMENTED — all 3 phases** (see
 `server/src/idme/IDENTITY_RESOLUTION_DESIGN.md` for the plan). Offline + live
-read-only validation are green. **The ONE remaining unverified path is the live
-confirm-submit through the new id-based mark path** (writes real portal records —
-needs explicit fresh user authorization each time; do NOT run it casually or
-autonomously).
+read-only validation are green, and the **live confirm-submit through the new
+idpelajar mark path is now VALIDATED end-to-end** (2026-06-15, explicit user
+authorization: draft→MENUNGGU PENGESAHAN, confirm→TELAH DISAHKAN with a
+`kemaskiniKehadiranHarian` POST = HTTP 200; test class left confirmed, reset in
+the portal afterward). Any future live submit still needs fresh authorization
+each time — do NOT run it casually or autonomously.
 
 - **Phase 1 DONE (commit `43169e0`):** `_normalize_name` hardened — bin/binti
   canonicalization (`B.`/`BN`→BIN, `BT`/`BTE`/`BTI`→BINTI, medial-only),
@@ -40,9 +42,15 @@ autonomously).
   (Datang response has no IC; portal row exposes only `data-idpelajar` +
   `data-namapelajar`). Name bridges init + first-scan + card-replacement; RFID
   tag is the daily key once learned.
-- **To finish:** when the user authorizes a live submit, run the orchestrator
-  end-to-end (or `diag_idme_reasons.py --do-submit`) and confirm the
-  idpelajar-marked absences submit cleanly. That's the only box left to tick.
+- **Live submit VALIDATED (2026-06-15, user-authorized):** marked one student by
+  `idpelajar` then `diag_idme_reasons.py --do-submit` (its `mark_one_checked` now
+  passes name+idpelajar like production). Draft → MENUNGGU PENGESAHAN; confirm →
+  TELAH DISAHKAN (`kemaskiniKehadiranHarian` POST = 200). The full
+  detect→mark-by-idpelajar→confirm flow is proven live. Remaining nice-to-haves
+  (not blocking): a true orchestrator end-to-end run needs a configured teacher +
+  imported roster in `idme_data.db` (none set up on this dev machine); the open
+  questions in the design doc §11 (serial logins at scale, secret surface) are
+  pre-rollout hardening, not correctness.
 
 ## What this branch adds
 
