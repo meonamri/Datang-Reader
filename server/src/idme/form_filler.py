@@ -162,7 +162,9 @@ class IDMEFormFiller:
                         return { success: false, error: 'Student row not found' };
                     }
 
-                    const categoryDropdown = row.querySelector('select');
+                    const categoryDropdown =
+                        row.querySelector('select.selectkategori') ||
+                        row.querySelector('select');
                     if (!categoryDropdown) {
                         return { success: false, error: 'Category dropdown not found' };
                     }
@@ -187,14 +189,19 @@ class IDMEFormFiller:
                         categoryDropdown.dispatchEvent(new Event('change', { bubbles: true }));
                     }
 
-                    // Wait for reason dropdown to populate
-                    await sleep(800);
-
-                    // Step 7: Find reason dropdown (second select in row)
-                    const allDropdowns = row.querySelectorAll('select');
-                    const reasonDropdown = allDropdowns[1];
+                    // Wait for the reason (sebab) dropdown to be injected/populated.
+                    // The portal appends a `select.selectsebab` (name="sebabcuti[]")
+                    // to the row only after a category is chosen, so re-query for it
+                    // here rather than relying on positional index (the row also
+                    // contains a duplicate category select).
+                    let reasonDropdown = null;
+                    for (let i = 0; i < 10; i++) {
+                        await sleep(200);
+                        reasonDropdown = row.querySelector('select.selectsebab');
+                        if (reasonDropdown && reasonDropdown.options.length > 1) break;
+                    }
                     if (!reasonDropdown) {
-                        return { success: true, warning: 'Reason dropdown not found, category set only' };
+                        return { success: false, error: 'Reason dropdown (select.selectsebab) not found' };
                     }
 
                     // Step 8: Find reason value by text match
@@ -206,7 +213,7 @@ class IDMEFormFiller:
                         }
                     }
                     if (!reasonValue) {
-                        return { success: true, warning: `Reason '${sebabDescription}' not in dropdown` };
+                        return { success: false, error: `Reason '${sebabDescription}' not in dropdown` };
                     }
 
                     // Step 9: Set reason via jQuery (Select2)

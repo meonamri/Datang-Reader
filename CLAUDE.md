@@ -22,11 +22,34 @@ Plus (commit `4cbc2c9`) roster Excel upload with replace option + template downl
   pass, SSO into MOEIS works, CSRF + cookies extract, and
   `form_filler.get_student_list` returns the real class roster (25 students for
   the test teacher's class). Reproduced over multiple consecutive headless runs.
-- **Mark + submit (`form_filler.mark_absences_and_submit`): STILL UNTESTED and
-  not to be run casually** — it submits REAL absence records to a live
-  government portal. Hard to reverse. (Note: the submit AJAX endpoints
-  `kemaskiniKehadiranHarian` / `sahkanharian*` are also hardcoded `http://` and
-  depend on the same CSRF-preserving fix below to ever succeed.)
+- **Mark (DOM-level, no submit): VALIDATED live** against the real attendance
+  table. `form_filler.mark_student_absent` unchecks the student, selects
+  category PONTENG, and sets reason **N0040027 / MALAS KE SEKOLAH** on the
+  correct `select.selectsebab` element (verified by reading back
+  `sebab.value == 'N0040027'`). No Kemaskini/Simpan was clicked, so nothing was
+  persisted. See "Reason-targeting fix" below.
+- **Reason mapping VALIDATED:** all 12 `MOEIS_CATEGORIES` and all 5 PONTENG (N)
+  `COMPLETE_MOEIS_SEBAB` codes match the live portal dropdowns text-for-text,
+  and the portal's option `value` *is* the sebab code (e.g. `value="N0040027"`).
+- **Submit (`form_filler.mark_absences_and_submit` → `_submit_form`): STILL
+  UNTESTED and not to be run casually** — the Kemaskini → Simpan & Sahkan → OK
+  flow writes REAL absence records to a live government portal. Hard to reverse.
+  (Note: the submit AJAX endpoints `kemaskiniKehadiranHarian` / `sahkanharian*`
+  are also hardcoded `http://` and depend on the same CSRF-preserving fix below
+  to ever succeed.)
+
+### Reason-targeting fix in `form_filler.py` (this session)
+
+The attendance row contains **three** `<select>`s: two `kategori[]`
+(`select.selectkategori`, one a Select2 duplicate) and — appended lazily only
+*after* a category is chosen — one `sebabcuti[]` (`select.selectsebab`).
+`mark_student_absent` previously grabbed the reason dropdown as
+`row.querySelectorAll('select')[1]`, which is the **second category** select,
+not the reason select — so the reason was never set and the function returned
+`success` with only a warning (it would have submitted absences with no reason).
+Fixed to: select the category via `select.selectkategori`, then **poll/re-query
+for `select.selectsebab`** and set the reason there; a missing reason is now a
+hard failure (`success: false`) instead of a silent warning.
 
 ### Engine changes made this session (for the eventual merge review)
 

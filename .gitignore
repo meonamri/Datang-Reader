@@ -142,6 +142,7 @@ server/.idme-test.env
 server/idme-test-screenshots/
 server/idme-diag/
 server/diag_idme_attendance.py
+server/diag_idme_reasons.py
 server/idme_test_run.log
 
 # Spyder project settings
