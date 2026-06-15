@@ -6,27 +6,43 @@
 > testing banner** (a committed file carries over on merge; git cannot pin a
 > file to a branch permanently).
 
-## NEXT STEP (handoff — read me first, 2026-06-15)
+## NEXT STEP (handoff — read me first, updated 2026-06-15)
 
-We finished the **design phase** for student identity resolution and stopped
-**right before starting Phase 1**. Pick up there.
+The **identity-resolution design is now IMPLEMENTED — all 3 phases** (see
+`server/src/idme/IDENTITY_RESOLUTION_DESIGN.md` for the plan). Offline + live
+read-only validation are green. **The ONE remaining unverified path is the live
+confirm-submit through the new id-based mark path** (writes real portal records —
+needs explicit fresh user authorization each time; do NOT run it casually or
+autonomously).
 
-- **Read first:** `server/src/idme/IDENTITY_RESOLUTION_DESIGN.md` (the agreed
-  plan). It supersedes ad-hoc name matching with: a persistent identity registry
-  seeded from the portal, **passively-learned RFID tags** from the scan stream,
-  mark-by-`idpelajar` for form-filling, and a settings-UI tag-coverage panel.
+- **Phase 1 DONE (commit `43169e0`):** `_normalize_name` hardened — bin/binti
+  canonicalization (`B.`/`BN`→BIN, `BT`/`BTE`/`BTI`→BINTI, medial-only),
+  parenthetical/bracket strip, `@`-spacing. Extracted into shared
+  `idme/names.py`. Deliberately conservative: **no token-sort** (collision risk).
+  `detect_absences`/`get_attendance_summary` now iterate the roster directly
+  (fixes the silent dict-overwrite vanish bug) + `_warn_on_collisions`.
+- **Phase 2 DONE (commit `20755a9`):** `idme/migrations.py` (idempotent ALTER ADD
+  COLUMN for existing DBs) adds `idpelajar`/`tag_source`/`tag_updated_at`/`source`
+  + `unmatched_scans` table. `RosterManager.upsert_from_portal` (registry seeded
+  from portal, keyed on idpelajar/(name,class), preserves learned tags).
+  `form_filler.mark_student_absent` marks by **`data-idpelajar`** with name
+  fallback. `Orchestrator.init_roster_from_portal` + `POST /idme/roster/init` +
+  a settings-UI "Initialise Roster from Portal" button. **Live-validated
+  read-only**: idpelajar locates+marks a student with a bogus name (Seam B),
+  no submit.
+- **Phase 3 DONE (commit `c8dd72c`):** `scan_tracker.record_scan` passively learns the
+  RFID tag onto the matching student (overwrites on card replacement; logs
+  `unmatched_scans` on no-match/ambiguous). `absence_detector._is_present` is
+  **tag-first, name-fallback** (daily op is name-free once tags are learned).
+  `GET /idme/roster/coverage` + settings-UI "RFID Tag Coverage" panel
+  (mapped/total per class, unmapped list, unmatched/ambiguous counts).
 - **Settled facts (don't re-investigate):** IC is **unavailable on both sides**
   (Datang response has no IC; portal row exposes only `data-idpelajar` +
-  `data-namapelajar` — confirmed via `diag_idme_pipeline.py --probe-portal-attrs`).
-  So name is the only scan↔roster bridge; RFID tag is the daily key once learned.
-- **Phase 1 (START HERE):** harden `absence_detector._normalize_name` (currently
-  only uppercases + collapses spaces; docstring's "bin/binti" claim is FALSE —
-  see Notes/known issues) AND add the variant cases as assertions in
-  `server/diag_idme_pipeline.py`. Calibration caveat: a false *present* (two
-  students collapsing to one) is worse than a false absent — when fuzzy is
-  ambiguous, prefer no-match + alert over a guess.
-- Phases 2 (portal "Initialise Roster" + mark-by-idpelajar) and 3 (tag learning +
-  tag-first detection + coverage UI) follow — see the design doc's phased plan.
+  `data-namapelajar`). Name bridges init + first-scan + card-replacement; RFID
+  tag is the daily key once learned.
+- **To finish:** when the user authorizes a live submit, run the orchestrator
+  end-to-end (or `diag_idme_reasons.py --do-submit`) and confirm the
+  idpelajar-marked absences submit cleanly. That's the only box left to tick.
 
 ## What this branch adds
 
@@ -39,19 +55,19 @@ Plus (commit `4cbc2c9`) roster Excel upload with replace option + template downl
 
 ## Current testing status (2026-06-15)
 
-- **Offline data pipeline (absence detection + credential round-trip):
-  VALIDATED** via `diag_idme_pipeline.py` against the *real* 25-student roster
-  (pulled read-only from the portal) seeded into a throwaway `idme_data.db`.
-  `AbsenceDetector.detect_absences` computes `roster − scans = absent` correctly,
-  emits dicts whose shape (`student_name`/`category`/`sebab_id`) feeds
-  `form_filler.mark_absences_and_submit` unchanged, and `CredentialManager`
-  Fernet encrypt/decrypt round-trips (wrong key → `DecryptionError`). **Caveat
-  surfaced:** `absence_detector._normalize_name` only uppercases + collapses
-  spaces — its docstring claim of "handle bin/binti variations" is FALSE. Scan
-  names that differ structurally from the roster (BIN↔B., BINTI↔BT, appended
-  titles/aliases) are NOT matched, so a *present* student gets FALSELY marked
-  absent. Whitespace/case variants are fine. **Harden the normalizer before any
-  live orchestrator run** (see Notes / known issues).
+- **Offline data pipeline (absence detection + credential round-trip + tag
+  learning): VALIDATED** via `diag_idme_pipeline.py` against the *real*
+  25-student roster (pulled read-only from the portal) seeded into a throwaway
+  DB. `AbsenceDetector.detect_absences` computes `roster − present = absent`
+  correctly (now **tag-first, name-fallback**), emits dicts whose shape
+  (`student_name`/`category`/`sebab_id`/`idpelajar`) feeds `form_filler`, and
+  `CredentialManager` Fernet round-trips. **Phase-1 caveat RESOLVED:**
+  `_normalize_name` is hardened (bin/binti, parentheticals); the diag now asserts
+  no-collision on the real roster, bin/binti + appended-token MATCH, and a
+  token-reorder calibration-guard deliberately does NOT match. **Phase-3 added:**
+  the diag asserts `record_scan` learns a tag, a student is PRESENT-by-tag
+  despite a mismatched scan name (name-free), unmatched scans alert, and coverage
+  aggregates. All phases green.
 - **Login + navigation + student-table read: VALIDATED end-to-end against the
   live portal** (with valid teacher credentials; no 2FA/OTP). All 6 login steps
   pass, SSO into MOEIS works, CSRF + cookies extract, and
@@ -212,14 +228,13 @@ holds the cached real roster + temp DB and is also gitignored.
 
 ## Notes / known issues
 
-- **`absence_detector._normalize_name` is too weak (BUG, found 2026-06-15).** It
-  only `.upper()`s + collapses double-spaces, but its docstring claims it
-  "handle[s] bin/binti variations" — it does not. If the school-Excel roster name
-  and the Datang-API scan name for the *same* student differ structurally
-  (BIN↔B./BINTI↔BT, appended titles, `@` aliases, token reordering), the diff
-  treats the present student as absent and would submit a real false absence.
-  Must be hardened (token-set comparison, bin/binti canonicalization) before the
-  live orchestrator run. Reproduced by `diag_idme_pipeline.py`.
+- **`_normalize_name` weakness — RESOLVED 2026-06-15 (commit `43169e0`).** Now in
+  shared `idme/names.py`: bin/binti canonicalization, parenthetical strip,
+  `@`-spacing. Deliberately conservative — **no token-set sort** (it would risk a
+  false *present*, worse than a false absent); token reordering is intentionally
+  left unmatched and resolved by the RFID-tag path instead. `detect_absences`
+  iterates the roster directly so collisions can't silently drop a student.
+  Validated by `diag_idme_pipeline.py` (no-collision on the real 25-roster).
 - `login_engine.py:421` logs the teacher IC at INFO level — leaks it into test
   output. Consider masking before sharing logs.
 - Debug screenshots target `/data/idme/screenshots` (a Docker path) — won't
