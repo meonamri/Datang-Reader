@@ -92,6 +92,13 @@ python directly rather than activating:
   engineer the attendance-page navigation/AJAX issues (dumps page state to
   `server/idme-diag/`). Gitignored. Its `idme-diag/` dumps contain **real
   student PII** — never commit them.
+- `server/diag_idme_reasons.py` — diagnostic that dumps the live portal's
+  category + PONTENG reason dropdowns and diffs them against `moeis_codes.py`
+  (no PII printed). Default run is read-only. `--validate-mark` additionally
+  exercises `form_filler.mark_student_absent` on ONE student and reads back the
+  selected `select.selectsebab` value — it unchecks a checkbox + sets dropdowns
+  in the live DOM but **never clicks Kemaskini/Simpan, so nothing is submitted**.
+  Gitignored. Run: `.\.venv-idme\Scripts\python.exe diag_idme_reasons.py --headless [--validate-mark]`.
 - `server/.idme-test.env` — teacher IC + password for the test (gitignored;
   copy from `.idme-test.env.example`). Never commit real credentials.
 
