@@ -373,6 +373,13 @@ class IDMEFormFiller:
             # events and hangs actionability-based clicks. Triggering the bound
             # handler directly is reliable and matches the dropdown handling.
             await self._take_screenshot("submit_01_before_kemaskini")
+            # Dismiss any stray/leftover SweetAlert first — an open single-OK
+            # dialog can block the Kemaskini handler from rendering its modal.
+            await self.page.evaluate("""() => {
+                document.querySelectorAll(
+                    '.sweet-alert.visible .confirm, .swal-overlay--show-modal .swal-button--confirm')
+                    .forEach(b => { try { b.click(); } catch (e) {} });
+            }""")
             self.logger.info("  Clicking 'Kemaskini'...")
             opened = await self.page.evaluate("""() => {
                 if (window.jQuery && jQuery('#kemaskiniKehadiran').length) {
@@ -388,9 +395,10 @@ class IDMEFormFiller:
 
             # The Kemaskini handler renders a SweetAlert modal with the action
             # buttons (.batal/.simpan/.simpansah). Poll for the chosen one to be
-            # in the DOM (the swal renders a beat after the trigger).
+            # in the DOM (the swal renders a beat after the trigger; allow ~10s
+            # since the page may still be settling after a table reload).
             present = False
-            for _ in range(20):
+            for _ in range(40):
                 await asyncio.sleep(0.25)
                 present = await self.page.evaluate(
                     "(sel) => document.querySelectorAll(sel).length > 0",
