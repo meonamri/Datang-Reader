@@ -108,6 +108,21 @@ class ServiceManager:
 
         logger.info("Service stopped")
 
+    def _record_idme_scan(self, card_id: str, response: Any) -> None:
+        """
+        Record a successful scan into the IDME scan tracker (if enabled).
+
+        api_client.submit_attendance() returns the unwrapped student dict
+        ({name, section, pid, ...}) on success, so the response IS the data
+        dict that record_scan expects — pass it directly. Best-effort: never
+        raise, so IDME tracking can't break the proven attendance path.
+        """
+        if self.scan_tracker and isinstance(response, dict) and response.get("name"):
+            try:
+                self.scan_tracker.record_scan(card_id, response)
+            except Exception as scan_err:
+                logger.warning(f"IDME scan recording failed (non-critical): {scan_err}")
+
     def process_attendance(self, card_id: str, temperature: Optional[float] = None) -> Dict[str, Any]:
         """
         Process attendance for a scanned card
@@ -133,11 +148,7 @@ class ServiceManager:
             logger.info("Attendance submitted successfully")
 
             # Record scan for IDME absence detection (if enabled)
-            if self.scan_tracker and response.get("data"):
-                try:
-                    self.scan_tracker.record_scan(card_id, response["data"])
-                except Exception as scan_err:
-                    logger.warning(f"IDME scan recording failed (non-critical): {scan_err}")
+            self._record_idme_scan(card_id, response)
 
             return {
                 "success": True,
@@ -158,6 +169,8 @@ class ServiceManager:
                         timestamp=timestamp,
                         temperature=temperature
                     )
+                    # Record scan for IDME absence detection (if enabled)
+                    self._record_idme_scan(card_id, response)
                     return {
                         "success": True,
                         "online": True,
