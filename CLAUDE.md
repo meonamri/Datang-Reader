@@ -51,6 +51,35 @@ Fixed to: select the category via `select.selectkategori`, then **poll/re-query
 for `select.selectsebab`** and set the reason there; a missing reason is now a
 hard failure (`success: false`) instead of a silent warning.
 
+### Submit-path audit (2026-06-15, READ-ONLY — nothing submitted)
+
+Audited via `diag_idme_reasons.py --audit-submit` (dumps buttons + their bound
+jQuery handlers + greps page scripts for the submit endpoints; never clicks a
+submit control). Findings — **`_submit_form` is currently broken and must be
+rewritten before any live submit:**
+
+- **The "Simpan & Sahkan" selector is wrong.** Clicking **Kemaskini**
+  (`button#kemaskiniKehadiran`, text "Kemaskini" — step 1 is fine) does NOT
+  submit; its handler builds a confirmation modal *client-side* with three
+  buttons: **Batal** (`.batal`), **Simpan** (`.simpan`), and **Sahkan**
+  (`.simpansah`, green). The literal text **"Simpan & Sahkan" only appears as a
+  DISABLED button** (shown when `layaksahkan` is false). So `_submit_form`'s
+  `button:has-text("Simpan & Sahkan")` either times out or clicks a disabled
+  no-op — i.e. it would report success while submitting nothing. The real
+  confirm control is **`.simpansah`** (text "Sahkan").
+- **Draft vs confirm (reversibility lever).** `.simpan` → `kemaskini('simpan')`
+  saves a **draft** (status MENUNGGU PENGESAHAN, re-editable); `.simpansah` →
+  `kemaskini('simpansah')` **confirms** (TELAH DISAHKAN, the hard-to-reverse
+  one). A safer first live test = the `.simpan` draft path, not `.simpansah`.
+- **Step 3 "OK" button** likely doesn't exist — feedback is SweetAlert (Ya/Tidak
+  confirm). The current `try/except` around it already swallows the miss.
+- **CSRF prefilter DOES cover submit.** `kemaskini(statussimpan)` posts via
+  `$.ajax` to `http://moeispel.moe.gov.my/sahsiah/kehadiran/tabguru/kemaskiniKehadiranHarian`
+  — jQuery AJAX, so the `login_engine` http→https `ajaxPrefilter` rewrites it
+  (no native `fetch`, which the prefilter would miss). The `tabguru` daily
+  submit is the relevant endpoint; the `pkhem/sahkanharian*` endpoints are a
+  *separate* monthly-confirmation flow, not the teacher daily submit.
+
 ### Engine changes made this session (for the eventual merge review)
 
 All in `login_engine.py`, required to reach the attendance table on the live
