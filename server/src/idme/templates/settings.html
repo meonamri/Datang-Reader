@@ -11,88 +11,180 @@
             background: #0f172a; color: #e2e8f0;
             min-height: 100vh; padding: 20px;
         }
-        .container { max-width: 900px; margin: 0 auto; }
+        .container { max-width: 940px; margin: 0 auto; }
 
-        h1 { color: #38bdf8; margin-bottom: 8px; font-size: 1.8em; }
-        .subtitle { color: #94a3b8; margin-bottom: 24px; }
+        h1 { color: #38bdf8; margin-bottom: 6px; font-size: 1.8em; }
+        .subtitle { color: #94a3b8; margin-bottom: 20px; }
+
+        /* Safety banner */
+        .banner {
+            border-radius: 12px; padding: 16px 20px; margin-bottom: 20px;
+            display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+            border: 1px solid transparent;
+        }
+        .banner .glyph { font-size: 1.8em; line-height: 1; }
+        .banner .body { flex: 1; min-width: 220px; }
+        .banner .mode { font-size: 1.15em; font-weight: 700; letter-spacing: 0.01em; }
+        .banner .desc { font-size: 0.88em; opacity: 0.92; margin-top: 2px; }
+        .banner .fire { font-size: 0.82em; opacity: 0.85; white-space: nowrap; }
+        .banner-off     { background: #1e293b; border-color: #334155; color: #94a3b8; }
+        .banner-draft   { background: #0c1d33; border-color: #2563eb; color: #bfdbfe; }
+        .banner-locked  { background: #2a1106; border-color: #f59e0b; color: #fcd34d; }
+        .banner-locked .mode { color: #fbbf24; }
 
         /* Status bar */
-        .status-bar {
-            display: flex; gap: 16px; margin-bottom: 24px;
-            flex-wrap: wrap;
-        }
+        .status-bar { display: flex; gap: 14px; margin-bottom: 22px; flex-wrap: wrap; }
         .status-item {
             background: #1e293b; border-radius: 8px; padding: 12px 16px;
-            flex: 1; min-width: 140px;
+            flex: 1; min-width: 130px;
         }
-        .status-item .label { font-size: 0.75em; color: #94a3b8; text-transform: uppercase; }
-        .status-item .value { font-size: 1.4em; font-weight: 600; color: #38bdf8; }
+        .status-item .label { font-size: 0.72em; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; }
+        .status-item .value { font-size: 1.4em; font-weight: 600; color: #38bdf8; margin-top: 2px; }
         .status-item .value.green { color: #4ade80; }
 
         /* Cards */
         .card {
-            background: #1e293b; border-radius: 12px; padding: 24px;
+            background: #1e293b; border-radius: 12px; padding: 22px 24px;
             margin-bottom: 20px; border: 1px solid #334155;
         }
-        .card h2 { color: #f1f5f9; font-size: 1.2em; margin-bottom: 16px; }
+        .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 12px; }
+        .card h2 { color: #f1f5f9; font-size: 1.15em; }
+        .card .hint { color: #94a3b8; margin-bottom: 14px; font-size: 0.9em; line-height: 1.5; }
 
         /* Table */
         table { width: 100%; border-collapse: collapse; }
-        th { text-align: left; padding: 10px 12px; color: #94a3b8; font-size: 0.8em;
-             text-transform: uppercase; border-bottom: 1px solid #334155; }
-        td { padding: 10px 12px; border-bottom: 1px solid #1e293b; }
+        th { text-align: left; padding: 10px 12px; color: #94a3b8; font-size: 0.78em;
+             text-transform: uppercase; letter-spacing: 0.03em; border-bottom: 1px solid #334155; }
+        td { padding: 10px 12px; border-bottom: 1px solid #1e293b; vertical-align: middle; }
         tr:hover td { background: #253348; }
         .ic-masked { font-family: monospace; color: #94a3b8; }
+        .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+        /* Badges */
+        .badge {
+            display: inline-block; padding: 2px 9px; border-radius: 999px;
+            font-size: 0.74em; font-weight: 600; letter-spacing: 0.02em; white-space: nowrap;
+        }
+        .badge-green { background: #052e16; color: #4ade80; border: 1px solid #166534; }
+        .badge-grey  { background: #1f2937; color: #9ca3af; border: 1px solid #374151; }
+        .badge-amber { background: #2a1106; color: #fbbf24; border: 1px solid #92400e; }
+        .badge-blue  { background: #0c1d33; color: #93c5fd; border: 1px solid #1e40af; }
 
         /* Buttons */
         .btn {
-            display: inline-block; padding: 8px 16px; border-radius: 6px;
+            display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 6px;
             border: none; cursor: pointer; font-size: 0.85em; font-weight: 500;
-            text-decoration: none; transition: opacity 0.2s;
+            text-decoration: none; transition: opacity 0.15s, background 0.15s;
         }
-        .btn:hover { opacity: 0.85; }
+        .btn:hover { opacity: 0.88; }
+        .btn:disabled { opacity: 0.5; cursor: progress; }
         .btn-primary { background: #3b82f6; color: white; }
         .btn-success { background: #22c55e; color: white; }
         .btn-danger { background: #ef4444; color: white; }
         .btn-secondary { background: #475569; color: white; }
+        .btn-ghost { background: transparent; color: #93c5fd; border: 1px solid #334155; }
         .btn-sm { padding: 4px 10px; font-size: 0.8em; }
+
+        /* Spinner */
+        .spinner {
+            width: 13px; height: 13px; border: 2px solid rgba(255,255,255,0.35);
+            border-top-color: #fff; border-radius: 50%;
+            display: inline-block; animation: spin 0.7s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
 
         /* Forms */
         .form-group { margin-bottom: 16px; }
-        .form-group label {
-            display: block; margin-bottom: 4px; font-size: 0.85em; color: #94a3b8;
-        }
+        .form-group label { display: block; margin-bottom: 5px; font-size: 0.85em; color: #94a3b8; }
         .form-group input, .form-group select {
             width: 100%; padding: 10px 12px; border-radius: 6px;
-            border: 1px solid #475569; background: #0f172a; color: #e2e8f0;
-            font-size: 0.95em;
+            border: 1px solid #475569; background: #0f172a; color: #e2e8f0; font-size: 0.95em;
         }
-        .form-group input:focus, .form-group select:focus {
-            outline: none; border-color: #3b82f6;
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: #3b82f6; }
+        .form-row { display: flex; gap: 12px; flex-wrap: wrap; }
+        .form-row .form-group { flex: 1; min-width: 180px; }
+        .field-hint { font-size: 0.76em; margin-top: 4px; min-height: 1em; }
+        .field-hint.ok { color: #4ade80; }
+        .field-hint.bad { color: #fca5a5; }
+        .pw-wrap { position: relative; }
+        .pw-toggle {
+            position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+            background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 0.78em; padding: 4px;
         }
-        .form-row { display: flex; gap: 12px; }
-        .form-row .form-group { flex: 1; }
 
         /* Alerts */
         .alert {
-            padding: 12px 16px; border-radius: 8px; margin-bottom: 16px;
-            font-size: 0.9em;
+            padding: 12px 40px 12px 16px; border-radius: 8px; margin-bottom: 12px;
+            font-size: 0.9em; position: relative;
         }
+        .alert .close {
+            position: absolute; right: 10px; top: 8px; cursor: pointer;
+            background: none; border: none; color: inherit; opacity: 0.6; font-size: 1.1em;
+        }
+        .alert .close:hover { opacity: 1; }
         .alert-success { background: #052e16; border: 1px solid #22c55e; color: #4ade80; }
         .alert-error { background: #2d0a0a; border: 1px solid #ef4444; color: #fca5a5; }
         .alert-info { background: #0c1929; border: 1px solid #3b82f6; color: #93c5fd; }
 
-        /* Hidden */
+        .empty { color: #94a3b8; text-align: center; padding: 24px; font-size: 0.9em; line-height: 1.6; }
+        .warn-line { color: #fbbf24; font-size: 0.85em; margin-top: 10px; line-height: 1.5; }
         .hidden { display: none; }
+        .actions { display: flex; gap: 6px; }
 
-        /* Actions */
-        .actions { display: flex; gap: 8px; }
+        /* Modal */
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(2,6,23,0.7);
+            display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50;
+        }
+        .modal {
+            background: #1e293b; border: 1px solid #334155; border-radius: 12px;
+            padding: 24px; width: 100%; max-width: 460px;
+        }
+        .modal h3 { color: #f1f5f9; margin-bottom: 16px; font-size: 1.1em; }
+
+        @media (max-width: 640px) {
+            table thead { display: none; }
+            table, tbody, tr, td { display: block; width: 100%; }
+            tr { border: 1px solid #334155; border-radius: 8px; margin-bottom: 10px; padding: 4px 0; }
+            td { border: none; display: flex; justify-content: space-between; gap: 12px; padding: 7px 14px; }
+            td::before { content: attr(data-th); color: #94a3b8; font-size: 0.78em; text-transform: uppercase; }
+            td.actions { justify-content: flex-end; }
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>IDME Settings</h1>
-        <p class="subtitle">Manage teachers for automated IDME attendance submission</p>
+        <p class="subtitle">Automated MOEIS attendance submission &mdash; teachers, roster &amp; daily run state</p>
+
+        <!-- Safety banner (server-rendered so it survives a JS failure) -->
+        {% if not overview.config.enabled %}
+        <div class="banner banner-off">
+            <span class="glyph">&#9711;</span>
+            <div class="body">
+                <div class="mode">MODULE OFF</div>
+                <div class="desc">IDME is disabled (IDME_ENABLED=false). Nothing is submitted to MOEIS. Settings below are saved but inert until enabled.</div>
+            </div>
+        </div>
+        {% elif overview.config.scheduler_confirm %}
+        <div class="banner banner-locked">
+            <span class="glyph">&#9888;</span>
+            <div class="body">
+                <div class="mode">AUTO-CONFIRM &middot; LIVE</div>
+                <div class="desc">The daily run <strong>locks records (TELAH DISAHKAN)</strong> unattended &mdash; hard to reverse. Every onboarded class is submitted and confirmed automatically at the cutoff.</div>
+            </div>
+            <div class="fire" id="next-fire" data-next="{{ overview.scheduler.next_run if overview.scheduler else '' }}">Cutoff {{ overview.config.cutoff_time }}</div>
+        </div>
+        {% else %}
+        <div class="banner banner-draft">
+            <span class="glyph">&#128221;</span>
+            <div class="body">
+                <div class="mode">DRAFT MODE &middot; LIVE</div>
+                <div class="desc">The daily run saves re-editable <strong>drafts (MENUNGGU PENGESAHAN)</strong> for a human to confirm each morning. Safe default &mdash; nothing is locked automatically.</div>
+            </div>
+            <div class="fire" id="next-fire" data-next="{{ overview.scheduler.next_run if overview.scheduler else '' }}">Cutoff {{ overview.config.cutoff_time }}</div>
+        </div>
+        {% endif %}
 
         <!-- Status Bar -->
         <div class="status-bar">
@@ -117,9 +209,24 @@
         <!-- Alert area -->
         <div id="alert-area"></div>
 
+        <!-- Today & Alignment -->
+        <div class="card">
+            <div class="card-head">
+                <h2>Today &amp; Class Alignment</h2>
+                <button class="btn btn-ghost btn-sm" id="refresh-overview" type="button">Refresh</button>
+            </div>
+            <p class="hint">
+                What the cutoff run will see right now: <strong>roster &minus; scans = absent</strong>.
+                Only <span class="badge badge-green">onboarded</span> classes (those with an enabled
+                teacher) are submitted to MOEIS. A class string must match across roster, RFID
+                section and teacher, or it silently misfires.
+            </p>
+            <div id="overview-content">Loading&hellip;</div>
+        </div>
+
         <!-- Teacher List -->
         <div class="card">
-            <h2>Teachers</h2>
+            <h2 style="margin-bottom:14px;">Teachers</h2>
             {% if teachers %}
             <table>
                 <thead>
@@ -131,38 +238,41 @@
                         <th>Actions</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody id="teacher-tbody">
                     {% for teacher in teachers %}
-                    <tr id="teacher-row-{{ teacher.id }}">
-                        <td>{{ teacher.name }}</td>
-                        <td class="ic-masked">{{ teacher.ic_number[:4] }}****{{ teacher.ic_number[-4:] }}</td>
-                        <td>{{ teacher.class_name }}</td>
-                        <td>
+                    <tr id="teacher-row-{{ teacher.id }}"
+                        data-id="{{ teacher.id }}"
+                        data-name="{{ teacher.name }}"
+                        data-class="{{ teacher.class_name }}"
+                        data-enabled="{{ 1 if teacher.enabled else 0 }}">
+                        <td data-th="Name">{{ teacher.name }}</td>
+                        <td data-th="IC" class="ic-masked">{{ teacher.ic_number[:4] }}****{{ teacher.ic_number[-4:] }}</td>
+                        <td data-th="Class">{{ teacher.class_name }}</td>
+                        <td data-th="Status">
                             {% if teacher.enabled %}
-                            <span style="color: #4ade80;">Active</span>
+                            <span class="badge badge-green">Active</span>
                             {% else %}
-                            <span style="color: #94a3b8;">Disabled</span>
+                            <span class="badge badge-grey">Disabled</span>
                             {% endif %}
                         </td>
-                        <td class="actions">
-                            <button class="btn btn-secondary btn-sm" onclick="testTeacher({{ teacher.id }})">Test</button>
-                            <button class="btn btn-danger btn-sm" onclick="deleteTeacher({{ teacher.id }}, '{{ teacher.name }}')">Delete</button>
+                        <td data-th="Actions" class="actions">
+                            <button class="btn btn-ghost btn-sm js-edit">Edit</button>
+                            <button class="btn btn-secondary btn-sm js-test">Test</button>
+                            <button class="btn btn-danger btn-sm js-delete">Delete</button>
                         </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
             {% else %}
-            <p style="color: #94a3b8; text-align: center; padding: 20px;">
-                No teachers configured. Add one below.
-            </p>
+            <p class="empty">No teachers configured yet.<br>Add one below to onboard a class for MOEIS submission.</p>
             {% endif %}
         </div>
 
         <!-- Add Teacher Form -->
         <div class="card">
-            <h2>Add Teacher</h2>
-            <form id="add-teacher-form" onsubmit="addTeacher(event)">
+            <h2 style="margin-bottom:14px;">Add Teacher</h2>
+            <form id="add-teacher-form">
                 <div class="form-row">
                     <div class="form-group">
                         <label>Full Name</label>
@@ -171,223 +281,135 @@
                     <div class="form-group">
                         <label>Class</label>
                         <input type="text" id="teacher-class" required placeholder="5 UKM">
+                        <div class="field-hint" id="class-hint"></div>
                     </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
                         <label>IC Number (12 digits)</label>
-                        <input type="text" id="teacher-ic" required pattern="\d{12}" placeholder="980331026309" maxlength="12">
+                        <input type="text" id="teacher-ic" required pattern="\d{12}" placeholder="980331026309" maxlength="12" inputmode="numeric">
+                        <div class="field-hint" id="ic-hint"></div>
                     </div>
                     <div class="form-group">
                         <label>IDME Password</label>
-                        <input type="password" id="teacher-password" required placeholder="Password for IDME portal">
+                        <div class="pw-wrap">
+                            <input type="password" id="teacher-password" required placeholder="Password for IDME portal">
+                            <button type="button" class="pw-toggle" data-target="teacher-password">Show</button>
+                        </div>
                     </div>
                 </div>
-                <button type="submit" class="btn btn-primary">Add Teacher</button>
+                <button type="submit" class="btn btn-primary" id="add-teacher-btn">Add Teacher</button>
             </form>
         </div>
 
         <!-- Roster Import -->
         <div class="card">
-            <h2>Student Roster</h2>
-            <p style="color: #94a3b8; margin-bottom: 12px; font-size: 0.9em;">
+            <h2 style="margin-bottom:8px;">Student Roster</h2>
+            <p class="hint">
                 Upload the school's student Excel file. Need the format?
-                <a href="/idme/roster/template" class="btn btn-secondary btn-sm" style="margin-left: 4px;">Download Template</a>
+                <a href="/idme/roster/template" class="btn btn-secondary btn-sm" style="margin-left:4px;">Download Template</a>
             </p>
-            <form id="roster-form" onsubmit="uploadRoster(event)">
+            <form id="roster-form">
                 <div class="form-group">
                     <label>Excel File (.xlsx)</label>
                     <input type="file" id="roster-file" accept=".xlsx,.xls" required>
                 </div>
-                <div class="form-group" style="display: flex; align-items: center; gap: 8px;">
-                    <input type="checkbox" id="roster-replace" style="width: auto;">
-                    <label for="roster-replace" style="margin: 0;">
+                <div class="form-group" style="display:flex; align-items:center; gap:8px;">
+                    <input type="checkbox" id="roster-replace" style="width:auto;">
+                    <label for="roster-replace" style="margin:0;">
                         Replace existing roster (clears all current students first &mdash; recommended to avoid duplicates)
                     </label>
                 </div>
-                <button type="submit" class="btn btn-success">Upload &amp; Import</button>
+                <button type="submit" class="btn btn-success" id="roster-btn">Upload &amp; Import</button>
             </form>
         </div>
 
         <!-- Initialise Roster from Portal -->
         <div class="card">
-            <h2>Initialise Roster from Portal</h2>
-            <p style="color: #94a3b8; margin-bottom: 12px; font-size: 0.9em;">
-                Seed/refresh a class roster directly from the MOEIS portal
-                (read-only login &mdash; reads the student table, never marks or
-                submits). The portal becomes authoritative for name + class +
-                student id. Learned RFID card mappings are preserved.
+            <h2 style="margin-bottom:8px;">Initialise Roster from Portal</h2>
+            <p class="hint">
+                Seed/refresh a class roster directly from the MOEIS portal (read-only login &mdash;
+                reads the student table, never marks or submits). The portal becomes authoritative
+                for name + class + student id. Learned RFID card mappings are preserved.
             </p>
-            <form id="roster-init-form" onsubmit="initRoster(event)">
+            <form id="roster-init-form">
                 <div class="form-group">
                     <label>Class (must have a configured teacher)</label>
                     <input type="text" id="roster-init-class" placeholder="e.g. 5 UKM" required>
                 </div>
-                <button type="submit" class="btn btn-primary">Initialise from Portal</button>
+                <button type="submit" class="btn btn-primary" id="roster-init-btn">Initialise from Portal</button>
             </form>
         </div>
 
         <!-- Tag-mapping coverage -->
         <div class="card">
-            <h2>RFID Tag Coverage</h2>
-            <p style="color: #94a3b8; margin-bottom: 12px; font-size: 0.9em;">
-                Cards are learned automatically as students tap. During the
-                warm-up, un-mapped students are still matched by name. Tag-based
-                (name-free) detection is fully trustworthy once a class reaches
-                100%.
-            </p>
-            <div id="coverage-content" style="color: #94a3b8; font-size: 0.9em;">
-                Loading coverage&hellip;
+            <div class="card-head">
+                <h2>RFID Tag Coverage</h2>
+                <button class="btn btn-ghost btn-sm" id="refresh-coverage" type="button">Refresh</button>
             </div>
+            <p class="hint">
+                Cards are learned automatically as students tap. During the warm-up, un-mapped
+                students are still matched by name. Tag-based (name-free) detection is fully
+                trustworthy once a class reaches 100%.
+            </p>
+            <div id="coverage-content" style="color:#94a3b8; font-size:0.9em;">Loading coverage&hellip;</div>
+        </div>
+    </div>
+
+    <!-- Edit modal -->
+    <div id="edit-modal" class="modal-overlay hidden">
+        <div class="modal">
+            <h3>Edit Teacher</h3>
+            <form id="edit-teacher-form">
+                <input type="hidden" id="edit-id">
+                <div class="form-group">
+                    <label>Full Name</label>
+                    <input type="text" id="edit-name" required>
+                </div>
+                <div class="form-group">
+                    <label>Class</label>
+                    <input type="text" id="edit-class" required>
+                </div>
+                <div class="form-group">
+                    <label>New Password <span style="color:#64748b;">(leave blank to keep current)</span></label>
+                    <div class="pw-wrap">
+                        <input type="password" id="edit-password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;">
+                        <button type="button" class="pw-toggle" data-target="edit-password">Show</button>
+                    </div>
+                </div>
+                <div class="form-group" style="display:flex; align-items:center; gap:8px;">
+                    <input type="checkbox" id="edit-enabled" style="width:auto;">
+                    <label for="edit-enabled" style="margin:0;">Enabled (class is submitted to MOEIS)</label>
+                </div>
+                <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:8px;">
+                    <button type="button" class="btn btn-secondary" id="edit-cancel">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="edit-save">Save changes</button>
+                </div>
+            </form>
         </div>
     </div>
 
     <script>
+        const INITIAL_OVERVIEW = {{ overview|tojson }};
+
+        // ---- Alerts (persistent, dismissible) ----
         function showAlert(type, message) {
             const area = document.getElementById('alert-area');
             const alert = document.createElement('div');
             alert.className = `alert alert-${type}`;
-            alert.textContent = message;
-            area.innerHTML = '';
+            const span = document.createElement('span');
+            span.textContent = message;
+            alert.appendChild(span);
+            const close = document.createElement('button');
+            close.className = 'close';
+            close.innerHTML = '&times;';
+            close.onclick = () => alert.remove();
+            alert.appendChild(close);
             area.appendChild(alert);
-            setTimeout(() => alert.remove(), 8000);
-        }
-
-        async function addTeacher(e) {
-            e.preventDefault();
-            const data = {
-                name: document.getElementById('teacher-name').value,
-                ic_number: document.getElementById('teacher-ic').value,
-                password: document.getElementById('teacher-password').value,
-                class_name: document.getElementById('teacher-class').value,
-            };
-
-            try {
-                const resp = await fetch('/idme/teachers', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data),
-                });
-                const result = await resp.json();
-
-                if (resp.ok) {
-                    showAlert('success', `Teacher ${data.name} added successfully!`);
-                    setTimeout(() => location.reload(), 1000);
-                } else {
-                    showAlert('error', result.error || 'Failed to add teacher');
-                }
-            } catch (err) {
-                showAlert('error', `Error: ${err.message}`);
+            if (type === 'success' || type === 'info') {
+                setTimeout(() => alert.remove(), 9000);
             }
-        }
-
-        async function deleteTeacher(id, name) {
-            if (!confirm(`Delete teacher ${name}? This cannot be undone.`)) return;
-
-            try {
-                const resp = await fetch(`/idme/teachers/${id}`, { method: 'DELETE' });
-                const result = await resp.json();
-
-                if (resp.ok) {
-                    showAlert('success', `Teacher ${name} deleted`);
-                    document.getElementById(`teacher-row-${id}`).remove();
-                } else {
-                    showAlert('error', result.error || 'Failed to delete');
-                }
-            } catch (err) {
-                showAlert('error', `Error: ${err.message}`);
-            }
-        }
-
-        async function testTeacher(id) {
-            showAlert('info', 'Testing IDME credentials... This may take 30-60 seconds.');
-
-            try {
-                const resp = await fetch(`/idme/teachers/${id}/test`, { method: 'POST' });
-                const result = await resp.json();
-
-                if (result.success) {
-                    showAlert('success', `Login successful! (${result.duration}s)`);
-                } else {
-                    showAlert('error', `Login failed: ${result.error || 'Unknown error'}`);
-                }
-            } catch (err) {
-                showAlert('error', `Error: ${err.message}`);
-            }
-        }
-
-        async function uploadRoster(e) {
-            e.preventDefault();
-            const fileInput = document.getElementById('roster-file');
-            const replace = document.getElementById('roster-replace').checked;
-
-            if (!fileInput.files.length) {
-                showAlert('error', 'Please choose an Excel file');
-                return;
-            }
-
-            if (replace && !confirm('Replace the entire roster? All current students will be cleared first.')) {
-                return;
-            }
-
-            const formData = new FormData();
-            formData.append('file', fileInput.files[0]);
-            formData.append('replace', replace ? 'true' : 'false');
-
-            showAlert('info', 'Uploading and importing roster...');
-
-            try {
-                const resp = await fetch('/idme/roster/upload', {
-                    method: 'POST',
-                    body: formData,
-                });
-                const result = await resp.json();
-
-                if (resp.ok) {
-                    let msg = `Imported ${result.imported} students across ${result.classes} classes`;
-                    if (result.replaced) msg += ` (cleared ${result.cleared} existing)`;
-                    if (result.skipped) msg += `, ${result.skipped} skipped`;
-                    showAlert('success', msg);
-                    setTimeout(() => location.reload(), 1500);
-                } else {
-                    showAlert('error', result.error || 'Import failed');
-                }
-            } catch (err) {
-                showAlert('error', `Error: ${err.message}`);
-            }
-        }
-
-        async function initRoster(e) {
-            e.preventDefault();
-            const className = document.getElementById('roster-init-class').value.trim();
-            if (!className) {
-                showAlert('error', 'Please enter a class name');
-                return;
-            }
-
-            showAlert('info', `Logging into the portal and reading "${className}"...`);
-
-            try {
-                const resp = await fetch('/idme/roster/init', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ class_name: className }),
-                });
-                const result = await resp.json();
-
-                if (resp.ok) {
-                    let msg = `Roster initialised for ${result.class_name}: `
-                        + `+${result.added} added, ${result.updated} updated`;
-                    if (result.renamed && result.renamed.length) msg += `, ${result.renamed.length} renamed`;
-                    if (result.removed && result.removed.length) msg += `, ${result.removed.length} no longer listed`;
-                    showAlert('success', msg);
-                    setTimeout(() => location.reload(), 1800);
-                } else {
-                    showAlert('error', result.error || 'Roster init failed');
-                }
-            } catch (err) {
-                showAlert('error', `Error: ${err.message}`);
-            }
+            return alert;
         }
 
         function escapeHtml(s) {
@@ -396,15 +418,297 @@
             }[c]));
         }
 
+        function busy(btn, on, label) {
+            if (on) {
+                btn.dataset.label = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = `<span class="spinner"></span>${label || ''}`;
+            } else {
+                btn.disabled = false;
+                btn.innerHTML = btn.dataset.label || btn.innerHTML;
+            }
+        }
+
+        // ---- Password show/hide ----
+        document.querySelectorAll('.pw-toggle').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const input = document.getElementById(btn.dataset.target);
+                if (input.type === 'password') { input.type = 'text'; btn.textContent = 'Hide'; }
+                else { input.type = 'password'; btn.textContent = 'Show'; }
+            });
+        });
+
+        // ---- Next-fire countdown ----
+        function formatFire() {
+            const el = document.getElementById('next-fire');
+            if (!el) return;
+            const iso = el.dataset.next;
+            if (!iso) return;
+            const next = new Date(iso);
+            if (isNaN(next)) return;
+            const diffMs = next - new Date();
+            if (diffMs <= 0) { return; }
+            const hrs = Math.floor(diffMs / 3600000);
+            const mins = Math.floor((diffMs % 3600000) / 60000);
+            const rel = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+            el.textContent = `Next run in ${rel}`;
+        }
+
+        // ---- Today & Alignment ----
+        function renderOverview(data) {
+            const el = document.getElementById('overview-content');
+            const classes = data.classes || [];
+            const orphanT = data.orphan_teachers || [];
+            const orphanS = data.orphan_sections || [];
+
+            if (!classes.length && !orphanT.length) {
+                el.innerHTML = `<p class="empty">No roster classes yet.<br>`
+                    + `Add a teacher and import a roster (or initialise from the portal) to onboard a class.</p>`;
+                return;
+            }
+
+            let html = '';
+            if (classes.length) {
+                html += `<table><thead><tr>`
+                    + `<th>Class</th><th>Teacher</th><th class="num">Roster</th>`
+                    + `<th class="num">Scanned</th><th class="num">Absent</th><th>Status</th>`
+                    + `</tr></thead><tbody>`;
+                for (const c of classes) {
+                    let status, teacherCell;
+                    if (c.onboarded) {
+                        status = `<span class="badge badge-green">Onboarded</span>`;
+                        teacherCell = escapeHtml(c.teacher_name);
+                    } else if (c.teacher_name && !c.teacher_enabled) {
+                        status = `<span class="badge badge-grey">Teacher disabled</span>`;
+                        teacherCell = escapeHtml(c.teacher_name);
+                    } else {
+                        status = `<span class="badge badge-amber">No teacher &mdash; not submitted</span>`;
+                        teacherCell = `<span style="color:#94a3b8;">&mdash;</span>`;
+                    }
+                    const absentColor = c.absent > 0 ? '#fbbf24' : '#4ade80';
+                    html += `<tr>`
+                        + `<td data-th="Class">${escapeHtml(c.class_name)}</td>`
+                        + `<td data-th="Teacher">${teacherCell}</td>`
+                        + `<td data-th="Roster" class="num">${c.roster}</td>`
+                        + `<td data-th="Scanned" class="num">${c.scanned}</td>`
+                        + `<td data-th="Absent" class="num" style="color:${absentColor};font-weight:600;">${c.absent}</td>`
+                        + `<td data-th="Status">${status}</td>`
+                        + `</tr>`;
+                }
+                html += `</tbody></table>`;
+            }
+
+            if (orphanT.length) {
+                html += `<div class="warn-line">&#9888; Teacher(s) whose class matches no roster &mdash; will silently submit nothing: `
+                    + orphanT.map(t => `<strong>${escapeHtml(t.name)}</strong> (&ldquo;${escapeHtml(t.class_name)}&rdquo;)`).join(', ')
+                    + `. Fix the class string or import that roster.</div>`;
+            }
+            if (orphanS.length) {
+                html += `<div class="warn-line">&#9888; Today's scans landed under section(s) no roster class knows: `
+                    + orphanS.map(s => `&ldquo;${escapeHtml(s)}&rdquo;`).join(', ')
+                    + `. Those taps won't count toward any class.</div>`;
+            }
+            el.innerHTML = html;
+        }
+
+        async function refreshOverview(btn) {
+            if (btn) busy(btn, true, ' Refreshing');
+            try {
+                const resp = await fetch('/idme/overview');
+                const data = await resp.json();
+                if (resp.ok) renderOverview(data);
+                else showAlert('error', data.error || 'Failed to load overview');
+            } catch (err) {
+                showAlert('error', `Error: ${err.message}`);
+            } finally {
+                if (btn) busy(btn, false);
+            }
+        }
+
+        // ---- Add teacher ----
+        document.getElementById('add-teacher-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('add-teacher-btn');
+            const data = {
+                name: document.getElementById('teacher-name').value.trim(),
+                ic_number: document.getElementById('teacher-ic').value.trim(),
+                password: document.getElementById('teacher-password').value,
+                class_name: document.getElementById('teacher-class').value.trim(),
+            };
+            busy(btn, true, ' Adding');
+            try {
+                const resp = await fetch('/idme/teachers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data),
+                });
+                const result = await resp.json();
+                if (resp.ok) {
+                    showAlert('success', `Teacher ${data.name} added.`);
+                    setTimeout(() => location.reload(), 900);
+                } else {
+                    showAlert('error', result.error || 'Failed to add teacher');
+                    busy(btn, false);
+                }
+            } catch (err) {
+                showAlert('error', `Error: ${err.message}`);
+                busy(btn, false);
+            }
+        });
+
+        // Live IC validation
+        const icInput = document.getElementById('teacher-ic');
+        icInput.addEventListener('input', () => {
+            const v = icInput.value.trim();
+            const hint = document.getElementById('ic-hint');
+            if (!v) { hint.textContent = ''; hint.className = 'field-hint'; return; }
+            if (/^\d{12}$/.test(v)) { hint.textContent = 'Valid IC format'; hint.className = 'field-hint ok'; }
+            else { hint.textContent = `${v.replace(/\D/g,'').length}/12 digits`; hint.className = 'field-hint bad'; }
+        });
+
+        // Live class-match hint (against known roster classes)
+        const classInput = document.getElementById('teacher-class');
+        classInput.addEventListener('input', () => {
+            const v = classInput.value.trim();
+            const hint = document.getElementById('class-hint');
+            if (!v) { hint.textContent = ''; hint.className = 'field-hint'; return; }
+            const known = (INITIAL_OVERVIEW.classes || []).map(c => c.class_name);
+            if (known.includes(v)) { hint.textContent = 'Matches a roster class'; hint.className = 'field-hint ok'; }
+            else { hint.textContent = 'No roster class matches yet (must match exactly to submit)'; hint.className = 'field-hint bad'; }
+        });
+
+        // ---- Teacher row actions (delegated; data-attr safe for any name) ----
+        document.getElementById('teacher-tbody')?.addEventListener('click', async (e) => {
+            const btn = e.target.closest('button');
+            if (!btn) return;
+            const row = btn.closest('tr');
+            const id = row.dataset.id;
+            const name = row.dataset.name;
+
+            if (btn.classList.contains('js-delete')) {
+                if (!confirm(`Delete teacher ${name}? This cannot be undone.`)) return;
+                busy(btn, true);
+                try {
+                    const resp = await fetch(`/idme/teachers/${id}`, { method: 'DELETE' });
+                    const result = await resp.json();
+                    if (resp.ok) { showAlert('success', `Teacher ${name} deleted`); row.remove(); }
+                    else { showAlert('error', result.error || 'Failed to delete'); busy(btn, false); }
+                } catch (err) { showAlert('error', `Error: ${err.message}`); busy(btn, false); }
+
+            } else if (btn.classList.contains('js-test')) {
+                busy(btn, true, ' Testing');
+                showAlert('info', `Testing IDME login for ${name}… this can take 30-60s.`);
+                try {
+                    const resp = await fetch(`/idme/teachers/${id}/test`, { method: 'POST' });
+                    const result = await resp.json();
+                    if (result.success) showAlert('success', `${name}: login OK (${result.duration})`);
+                    else showAlert('error', `${name}: login failed — ${result.error || 'unknown error'}`);
+                } catch (err) { showAlert('error', `Error: ${err.message}`); }
+                finally { busy(btn, false); }
+
+            } else if (btn.classList.contains('js-edit')) {
+                openEdit(row);
+            }
+        });
+
+        // ---- Edit modal ----
+        function openEdit(row) {
+            document.getElementById('edit-id').value = row.dataset.id;
+            document.getElementById('edit-name').value = row.dataset.name;
+            document.getElementById('edit-class').value = row.dataset.class;
+            document.getElementById('edit-password').value = '';
+            document.getElementById('edit-enabled').checked = row.dataset.enabled === '1';
+            document.getElementById('edit-modal').classList.remove('hidden');
+        }
+        function closeEdit() { document.getElementById('edit-modal').classList.add('hidden'); }
+        document.getElementById('edit-cancel').addEventListener('click', closeEdit);
+        document.getElementById('edit-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'edit-modal') closeEdit();
+        });
+        document.getElementById('edit-teacher-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('edit-save');
+            const id = document.getElementById('edit-id').value;
+            const body = {
+                name: document.getElementById('edit-name').value.trim(),
+                class_name: document.getElementById('edit-class').value.trim(),
+                enabled: document.getElementById('edit-enabled').checked,
+            };
+            const pw = document.getElementById('edit-password').value;
+            if (pw) body.password = pw;
+            busy(btn, true, ' Saving');
+            try {
+                const resp = await fetch(`/idme/teachers/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const result = await resp.json();
+                if (resp.ok) { showAlert('success', `Teacher ${body.name} updated.`); setTimeout(() => location.reload(), 900); }
+                else { showAlert('error', result.error || 'Update failed'); busy(btn, false); }
+            } catch (err) { showAlert('error', `Error: ${err.message}`); busy(btn, false); }
+        });
+
+        // ---- Roster upload ----
+        document.getElementById('roster-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('roster-btn');
+            const fileInput = document.getElementById('roster-file');
+            const replace = document.getElementById('roster-replace').checked;
+            if (!fileInput.files.length) { showAlert('error', 'Please choose an Excel file'); return; }
+            if (replace && !confirm('Replace the entire roster? All current students will be cleared first.')) return;
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('replace', replace ? 'true' : 'false');
+            busy(btn, true, ' Importing');
+            showAlert('info', 'Uploading and importing roster…');
+            try {
+                const resp = await fetch('/idme/roster/upload', { method: 'POST', body: formData });
+                const result = await resp.json();
+                if (resp.ok) {
+                    let msg = `Imported ${result.imported} students across ${result.classes} classes`;
+                    if (result.replaced) msg += ` (cleared ${result.cleared} existing)`;
+                    if (result.skipped) msg += `, ${result.skipped} skipped`;
+                    showAlert('success', msg);
+                    setTimeout(() => location.reload(), 1500);
+                } else { showAlert('error', result.error || 'Import failed'); busy(btn, false); }
+            } catch (err) { showAlert('error', `Error: ${err.message}`); busy(btn, false); }
+        });
+
+        // ---- Roster init from portal ----
+        document.getElementById('roster-init-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('roster-init-btn');
+            const className = document.getElementById('roster-init-class').value.trim();
+            if (!className) { showAlert('error', 'Please enter a class name'); return; }
+            busy(btn, true, ' Reading');
+            showAlert('info', `Logging into the portal and reading "${className}"…`);
+            try {
+                const resp = await fetch('/idme/roster/init', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ class_name: className }),
+                });
+                const result = await resp.json();
+                if (resp.ok) {
+                    let msg = `Roster initialised for ${result.class_name}: `
+                        + `+${result.added} added, ${result.updated} updated`;
+                    if (result.renamed && result.renamed.length) msg += `, ${result.renamed.length} renamed`;
+                    if (result.removed && result.removed.length) msg += `, ${result.removed.length} no longer listed`;
+                    showAlert('success', msg);
+                    setTimeout(() => location.reload(), 1800);
+                } else { showAlert('error', result.error || 'Roster init failed'); busy(btn, false); }
+            } catch (err) { showAlert('error', `Error: ${err.message}`); busy(btn, false); }
+        });
+
+        // ---- Coverage ----
         async function loadCoverage() {
             const el = document.getElementById('coverage-content');
             try {
                 const resp = await fetch('/idme/roster/coverage');
                 const c = await resp.json();
-                if (!resp.ok) {
-                    el.textContent = c.error || 'Failed to load coverage';
-                    return;
-                }
+                if (!resp.ok) { el.textContent = c.error || 'Failed to load coverage'; return; }
                 if (!c.classes || !c.classes.length) {
                     el.textContent = 'No students in the registry yet. Import a roster or initialise from the portal.';
                     return;
@@ -440,6 +744,11 @@
             }
         }
 
+        // ---- Wire up ----
+        document.getElementById('refresh-overview').addEventListener('click', (e) => refreshOverview(e.currentTarget));
+        document.getElementById('refresh-coverage').addEventListener('click', loadCoverage);
+        formatFire();
+        renderOverview(INITIAL_OVERVIEW);
         loadCoverage();
     </script>
 </body>

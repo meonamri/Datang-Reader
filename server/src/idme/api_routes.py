@@ -125,6 +125,68 @@ def idme_status():
 # Settings Web UI
 # ============================================================
 
+def _build_overview():
+    """
+    Aggregate the operational state the settings UI needs in one shot:
+    safety mode (enabled / draft-vs-locked), next scheduled fire, and a
+    per-class alignment + today preview (roster vs scans vs absent).
+
+    Pure read; tolerant of an uninitialised module (every dependency is
+    None-guarded so this is safe to call when IDME is disabled). Shared by
+    both ``settings_page`` (server-render, survives a JS failure) and the
+    ``/overview`` endpoint (client refresh).
+    """
+    teachers = _teacher_manager.get_all_teachers(include_disabled=True) if _teacher_manager else []
+    classes = _roster_manager.get_all_classes() if _roster_manager else []
+    scans = _scan_tracker.get_all_scans_today() if _scan_tracker else {}
+    scheduler = _scheduler.get_status() if _scheduler else None
+
+    roster_class_names = {c['class_name'] for c in classes}
+
+    # Per-class alignment + today preview. A class is "onboarded" (will be
+    # submitted to MOEIS at cutoff) only when it has an *enabled* teacher.
+    class_rows = []
+    for c in classes:
+        cn = c['class_name']
+        teacher = next((t for t in teachers if t['class_name'] == cn), None)
+        roster_n = c.get('student_count', 0)
+        scanned = scans.get(cn, 0)
+        class_rows.append({
+            'class_name': cn,
+            'roster': roster_n,
+            'scanned': scanned,
+            'absent': max(roster_n - scanned, 0),
+            'teacher_name': teacher['name'] if teacher else None,
+            'teacher_enabled': bool(teacher['enabled']) if teacher else False,
+            'onboarded': bool(teacher and teacher['enabled']),
+        })
+
+    # Teachers whose class_name matches no roster class — the silent-misfire
+    # case (CLAUDE.md: the class string must match in three places).
+    orphan_teachers = [
+        {'id': t['id'], 'name': t['name'], 'class_name': t['class_name']}
+        for t in teachers if t['class_name'] not in roster_class_names
+    ]
+
+    # Scan sections (the third leg of the three-way match) that hit no roster
+    # class — taps landing under a section string nothing else knows about.
+    orphan_sections = sorted(s for s in scans if s not in roster_class_names)
+
+    return {
+        'config': IDMEConfig.to_dict(),
+        'scheduler': scheduler,
+        'classes': class_rows,
+        'orphan_teachers': orphan_teachers,
+        'orphan_sections': orphan_sections,
+    }
+
+
+@idme_bp.route('/overview', methods=['GET'])
+def overview():
+    """Operational overview (safety mode + per-class alignment/today preview)."""
+    return jsonify(_build_overview()), 200
+
+
 @idme_bp.route('/settings', methods=['GET'])
 def settings_page():
     """Render the teacher management Web UI."""
@@ -142,6 +204,7 @@ def settings_page():
         total_students=total_students,
         total_classes=total_classes,
         cutoff_time=IDMEConfig.CUTOFF_TIME,
+        overview=_build_overview(),
     )
 
 
