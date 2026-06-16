@@ -132,6 +132,14 @@
         .misfire .txt strong { color: var(--ink); }
         .misfire code { font-family: var(--mono); background: rgba(179,38,30,0.10); color: var(--red); padding: 1px 5px; }
 
+        /* ---- Unrostered note (calm onboarding info, not a hazard) ---- */
+        .opnote { display: flex; gap: 14px; align-items: flex-start; margin-top: 16px; padding: 13px 16px 13px 18px; background: var(--amber-bg); border: 1px solid var(--line-2); border-left: 4px solid var(--amber); }
+        .opnote .lbl { font-weight: 800; color: var(--amber); font-size: 11px; letter-spacing: 0.13em; text-transform: uppercase; white-space: nowrap; padding-top: 2px; }
+        .opnote .txt { flex: 1; min-width: 0; font-size: 13px; line-height: 1.55; color: var(--ink-2); }
+        .opnote .txt strong { color: var(--ink); }
+        .opnote .codes { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 5px; }
+        .opnote code { font-family: var(--mono); background: rgba(138,90,0,0.10); color: var(--amber); padding: 1px 6px; font-size: 12px; }
+
         /* ---- Section heading ---- */
         .sechead { display: flex; align-items: baseline; gap: 12px; margin: 30px 0 14px; }
         .sechead h2 { font-size: 13px; font-weight: 800; letter-spacing: 0.13em; text-transform: uppercase; }
@@ -388,26 +396,29 @@
             <span><strong class="num" id="op-absent">{{ overview.summary.absent_today }}</strong> marked absent across <strong class="num" id="op-sending">{{ overview.summary.onboarded }}</strong> submitting classes</span>
             <span class="sep"></span>
             <span><strong class="num" id="op-coverage">{{ overview.summary.coverage_pct }}%</strong> tag coverage</span>
-            {% set issues = overview.summary.misfires + overview.summary.no_teacher %}
-            <span class="opchip {{ 'bad' if overview.summary.misfires else ('warn' if overview.summary.no_teacher else 'ok') }}" id="op-issue">
+            {% set sm = overview.summary %}
+            <span class="opchip {{ 'bad' if sm.misfires else ('warn' if (sm.no_teacher or sm.unrostered) else 'ok') }}" id="op-issue">
                 <span class="dot"></span>
-                <span id="op-issue-text">{% if overview.summary.misfires %}{{ overview.summary.misfires }} misfire &middot; {{ overview.summary.no_teacher }} no teacher{% elif overview.summary.no_teacher %}{{ overview.summary.no_teacher }} need a teacher{% else %}all aligned{% endif %}</span>
+                <span id="op-issue-text">{% if sm.misfires %}{{ sm.misfires }} misfire{% if sm.no_teacher %} &middot; {{ sm.no_teacher }} no teacher{% endif %}{% elif sm.no_teacher %}{{ sm.no_teacher }} need a teacher{% elif sm.unrostered %}{{ sm.unrostered }} unrostered{% else %}all aligned{% endif %}</span>
             </span>
         </div>
 
-        <!-- ===== Misfire alert (the silent-misfire surface) ===== -->
-        {% if overview.orphan_teachers or overview.orphan_sections %}
+        <!-- ===== Misfire alert: the genuine silent-misfire surface ===== -->
+        {% if overview.orphan_teachers %}
         <div class="misfire">
             <span class="hz">&#9650; MISFIRE</span>
-            <div class="txt">
-                {% if overview.orphan_teachers %}
-                <div><strong>{{ overview.orphan_teachers|length }} teacher class string(s) match no roster</strong> - they submit nothing:
+            <div class="txt"><strong>{{ overview.orphan_teachers|length }} teacher class string(s) match no roster</strong> - they submit nothing:
                 {% for t in overview.orphan_teachers %}<strong>{{ t.name }}</strong> (<code>{{ t.class_name }}</code>){% if not loop.last %}, {% endif %}{% endfor %}.
                 Fix the class string to exactly match a roster class, or initialise that roster.</div>
-                {% endif %}
-                {% if overview.orphan_sections %}
-                <div style="margin-top:6px;">Today&rsquo;s scans landed under section(s) no roster class knows: {% for s in overview.orphan_sections %}<code>{{ s }}</code>{% if not loop.last %}, {% endif %}{% endfor %}. Those taps count toward no class.</div>
-                {% endif %}
+        </div>
+        {% endif %}
+
+        <!-- ===== Unrostered scans: expected during gradual onboarding ===== -->
+        {% if overview.orphan_sections %}
+        <div class="opnote">
+            <span class="lbl">Unrostered</span>
+            <div class="txt"><strong>{{ overview.orphan_sections|length }} section(s)</strong> are scanning with no imported roster yet - those taps count toward no class. Expected during gradual onboarding; initialise their rosters below to start submitting them.
+                <div class="codes">{% for s in overview.orphan_sections %}<code>{{ s }}</code>{% endfor %}</div>
             </div>
         </div>
         {% endif %}
@@ -713,8 +724,9 @@
             setNum('stat-onboarded', s.onboarded);
             const chip = document.getElementById('op-issue'), txt = document.getElementById('op-issue-text');
             if (chip && txt) {
-                if (s.misfires) { chip.className = 'opchip bad'; txt.textContent = `${s.misfires} misfire · ${s.no_teacher} no teacher`; }
+                if (s.misfires) { chip.className = 'opchip bad'; txt.textContent = `${s.misfires} misfire${s.no_teacher ? ' · ' + s.no_teacher + ' no teacher' : ''}`; }
                 else if (s.no_teacher) { chip.className = 'opchip warn'; txt.textContent = `${s.no_teacher} need a teacher`; }
+                else if (s.unrostered) { chip.className = 'opchip warn'; txt.textContent = `${s.unrostered} unrostered`; }
                 else { chip.className = 'opchip ok'; txt.textContent = 'all aligned'; }
             }
         }

@@ -233,9 +233,12 @@ def _build_overview():
         'no_teacher': no_teacher,
         'disabled': disabled,
         'absent_today': sum(c['absent'] for c in class_rows if c['onboarded']),
-        # A silent misfire = a teacher pointing at a class string no roster has,
-        # or taps landing under a section no roster knows. Both submit nothing.
-        'misfires': len(orphan_teachers) + len(orphan_sections),
+        # A silent misfire = a teacher pointing at a class string no roster has
+        # (it submits nothing). Kept separate from `unrostered` below: a section
+        # scanning with no roster yet is normal during gradual onboarding, not a
+        # misconfiguration, so it must not inflate the red misfire count.
+        'misfires': len(orphan_teachers),
+        'unrostered': len(orphan_sections),
         'coverage_mapped': cov_mapped,
         'coverage_total': cov_total,
         'coverage_pct': round(cov_mapped / cov_total * 100) if cov_total else 0,
