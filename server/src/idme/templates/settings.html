@@ -145,6 +145,21 @@
         }
         .modal h3 { color: #f1f5f9; margin-bottom: 16px; font-size: 1.1em; }
 
+        /* Live progress console */
+        .log-output {
+            background: #0b1220; border: 1px solid #334155; border-radius: 8px;
+            padding: 12px 14px; margin-top: 4px;
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+            font-size: 0.78em; line-height: 1.55; color: #cbd5e1;
+            max-height: 320px; overflow-y: auto;
+            white-space: pre-wrap; word-break: break-word;
+        }
+        .log-output:empty::before { content: 'Starting\2026'; color: #64748b; }
+        .log-result { margin-top: 12px; font-size: 0.9em; min-height: 1.2em; }
+        .log-result .ok { color: #4ade80; }
+        .log-result .bad { color: #fca5a5; }
+        .log-spin { display: inline-flex; align-items: center; gap: 8px; color: #93c5fd; font-size: 0.85em; }
+
         @media (max-width: 640px) {
             table thead { display: none; }
             table, tbody, tr, td { display: block; width: 100%; }
@@ -305,6 +320,23 @@
             </form>
         </div>
 
+        <!-- Initialise Roster from Portal -->
+        <div class="card">
+            <h2 style="margin-bottom:8px;">Initialise Roster from Portal</h2>
+            <p class="hint">
+                Seed/refresh a class roster directly from the MOEIS portal (read-only login &mdash;
+                reads the student table, never marks or submits). The portal becomes authoritative
+                for name + class + student id. Learned RFID card mappings are preserved.
+            </p>
+            <form id="roster-init-form">
+                <div class="form-group">
+                    <label>Class (must have a configured teacher)</label>
+                    <input type="text" id="roster-init-class" placeholder="e.g. 5 UKM" required>
+                </div>
+                <button type="submit" class="btn btn-primary" id="roster-init-btn">Initialise from Portal</button>
+            </form>
+        </div>
+
         <!-- Roster Import -->
         <div class="card">
             <h2 style="margin-bottom:8px;">Student Roster</h2>
@@ -324,23 +356,6 @@
                     </label>
                 </div>
                 <button type="submit" class="btn btn-success" id="roster-btn">Upload &amp; Import</button>
-            </form>
-        </div>
-
-        <!-- Initialise Roster from Portal -->
-        <div class="card">
-            <h2 style="margin-bottom:8px;">Initialise Roster from Portal</h2>
-            <p class="hint">
-                Seed/refresh a class roster directly from the MOEIS portal (read-only login &mdash;
-                reads the student table, never marks or submits). The portal becomes authoritative
-                for name + class + student id. Learned RFID card mappings are preserved.
-            </p>
-            <form id="roster-init-form">
-                <div class="form-group">
-                    <label>Class (must have a configured teacher)</label>
-                    <input type="text" id="roster-init-class" placeholder="e.g. 5 UKM" required>
-                </div>
-                <button type="submit" class="btn btn-primary" id="roster-init-btn">Initialise from Portal</button>
             </form>
         </div>
 
@@ -392,6 +407,20 @@
         </div>
     </div>
 
+    <!-- Live progress console (Test login / Initialise from portal) -->
+    <div id="log-console" class="modal-overlay hidden">
+        <div class="modal" style="max-width: 620px;">
+            <h3 id="log-title">Working&hellip;</h3>
+            <pre id="log-output" class="log-output"></pre>
+            <div id="log-result" class="log-result">
+                <span class="log-spin"><span class="spinner"></span> Running&hellip;</span>
+            </div>
+            <div style="display:flex; justify-content:flex-end; margin-top:14px;">
+                <button type="button" class="btn btn-secondary" id="log-close" disabled>Close</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         const INITIAL_OVERVIEW = {{ overview|tojson }};
 
@@ -431,6 +460,82 @@
                 btn.innerHTML = btn.dataset.label || btn.innerHTML;
             }
         }
+
+        // ---- Live progress console (streamed Test / Initialise) ----
+        const RESULT_MARKER = '\x1e';   // matches api_routes._RESULT_MARKER
+        let _consoleReload = false;     // reload the page when the console closes
+
+        function appendLog(line) {
+            const out = document.getElementById('log-output');
+            out.textContent += (out.textContent ? '\n' : '') + line;
+            out.scrollTop = out.scrollHeight;
+        }
+
+        function finishConsole(summary) {
+            document.getElementById('log-close').disabled = false;
+            const el = document.getElementById('log-result');
+            const cls = summary.ok ? 'ok' : 'bad';
+            const mark = summary.ok ? '✓' : '✗';
+            el.innerHTML = `<span class="${cls}">${mark} ${escapeHtml(summary.text)}</span>`;
+        }
+
+        // POST `url` and stream the server's log lines into the console modal in
+        // real time. Pass/fail comes from the final in-band result line (status is
+        // always 200), not resp.ok. `summarize(result)` -> {ok, text}.
+        async function streamOperation(url, body, title, summarize) {
+            _consoleReload = false;
+            document.getElementById('log-title').textContent = title;
+            document.getElementById('log-output').textContent = '';
+            document.getElementById('log-result').innerHTML =
+                '<span class="log-spin"><span class="spinner"></span> Running&hellip;</span>';
+            document.getElementById('log-close').disabled = true;
+            document.getElementById('log-console').classList.remove('hidden');
+
+            let result = null;
+            try {
+                const resp = await fetch(url, {
+                    method: 'POST',
+                    headers: body ? { 'Content-Type': 'application/json' } : {},
+                    body: body ? JSON.stringify(body) : undefined,
+                });
+                if (!resp.ok) {
+                    let msg = `HTTP ${resp.status}`;
+                    try { const j = await resp.json(); msg = j.error || msg; } catch (e) {}
+                    appendLog('✗ ' + msg);
+                    finishConsole({ ok: false, text: msg });
+                    return null;
+                }
+                const reader = resp.body.getReader();
+                const decoder = new TextDecoder();
+                let buf = '';
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buf += decoder.decode(value, { stream: true });
+                    let nl;
+                    while ((nl = buf.indexOf('\n')) >= 0) {
+                        const line = buf.slice(0, nl);
+                        buf = buf.slice(nl + 1);
+                        if (line.startsWith(RESULT_MARKER)) {
+                            try { result = JSON.parse(line.slice(1)); } catch (e) {}
+                        } else if (line.length) {
+                            appendLog(line);
+                        }
+                    }
+                }
+            } catch (err) {
+                appendLog('✗ Error: ' + err.message);
+                finishConsole({ ok: false, text: err.message });
+                return null;
+            }
+            finishConsole(summarize(result));
+            return result;
+        }
+
+        document.getElementById('log-close').addEventListener('click', () => {
+            if (_consoleReload) { location.reload(); return; }
+            document.getElementById('log-console').classList.add('hidden');
+        });
 
         // ---- Password show/hide ----
         document.querySelectorAll('.pw-toggle').forEach(btn => {
@@ -599,15 +704,13 @@
                 } catch (err) { showAlert('error', `Error: ${err.message}`); busy(btn, false); }
 
             } else if (btn.classList.contains('js-test')) {
-                busy(btn, true, ' Testing');
-                showAlert('info', `Testing IDME login for ${name}… this can take 30-60s.`);
-                try {
-                    const resp = await fetch(`/idme/teachers/${id}/test`, { method: 'POST' });
-                    const result = await resp.json();
-                    if (result.success) showAlert('success', `${name}: login OK (${result.duration})`);
-                    else showAlert('error', `${name}: login failed — ${result.error || 'unknown error'}`);
-                } catch (err) { showAlert('error', `Error: ${err.message}`); }
-                finally { busy(btn, false); }
+                streamOperation(
+                    `/idme/teachers/${id}/test/stream`, null,
+                    `Testing IDME login — ${name}`,
+                    (r) => (r && r.success)
+                        ? { ok: true, text: `Login OK (${r.duration}, ${r.cookies} cookies, CSRF ${r.csrf_token ? 'yes' : 'no'})` }
+                        : { ok: false, text: (r && r.error) || 'Login failed' }
+                );
 
             } else if (btn.classList.contains('js-edit')) {
                 openEdit(row);
@@ -679,30 +782,26 @@
             } catch (err) { showAlert('error', `Error: ${err.message}`); busy(btn, false); }
         });
 
-        // ---- Roster init from portal ----
+        // ---- Roster init from portal (streamed) ----
         document.getElementById('roster-init-form').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const btn = document.getElementById('roster-init-btn');
             const className = document.getElementById('roster-init-class').value.trim();
             if (!className) { showAlert('error', 'Please enter a class name'); return; }
-            busy(btn, true, ' Reading');
-            showAlert('info', `Logging into the portal and reading "${className}"…`);
-            try {
-                const resp = await fetch('/idme/roster/init', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ class_name: className }),
-                });
-                const result = await resp.json();
-                if (resp.ok) {
-                    let msg = `Roster initialised for ${result.class_name}: `
-                        + `+${result.added} added, ${result.updated} updated`;
-                    if (result.renamed && result.renamed.length) msg += `, ${result.renamed.length} renamed`;
-                    if (result.removed && result.removed.length) msg += `, ${result.removed.length} no longer listed`;
-                    showAlert('success', msg);
-                    setTimeout(() => location.reload(), 1800);
-                } else { showAlert('error', result.error || 'Roster init failed'); busy(btn, false); }
-            } catch (err) { showAlert('error', `Error: ${err.message}`); busy(btn, false); }
+            const result = await streamOperation(
+                '/idme/roster/init/stream', { class_name: className },
+                `Initialising "${className}" from portal`,
+                (r) => {
+                    if (r && !r.error && r.class_name) {
+                        let t = `${r.class_name}: +${r.added} added, ${r.updated} updated`;
+                        if (r.renamed && r.renamed.length) t += `, ${r.renamed.length} renamed`;
+                        if (r.removed && r.removed.length) t += `, ${r.removed.length} no longer listed`;
+                        return { ok: true, text: t };
+                    }
+                    return { ok: false, text: (r && r.error) || 'Roster init failed' };
+                }
+            );
+            // Refresh the page (roster counts/coverage changed) when the user closes.
+            if (result && !result.error && result.class_name) _consoleReload = true;
         });
 
         // ---- Coverage ----

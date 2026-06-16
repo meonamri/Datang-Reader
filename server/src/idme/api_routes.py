@@ -20,16 +20,30 @@ Endpoints:
 
 import logging
 import asyncio
+import json
 import os
+import queue
+import re
 import tempfile
+import threading
 from io import BytesIO
 from datetime import date
 from pathlib import Path
-from flask import Blueprint, request, jsonify, render_template_string, send_file
+from flask import (
+    Blueprint, request, jsonify, render_template_string, send_file,
+    Response, stream_with_context,
+)
 
 from .idme_config import IDMEConfig
 
 logger = logging.getLogger(__name__)
+
+# Parent logger of every idme.* module (resolves to 'src.idme' in the container
+# and 'idme' under the local test harness — never hardcode one).
+_IDME_LOGGER_NAME = __name__.rsplit('.', 1)[0]
+# Record-separator control char — prefixes the final in-band result line of a
+# streamed operation; cannot occur inside a normal log line.
+_RESULT_MARKER = '\x1e'
 
 # Create blueprint
 idme_bp = Blueprint('idme', __name__, url_prefix='/idme')
@@ -209,6 +223,82 @@ def settings_page():
 
 
 # ============================================================
+# Live progress streaming (Test login / Initialise roster)
+# ============================================================
+
+def _redact_log(line):
+    """Strip secrets from a log line before it reaches the browser. The portal
+    login logs the teacher IC at INFO and includes the SSO URL / CSRF token —
+    all of which the operator may screenshot, so never stream them verbatim."""
+    line = re.sub(r'\b\d{12}\b', '[ic]', line)
+    line = re.sub(r'\b\d{6}-\d{2}-\d{4}\b', '[ic]', line)
+    line = re.sub(r'(SSO URL:).*', r'\1 [redacted]', line)
+    line = re.sub(r'(CSRF token[^:]*:).*', r'\1 [redacted]', line)
+    # Strip query strings from any URL (session tickets ride there).
+    line = re.sub(r'(https?://[^\s?]+)\?\S*', r'\1?[redacted]', line)
+    return line
+
+
+class _QueueLogHandler(logging.Handler):
+    """Captures idme.* log records emitted by ONE worker thread (so a concurrent
+    scan or the scheduler can't bleed into a user's console), redacts them, and
+    pushes the formatted lines onto a queue for streaming."""
+
+    def __init__(self, q):
+        super().__init__()
+        self.q = q
+        self.worker_id = None  # set by the worker thread once it starts
+
+    def emit(self, record):
+        if self.worker_id is None or record.thread != self.worker_id:
+            return
+        try:
+            self.q.put(_redact_log(self.format(record)))
+        except Exception:
+            pass
+
+
+def _stream_operation(run_callable):
+    """Run a blocking idme operation in a worker thread and stream its idme.*
+    log lines to the client in real time; deliver the final result (or error)
+    in-band on a record-separator-prefixed last line. The HTTP status is always
+    200 — callers read pass/fail from the result line, never from resp.ok."""
+    q = queue.Queue()
+    handler = _QueueLogHandler(q)
+    handler.setFormatter(logging.Formatter('%(message)s'))
+    idme_logger = logging.getLogger(_IDME_LOGGER_NAME)
+    holder = {}
+
+    def worker():
+        handler.worker_id = threading.get_ident()
+        try:
+            holder['result'] = run_callable()
+        except Exception as e:
+            holder['result'] = {'success': False, 'status': 'failed', 'error': str(e)}
+        finally:
+            q.put(None)  # sentinel: operation finished
+
+    idme_logger.addHandler(handler)
+    threading.Thread(target=worker, daemon=True).start()
+
+    def generate():
+        try:
+            while True:
+                line = q.get()
+                if line is None:
+                    break
+                yield line + '\n'
+            yield _RESULT_MARKER + json.dumps(holder.get('result') or {}) + '\n'
+        finally:
+            idme_logger.removeHandler(handler)
+
+    resp = Response(stream_with_context(generate()), mimetype='text/plain')
+    resp.headers['X-Accel-Buffering'] = 'no'   # defeat proxy buffering (tailscale/nginx)
+    resp.headers['Cache-Control'] = 'no-cache'
+    return resp
+
+
+# ============================================================
 # Teacher management
 # ============================================================
 
@@ -279,6 +369,33 @@ def delete_teacher(teacher_id):
         return jsonify({'error': str(e)}), 400
 
 
+def _run_login_test(creds):
+    """Blocking IDME login probe — logs in with the teacher's creds and reports
+    success/duration/cookies/CSRF. Emits the engine's step logs as it runs (used
+    live by the streaming variant)."""
+    from .login_engine import IDMELoginEngine
+
+    async def _test():
+        engine = IDMELoginEngine(
+            ic_number=creds['ic_number'],
+            password=creds['password'],
+            headless=True,
+            debug=False,
+        )
+        try:
+            result = await engine.login_and_navigate()
+            return {
+                'success': True,
+                'duration': f"{result.get('duration', 0):.1f}s",
+                'cookies': len(result.get('cookies', [])),
+                'csrf_token': bool(result.get('csrf_token')),
+            }
+        finally:
+            await engine.close()
+
+    return asyncio.run(_test())
+
+
 @idme_bp.route('/teachers/<int:teacher_id>/test', methods=['POST'])
 def test_teacher(teacher_id):
     """Test IDME login with teacher's credentials."""
@@ -286,32 +403,24 @@ def test_teacher(teacher_id):
         return jsonify({'error': 'IDME module not initialized'}), 503
 
     try:
-        from .login_engine import IDMELoginEngine
         creds = _teacher_manager.get_teacher_credentials(teacher_id)
-
-        async def _test():
-            engine = IDMELoginEngine(
-                ic_number=creds['ic_number'],
-                password=creds['password'],
-                headless=True,
-                debug=False,
-            )
-            try:
-                result = await engine.login_and_navigate()
-                return {
-                    'success': True,
-                    'duration': f"{result.get('duration', 0):.1f}s",
-                    'cookies': len(result.get('cookies', [])),
-                    'csrf_token': bool(result.get('csrf_token')),
-                }
-            finally:
-                await engine.close()
-
-        result = asyncio.run(_test())
-        return jsonify(result), 200
-
+        return jsonify(_run_login_test(creds)), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 200
+
+
+@idme_bp.route('/teachers/<int:teacher_id>/test/stream', methods=['POST'])
+def test_teacher_stream(teacher_id):
+    """Streaming variant of /test — emits live login progress then the result."""
+    if not _teacher_manager:
+        return jsonify({'error': 'IDME module not initialized'}), 503
+
+    try:
+        creds = _teacher_manager.get_teacher_credentials(teacher_id)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+    return _stream_operation(lambda: _run_login_test(creds))
 
 
 # ============================================================
@@ -468,6 +577,27 @@ def init_roster():
         return jsonify(result), 200
     except Exception as e:
         return jsonify({'error': str(e), 'status': 'failed'}), 500
+
+
+@idme_bp.route('/roster/init/stream', methods=['POST'])
+def init_roster_stream():
+    """Streaming variant of /roster/init — emits live portal-read progress."""
+    if not _orchestrator or not _teacher_manager:
+        return jsonify({'error': 'IDME module not initialized'}), 503
+
+    data = request.get_json() or {}
+    class_name = data.get('class_name')
+    if not class_name:
+        return jsonify({'error': 'class_name is required'}), 400
+
+    teacher = _teacher_manager.get_teacher_for_class(class_name)
+    if not teacher:
+        return jsonify({'error': f'No teacher configured for class {class_name}'}), 400
+
+    return _stream_operation(lambda: _orchestrator.init_roster_from_portal(
+        teacher_id=teacher['id'],
+        class_name=class_name,
+    ))
 
 
 @idme_bp.route('/roster/import', methods=['POST'])
