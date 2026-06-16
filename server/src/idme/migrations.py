@@ -23,13 +23,29 @@ _STUDENT_COLUMNS = {
     "source": "TEXT",
 }
 
+# Login-test result columns added to the `teachers` table. The settings UI shows
+# a per-teacher login chip (Verified / Re-test / Wrong password); these persist
+# the last probe so the chip survives a reload and can expire after a window.
+# name -> column DDL type.
+_TEACHER_COLUMNS = {
+    "login_test_status": "TEXT",        # 'ok' | 'fail' | NULL (untested)
+    "login_test_at": "TIMESTAMP",       # ISO timestamp of the last probe
+}
+
+
+def _add_missing_columns(conn: sqlite3.Connection, table: str, columns: dict) -> None:
+    """ALTER TABLE ... ADD COLUMN for any column in `columns` not already present.
+    A no-op once the column exists, so safe to run on every startup."""
+    existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    for col, col_type in columns.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+
 
 def apply_migrations(conn: sqlite3.Connection) -> None:
-    """Add any missing identity-registry columns to existing databases."""
-    existing = {row[1] for row in conn.execute("PRAGMA table_info(students)")}
-    for col, col_type in _STUDENT_COLUMNS.items():
-        if col not in existing:
-            conn.execute(f"ALTER TABLE students ADD COLUMN {col} {col_type}")
+    """Add any missing additive columns to existing databases."""
+    _add_missing_columns(conn, "students", _STUDENT_COLUMNS)
+    _add_missing_columns(conn, "teachers", _TEACHER_COLUMNS)
     # Create the idpelajar index here (not in schema.sql): on an existing DB the
     # column doesn't exist until the ALTER above, so the index must be created
     # only once the column is guaranteed present. Idempotent.

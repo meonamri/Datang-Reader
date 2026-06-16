@@ -52,9 +52,14 @@ CREATE TABLE IF NOT EXISTS teachers (
     encrypted_password TEXT NOT NULL,       -- Fernet encrypted password
     class_name TEXT NOT NULL,              -- Class assigned to this teacher
     enabled BOOLEAN DEFAULT 1,
+    login_test_status TEXT,                 -- last login probe: 'ok' | 'fail' | NULL (untested)
+    login_test_at TIMESTAMP,                -- when the last login probe ran (ISO)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+-- NOTE: login_test_* are also added to EXISTING databases by
+-- migrations.apply_migrations() (CREATE TABLE IF NOT EXISTS is a no-op once the
+-- table exists, so new columns never reach an already-created teachers table).
 CREATE INDEX IF NOT EXISTS idx_teachers_class ON teachers(class_name);
 
 -- Daily scan records (populated as students tap RFID cards)

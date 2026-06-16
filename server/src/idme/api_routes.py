@@ -27,7 +27,7 @@ import re
 import tempfile
 import threading
 from io import BytesIO
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from flask import (
     Blueprint, request, jsonify, render_template_string, send_file,
@@ -44,6 +44,36 @@ _IDME_LOGGER_NAME = __name__.rsplit('.', 1)[0]
 # Record-separator control char — prefixes the final in-band result line of a
 # streamed operation; cannot occur inside a normal log line.
 _RESULT_MARKER = '\x1e'
+
+# A login-test "Verified" result is trusted for this long; after it the settings
+# UI shows "Re-test (expired)" and the login must be probed again.
+LOGIN_TEST_VALID_HOURS = 12
+
+
+def _login_chip(status, at_iso):
+    """Derive the settings-UI login chip from a stored probe result.
+
+    Returns {state, age_text} where state is one of:
+      'verified' (ok, within the validity window) · 'expired' (ok, too old) ·
+      'failed' (last probe failed) · 'untested' (never probed).
+    """
+    if status == 'fail':
+        return {'state': 'failed', 'age_text': ''}
+    if status == 'ok' and at_iso:
+        try:
+            then = datetime.fromisoformat(at_iso)
+        except (ValueError, TypeError):
+            return {'state': 'untested', 'age_text': ''}
+        secs = (datetime.now() - then).total_seconds()
+        if secs < 60:
+            age = 'just now'
+        elif secs < 3600:
+            age = f'{int(secs // 60)}m ago'
+        else:
+            age = f'{int(secs // 3600)}h ago'
+        fresh = secs < LOGIN_TEST_VALID_HOURS * 3600
+        return {'state': 'verified' if fresh else 'expired', 'age_text': age}
+    return {'state': 'untested', 'age_text': ''}
 
 # Create blueprint
 idme_bp = Blueprint('idme', __name__, url_prefix='/idme')
@@ -186,12 +216,38 @@ def _build_overview():
     # class — taps landing under a section string nothing else knows about.
     orphan_sections = sorted(s for s in scans if s not in roster_class_names)
 
+    # School-wide tag coverage (mapped RFID cards / roster), for the op summary.
+    cov = _roster_manager.get_tag_coverage() if _roster_manager else {}
+    cov_mapped = cov.get('mapped', 0)
+    cov_total = cov.get('total', 0)
+
+    onboarded = sum(1 for c in class_rows if c['onboarded'])
+    no_teacher = sum(1 for c in class_rows if not c['teacher_name'])
+    disabled = sum(1 for c in class_rows if c['teacher_name'] and not c['teacher_enabled'])
+
+    summary = {
+        'teachers': len(teachers),
+        'students': _roster_manager.get_total_students() if _roster_manager else 0,
+        'classes': len(class_rows),
+        'onboarded': onboarded,
+        'no_teacher': no_teacher,
+        'disabled': disabled,
+        'absent_today': sum(c['absent'] for c in class_rows if c['onboarded']),
+        # A silent misfire = a teacher pointing at a class string no roster has,
+        # or taps landing under a section no roster knows. Both submit nothing.
+        'misfires': len(orphan_teachers) + len(orphan_sections),
+        'coverage_mapped': cov_mapped,
+        'coverage_total': cov_total,
+        'coverage_pct': round(cov_mapped / cov_total * 100) if cov_total else 0,
+    }
+
     return {
         'config': IDMEConfig.to_dict(),
         'scheduler': scheduler,
         'classes': class_rows,
         'orphan_teachers': orphan_teachers,
         'orphan_sections': orphan_sections,
+        'summary': summary,
     }
 
 
@@ -212,13 +268,22 @@ def settings_page():
     total_students = _roster_manager.get_total_students() if _roster_manager else 0
     total_classes = _roster_manager.get_total_classes() if _roster_manager else 0
 
+    overview = _build_overview()
+    roster_class_names = {c['class_name'] for c in overview['classes']}
+
+    # Augment each teacher with the login chip state and whether their class
+    # string actually matches a roster class (an orphan = a silent misfire).
+    for t in teachers:
+        t['login'] = _login_chip(t.get('login_test_status'), t.get('login_test_at'))
+        t['class_aligned'] = t['class_name'] in roster_class_names
+
     return render_template_string(
         template_content,
         teachers=teachers,
         total_students=total_students,
         total_classes=total_classes,
         cutoff_time=IDMEConfig.CUTOFF_TIME,
-        overview=_build_overview(),
+        overview=overview,
     )
 
 
@@ -396,6 +461,15 @@ def _run_login_test(creds):
     return asyncio.run(_test())
 
 
+def _run_and_record_login_test(teacher_id, creds):
+    """Run the login probe and persist its pass/fail so the settings UI chip
+    survives a reload (and can expire after LOGIN_TEST_VALID_HOURS)."""
+    result = _run_login_test(creds)
+    if _teacher_manager:
+        _teacher_manager.record_login_test(teacher_id, bool(result.get('success')))
+    return result
+
+
 @idme_bp.route('/teachers/<int:teacher_id>/test', methods=['POST'])
 def test_teacher(teacher_id):
     """Test IDME login with teacher's credentials."""
@@ -404,7 +478,7 @@ def test_teacher(teacher_id):
 
     try:
         creds = _teacher_manager.get_teacher_credentials(teacher_id)
-        return jsonify(_run_login_test(creds)), 200
+        return jsonify(_run_and_record_login_test(teacher_id, creds)), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 200
 
@@ -420,7 +494,7 @@ def test_teacher_stream(teacher_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
-    return _stream_operation(lambda: _run_login_test(creds))
+    return _stream_operation(lambda: _run_and_record_login_test(teacher_id, creds))
 
 
 # ============================================================

@@ -70,10 +70,16 @@ class TeacherManager:
                         encrypted_password TEXT NOT NULL,
                         class_name TEXT NOT NULL,
                         enabled BOOLEAN DEFAULT 1,
+                        login_test_status TEXT,
+                        login_test_at TIMESTAMP,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
+            # Add any additive columns missing from an already-created teachers
+            # table (e.g. login_test_* on a pre-existing prod DB). Idempotent.
+            from .migrations import apply_migrations
+            apply_migrations(conn)
             conn.commit()
         finally:
             conn.close()
@@ -246,7 +252,8 @@ class TeacherManager:
         conn = self._get_conn()
         try:
             row = conn.execute(
-                "SELECT id, name, ic_number, class_name, enabled, created_at, updated_at "
+                "SELECT id, name, ic_number, class_name, enabled, "
+                "login_test_status, login_test_at, created_at, updated_at "
                 "FROM teachers WHERE id = ?",
                 (teacher_id,)
             ).fetchone()
@@ -270,15 +277,15 @@ class TeacherManager:
         """
         conn = self._get_conn()
         try:
+            cols = ("id, name, ic_number, class_name, enabled, "
+                    "login_test_status, login_test_at, created_at, updated_at")
             if include_disabled:
                 rows = conn.execute(
-                    "SELECT id, name, ic_number, class_name, enabled, created_at, updated_at "
-                    "FROM teachers ORDER BY name"
+                    f"SELECT {cols} FROM teachers ORDER BY name"
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT id, name, ic_number, class_name, enabled, created_at, updated_at "
-                    "FROM teachers WHERE enabled = 1 ORDER BY name"
+                    f"SELECT {cols} FROM teachers WHERE enabled = 1 ORDER BY name"
                 ).fetchall()
 
             return [dict(row) for row in rows]
@@ -342,6 +349,28 @@ class TeacherManager:
                 'password': plaintext,
                 'class_name': row['class_name'],
             }
+        finally:
+            conn.close()
+
+    def record_login_test(self, teacher_id: int, success: bool) -> None:
+        """Persist the result of a login probe so the settings UI can show a
+        Verified / Wrong-password chip that survives a reload and can expire.
+
+        Args:
+            teacher_id: Teacher database ID.
+            success: True if the IDME login succeeded.
+        """
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                "UPDATE teachers SET login_test_status = ?, login_test_at = ? WHERE id = ?",
+                ('ok' if success else 'fail', datetime.now().isoformat(), teacher_id)
+            )
+            conn.commit()
+        except sqlite3.Error as e:
+            # Non-fatal: the probe already ran; failing to cache it just means
+            # the chip stays 'untested'. Never let it mask the test result.
+            self.logger.warning(f"Failed to record login test for teacher {teacher_id}: {e}")
         finally:
             conn.close()
 

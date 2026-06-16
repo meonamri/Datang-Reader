@@ -5,180 +5,352 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>IDME Settings - Datang Reader</title>
     <style>
+        /* ============================================================
+           IDME Settings - Swiss-industrial / utilitarian telemetry UI.
+           Light paper substrate, ink type, monospace data, hairline module
+           grid, hazard-red as the single accent (also the danger semantic).
+           No external fonts: authentic Swiss grotesk via the system Helvetica
+           stack, so it renders identically on an offline container.
+           ============================================================ */
+        :root {
+            --paper:      #f3f2ec;   /* page substrate (warm off-white) */
+            --surface:    #fbfaf6;   /* panels / cards */
+            --surface-2:  #e9e7dd;   /* insets, table head, code chips */
+            --ink:        #1a1916;   /* primary text (near-black) */
+            --ink-2:      #44423a;   /* secondary text */
+            --ink-3:      #706d62;   /* muted / labels */
+            --line:       #d7d4c8;   /* hairline */
+            --line-2:     #c2bfb1;   /* stronger hairline */
+            --red:        #b3261e;   /* hazard accent + danger */
+            --red-bg:     #f4e3e0;
+            --green:      #1d6a3a;   /* present / ok */
+            --green-bg:   #e3ece2;
+            --amber:      #8a5a00;   /* warning / absent / no-teacher */
+            --amber-bg:   #f1e9d6;
+            --sans: 'Helvetica Neue', Helvetica, Arial, 'Segoe UI', Roboto, system-ui, sans-serif;
+            --mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Segoe UI Mono', 'Roboto Mono', Menlo, Consolas, monospace;
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #0f172a; color: #e2e8f0;
-            min-height: 100vh; padding: 20px;
+            font-family: var(--sans);
+            background: var(--paper);
+            color: var(--ink);
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+            padding: 0 22px 80px;
         }
-        .container { max-width: 940px; margin: 0 auto; }
+        .container { max-width: 1180px; margin: 0 auto; }
+        a { color: var(--red); }
 
-        h1 { color: #38bdf8; margin-bottom: 6px; font-size: 1.8em; }
-        .subtitle { color: #94a3b8; margin-bottom: 20px; }
+        ::-webkit-scrollbar { width: 11px; height: 11px; }
+        ::-webkit-scrollbar-thumb { background: var(--line-2); }
+        ::-webkit-scrollbar-track { background: transparent; }
 
-        /* Safety banner */
+        /* Focus visibility (a11y) */
+        button:focus-visible, input:focus-visible, a:focus-visible, [tabindex]:focus-visible {
+            outline: 2px solid var(--red); outline-offset: 2px;
+        }
+
+        .label {
+            font-size: 10.5px; font-weight: 700; letter-spacing: 0.13em;
+            text-transform: uppercase; color: var(--ink-3);
+        }
+        .mono { font-family: var(--mono); }
+        .num  { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+        /* ---- Masthead ---- */
+        .mast {
+            display: flex; align-items: flex-end; gap: 16px;
+            padding: 26px 0 16px; border-bottom: 2px solid var(--ink);
+            margin-bottom: 0;
+        }
+        .mark {
+            width: 34px; height: 34px; background: var(--ink); flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center;
+            color: var(--paper); font-weight: 800; font-size: 13px; letter-spacing: -0.04em;
+        }
+        .mast .wordmark { font-weight: 800; font-size: 15px; letter-spacing: 0.16em; color: var(--ink); }
+        .mast h1 { font-size: 25px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
+        .mast .sub { font-size: 12px; color: var(--ink-3); margin-top: 4px; }
+        .mast .right { margin-left: auto; text-align: right; }
+
+        /* ---- Mode banner (server-rendered; survives a JS failure) ---- */
         .banner {
-            border-radius: 12px; padding: 16px 20px; margin-bottom: 20px;
             display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-            border: 1px solid transparent;
+            padding: 13px 16px 13px 18px; border: 1px solid var(--line-2);
+            border-left-width: 4px; background: var(--surface); margin-top: 16px;
         }
-        .banner .glyph { font-size: 1.8em; line-height: 1; }
-        .banner .body { flex: 1; min-width: 220px; }
-        .banner .mode { font-size: 1.15em; font-weight: 700; letter-spacing: 0.01em; }
-        .banner .desc { font-size: 0.88em; opacity: 0.92; margin-top: 2px; }
-        .banner .fire { font-size: 0.82em; opacity: 0.85; white-space: nowrap; }
-        .banner-off     { background: #1e293b; border-color: #334155; color: #94a3b8; }
-        .banner-draft   { background: #0c1d33; border-color: #2563eb; color: #bfdbfe; }
-        .banner-locked  { background: #2a1106; border-color: #f59e0b; color: #fcd34d; }
-        .banner-locked .mode { color: #fbbf24; }
+        .banner .mode { font-size: 13px; font-weight: 800; letter-spacing: 0.08em; }
+        .banner .desc { font-size: 12.5px; color: var(--ink-2); margin-top: 1px; line-height: 1.45; }
+        .banner .body { flex: 1; min-width: 240px; }
+        .banner .fire { font-size: 12px; color: var(--ink-3); white-space: nowrap; font-family: var(--mono); }
+        .banner-off    { border-left-color: var(--ink-3); }
+        .banner-off .mode { color: var(--ink-3); }
+        .banner-draft  { border-left-color: var(--green); }
+        .banner-draft .mode { color: var(--green); }
+        .banner-locked { border-left-color: var(--red); background: var(--red-bg); }
+        .banner-locked .mode { color: var(--red); }
 
-        /* Status bar */
-        .status-bar { display: flex; gap: 14px; margin-bottom: 22px; flex-wrap: wrap; }
-        .status-item {
-            background: #1e293b; border-radius: 8px; padding: 12px 16px;
-            flex: 1; min-width: 130px;
+        /* ---- Overview stat strip (hairline-divided cells) ---- */
+        .stats {
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
+            background: var(--line); border: 1px solid var(--line); margin-top: 16px;
         }
-        .status-item .label { font-size: 0.72em; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; }
-        .status-item .value { font-size: 1.4em; font-weight: 600; color: #38bdf8; margin-top: 2px; }
-        .status-item .value.green { color: #4ade80; }
+        .stat { background: var(--surface); padding: 14px 18px; }
+        .stat .v { font-size: 28px; font-weight: 700; line-height: 1; margin-top: 6px; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+        .stat .v.green { color: var(--green); }
 
-        /* Cards */
-        .card {
-            background: #1e293b; border-radius: 12px; padding: 22px 24px;
-            margin-bottom: 20px; border: 1px solid #334155;
+        /* ---- Operational summary ---- */
+        .opsum {
+            display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+            padding: 12px 18px; border: 1px solid var(--line); border-top: none;
+            background: var(--surface); font-size: 13.5px; color: var(--ink-2);
         }
-        .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 12px; }
-        .card h2 { color: #f1f5f9; font-size: 1.15em; }
-        .card .hint { color: #94a3b8; margin-bottom: 14px; font-size: 0.9em; line-height: 1.5; }
-
-        /* Table */
-        table { width: 100%; border-collapse: collapse; }
-        th { text-align: left; padding: 10px 12px; color: #94a3b8; font-size: 0.78em;
-             text-transform: uppercase; letter-spacing: 0.03em; border-bottom: 1px solid #334155; }
-        td { padding: 10px 12px; border-bottom: 1px solid #1e293b; vertical-align: middle; }
-        tr:hover td { background: #253348; }
-        .ic-masked { font-family: monospace; color: #94a3b8; }
-        .num { text-align: right; font-variant-numeric: tabular-nums; }
-
-        /* Badges */
-        .badge {
-            display: inline-block; padding: 2px 9px; border-radius: 999px;
-            font-size: 0.74em; font-weight: 600; letter-spacing: 0.02em; white-space: nowrap;
+        .opsum strong { color: var(--ink); font-weight: 700; }
+        .opsum .sep { width: 1px; height: 15px; background: var(--line-2); }
+        .opchip {
+            margin-left: auto; display: inline-flex; align-items: center; gap: 8px;
+            padding: 4px 11px; font-size: 11.5px; font-weight: 700; letter-spacing: 0.03em;
+            border: 1px solid var(--line-2); text-transform: uppercase;
         }
-        .badge-green { background: #052e16; color: #4ade80; border: 1px solid #166534; }
-        .badge-grey  { background: #1f2937; color: #9ca3af; border: 1px solid #374151; }
-        .badge-amber { background: #2a1106; color: #fbbf24; border: 1px solid #92400e; }
-        .badge-blue  { background: #0c1d33; color: #93c5fd; border: 1px solid #1e40af; }
+        .opchip .dot { width: 7px; height: 7px; border-radius: 50%; }
+        .opchip.ok   { color: var(--green); border-color: var(--green); background: var(--green-bg); }
+        .opchip.ok .dot { background: var(--green); }
+        .opchip.warn { color: var(--amber); border-color: var(--amber); background: var(--amber-bg); }
+        .opchip.warn .dot { background: var(--amber); }
+        .opchip.bad  { color: var(--red); border-color: var(--red); background: var(--red-bg); }
+        .opchip.bad .dot { background: var(--red); }
 
-        /* Buttons */
+        /* ---- Misfire alert ---- */
+        .misfire {
+            display: flex; gap: 14px; align-items: flex-start; margin-top: 16px;
+            padding: 14px 16px 14px 18px; background: var(--red-bg);
+            border: 1px solid var(--red); border-left-width: 4px;
+        }
+        .misfire .hz { font-weight: 800; color: var(--red); font-size: 13px; letter-spacing: 0.06em; }
+        .misfire .txt { flex: 1; min-width: 0; font-size: 13px; line-height: 1.55; color: var(--ink-2); margin-top: 4px; }
+        .misfire .txt strong { color: var(--ink); }
+        .misfire code { font-family: var(--mono); background: rgba(179,38,30,0.10); color: var(--red); padding: 1px 5px; }
+
+        /* ---- Section heading ---- */
+        .sechead { display: flex; align-items: baseline; gap: 12px; margin: 30px 0 14px; }
+        .sechead h2 { font-size: 13px; font-weight: 800; letter-spacing: 0.13em; text-transform: uppercase; }
+        .sechead .rule { flex: 1; height: 1px; background: var(--line-2); }
+
+        /* ---- View switch (segmented) ---- */
+        .switch { display: inline-flex; border: 1px solid var(--ink); margin-top: 22px; }
+        .switch button {
+            font: inherit; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+            padding: 8px 20px; border: none; background: var(--surface); color: var(--ink); cursor: pointer;
+        }
+        .switch button + button { border-left: 1px solid var(--ink); }
+        .switch button.on { background: var(--ink); color: var(--paper); }
+
+        /* ---- Tabs + filters ---- */
+        .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 16px 0 16px; }
+        .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+        .tab {
+            display: inline-flex; align-items: center; gap: 7px; font: inherit; font-size: 12px;
+            font-weight: 700; letter-spacing: 0.04em; padding: 7px 12px; cursor: pointer;
+            background: var(--surface); color: var(--ink-2); border: 1px solid var(--line-2);
+        }
+        .tab.on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+        .tab .cnt { font-family: var(--mono); font-size: 11px; padding: 0 5px; background: var(--surface-2); color: var(--ink-3); }
+        .tab.on .cnt { background: rgba(255,255,255,0.18); color: var(--paper); }
+        .tab .idot { width: 6px; height: 6px; border-radius: 50%; }
+        .filter {
+            margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font: inherit;
+            font-size: 12px; font-weight: 700; letter-spacing: 0.04em; padding: 7px 13px; cursor: pointer;
+            background: var(--surface); color: var(--ink-2); border: 1px solid var(--line-2);
+        }
+        .filter.on { background: var(--red); color: #fff; border-color: var(--red); }
+
+        /* ---- Class card grid ---- */
+        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        .ccard { background: var(--surface); border: 1px solid var(--line-2); padding: 15px 16px; }
+        .ccard.bad { border-color: var(--red); border-left-width: 3px; }
+        .ccard.warn { border-color: var(--amber); border-left-width: 3px; }
+        .ccard .top { display: flex; align-items: center; gap: 9px; }
+        .ccard .sdot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+        .ccard .code { font-family: var(--mono); font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+        .ccard .badge {
+            margin-left: auto; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+            padding: 2px 8px; border: 1px solid var(--line-2); white-space: nowrap;
+        }
+        .ccard .teacher { font-size: 12px; color: var(--ink-3); margin-top: 4px; }
+        .chain { display: flex; align-items: center; margin: 12px 0; font-family: var(--mono); }
+        .chain .leg { font-size: 10.5px; white-space: nowrap; font-weight: 600; }
+        .chain .seg { flex: 1; height: 1px; margin: 0 6px; }
+        .metrics { display: flex; gap: 18px; margin-bottom: 12px; }
+        .metrics .m .mn { font-size: 17px; font-weight: 700; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+        .metrics .m .ml { font-size: 10px; color: var(--ink-3); margin-left: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+        .cov { display: flex; align-items: center; gap: 9px; }
+        .cov .track { flex: 1; height: 6px; background: var(--surface-2); border: 1px solid var(--line); overflow: hidden; }
+        .cov .fill { height: 100%; }
+        .cov .ct { font-size: 10.5px; font-family: var(--mono); color: var(--ink-3); white-space: nowrap; }
+
+        .empty { text-align: center; padding: 40px 20px; color: var(--ink-3); font-size: 13.5px; line-height: 1.6; }
+        .firstrun { text-align: center; padding: 40px 24px; background: var(--surface); border: 1px solid var(--line-2); }
+        .firstrun h3 { font-size: 17px; font-weight: 800; margin-bottom: 8px; }
+        .firstrun p { max-width: 58ch; margin: 0 auto 18px; font-size: 13.5px; color: var(--ink-2); line-height: 1.6; }
+        .steps { display: inline-flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+        .step { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; padding: 7px 13px; border: 1px solid var(--line-2); background: var(--surface); }
+        .step .n { width: 18px; height: 18px; background: var(--ink); color: var(--paper); font-family: var(--mono); font-size: 11px; display: flex; align-items: center; justify-content: center; }
+
+        /* ---- Panels / cards ---- */
+        .panel { background: var(--surface); border: 1px solid var(--line-2); padding: 20px 22px; }
+        .panel h3 { font-size: 14px; font-weight: 800; letter-spacing: 0.02em; }
+        .panel .hint { color: var(--ink-2); font-size: 12.5px; line-height: 1.55; margin-top: 4px; }
+        .panel-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+        .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+        /* ---- Table ---- */
+        table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+        th {
+            text-align: left; padding: 9px 10px; font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+            text-transform: uppercase; color: var(--ink-3); border-bottom: 1px solid var(--line-2); background: var(--surface-2);
+        }
+        td { padding: 11px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+        tr:last-child td { border-bottom: none; }
+        .ic-masked { font-family: var(--mono); color: var(--ink-3); }
+        .tnum { text-align: right; }
+        .pill {
+            display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700;
+            letter-spacing: 0.04em; padding: 2px 8px; text-transform: uppercase; border: 1px solid var(--line-2);
+        }
+        .pill.green { color: var(--green); border-color: var(--green); background: var(--green-bg); }
+        .pill.grey  { color: var(--ink-3); }
+        .cred { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-3); }
+        .classwarn { display: block; font-size: 10.5px; color: var(--red); font-weight: 700; margin-top: 2px; letter-spacing: 0.03em; }
+
+        /* ---- Buttons ---- */
         .btn {
-            display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 6px;
-            border: none; cursor: pointer; font-size: 0.85em; font-weight: 500;
-            text-decoration: none; transition: opacity 0.15s, background 0.15s;
+            display: inline-flex; align-items: center; gap: 7px; padding: 8px 15px; font: inherit;
+            font-size: 12.5px; font-weight: 700; letter-spacing: 0.03em; cursor: pointer;
+            border: 1px solid var(--ink); background: var(--surface); color: var(--ink);
+            transition: background 0.12s, color 0.12s, transform 0.05s; text-decoration: none;
         }
-        .btn:hover { opacity: 0.88; }
+        .btn:hover { background: var(--surface-2); }
+        .btn:active { transform: translateY(1px); }
         .btn:disabled { opacity: 0.5; cursor: progress; }
-        .btn-primary { background: #3b82f6; color: white; }
-        .btn-success { background: #22c55e; color: white; }
-        .btn-danger { background: #ef4444; color: white; }
-        .btn-secondary { background: #475569; color: white; }
-        .btn-ghost { background: transparent; color: #93c5fd; border: 1px solid #334155; }
-        .btn-sm { padding: 4px 10px; font-size: 0.8em; }
+        .btn-primary { background: var(--ink); color: var(--paper); }
+        .btn-primary:hover { background: #000; color: var(--paper); }
+        .btn-danger { border-color: var(--red); color: var(--red); }
+        .btn-danger:hover { background: var(--red); color: #fff; }
+        .btn-sm { padding: 4px 10px; font-size: 12px; }
+        .chip-btn { padding: 4px 10px; font-size: 12px; font-weight: 700; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink-2); cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 6px; }
+        .chip-btn.ok   { color: var(--green); border-color: var(--green); background: var(--green-bg); }
+        .chip-btn.warn { color: var(--amber); border-color: var(--amber); background: var(--amber-bg); }
+        .chip-btn.bad  { color: var(--red); border-color: var(--red); background: var(--red-bg); }
+        .chip-btn .age { font-weight: 500; color: var(--ink-3); }
 
-        /* Spinner */
-        .spinner {
-            width: 13px; height: 13px; border: 2px solid rgba(255,255,255,0.35);
-            border-top-color: #fff; border-radius: 50%;
-            display: inline-block; animation: spin 0.7s linear infinite;
+        /* ---- Forms ---- */
+        .field { margin-bottom: 12px; }
+        .field label { display: block; font-size: 11px; font-weight: 600; color: var(--ink-3); margin-bottom: 5px; letter-spacing: 0.02em; }
+        input[type=text], input[type=password], input[type=file], select {
+            width: 100%; padding: 9px 12px; font: inherit; font-size: 13px;
+            border: 1px solid var(--line-2); background: #fff; color: var(--ink);
         }
+        input.mono { font-family: var(--mono); }
+        input:focus { border-color: var(--ink); outline: none; }
+        .row { display: flex; gap: 10px; flex-wrap: wrap; }
+        .row .field { flex: 1; min-width: 150px; }
+        .fhint { font-size: 11px; margin-top: 4px; min-height: 1em; font-family: var(--mono); }
+        .fhint.ok  { color: var(--green); }
+        .fhint.bad { color: var(--red); }
+        .pw-wrap { position: relative; }
+        .pw-toggle { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--ink-3); cursor: pointer; font-size: 11px; font-weight: 700; padding: 4px 6px; font-family: inherit; }
+        .checkrow { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-2); }
+        .checkrow input { width: auto; accent-color: var(--ink); }
+        .lock-note { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-3); margin-top: 9px; line-height: 1.4; }
+
+        /* ---- Inline teacher edit ---- */
+        .edit-cell { background: var(--surface-2); padding: 0 10px 14px; }
+        .edit-box { background: #fff; border: 1px solid var(--line-2); padding: 16px 18px; }
+        .edit-box .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+        .edit-actions { display: flex; align-items: center; gap: 10px; }
+        .edit-actions .right { margin-left: auto; display: flex; gap: 8px; }
+
+        /* ---- Alerts ---- */
+        .alert { padding: 11px 38px 11px 14px; border: 1px solid; border-left-width: 4px; margin-bottom: 10px; font-size: 13px; position: relative; }
+        .alert .close { position: absolute; right: 8px; top: 6px; cursor: pointer; background: none; border: none; color: inherit; opacity: 0.6; font-size: 1.1em; }
+        .alert .close:hover { opacity: 1; }
+        .alert-success { border-color: var(--green); background: var(--green-bg); color: var(--green); }
+        .alert-error   { border-color: var(--red); background: var(--red-bg); color: var(--red); }
+        .alert-info    { border-color: var(--ink-3); background: var(--surface); color: var(--ink-2); }
+
+        /* ---- Coverage detail ---- */
+        .covrow { display: grid; grid-template-columns: 120px 130px 1fr; gap: 12px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); font-size: 12.5px; }
+        .covrow:first-child { border-top: none; }
+        .covrow .cname { font-family: var(--mono); font-weight: 700; }
+        .covrow .cbar { height: 7px; background: var(--surface-2); border: 1px solid var(--line); overflow: hidden; }
+        .covrow .cbar > div { height: 100%; }
+        .covrow .cunmapped { color: var(--ink-3); }
+        .covrow .cunmapped.done { color: var(--green); }
+
+        /* ---- Spinner ---- */
+        .spinner { width: 12px; height: 12px; border: 2px solid var(--line-2); border-top-color: var(--ink); border-radius: 50%; display: inline-block; animation: spin 0.7s linear infinite; }
+        .chip-btn.ok .spinner, .chip-btn.bad .spinner { border-top-color: currentColor; }
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* Forms */
-        .form-group { margin-bottom: 16px; }
-        .form-group label { display: block; margin-bottom: 5px; font-size: 0.85em; color: #94a3b8; }
-        .form-group input, .form-group select {
-            width: 100%; padding: 10px 12px; border-radius: 6px;
-            border: 1px solid #475569; background: #0f172a; color: #e2e8f0; font-size: 0.95em;
-        }
-        .form-group input:focus, .form-group select:focus { outline: none; border-color: #3b82f6; }
-        .form-row { display: flex; gap: 12px; flex-wrap: wrap; }
-        .form-row .form-group { flex: 1; min-width: 180px; }
-        .field-hint { font-size: 0.76em; margin-top: 4px; min-height: 1em; }
-        .field-hint.ok { color: #4ade80; }
-        .field-hint.bad { color: #fca5a5; }
-        .pw-wrap { position: relative; }
-        .pw-toggle {
-            position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
-            background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 0.78em; padding: 4px;
-        }
-
-        /* Alerts */
-        .alert {
-            padding: 12px 40px 12px 16px; border-radius: 8px; margin-bottom: 12px;
-            font-size: 0.9em; position: relative;
-        }
-        .alert .close {
-            position: absolute; right: 10px; top: 8px; cursor: pointer;
-            background: none; border: none; color: inherit; opacity: 0.6; font-size: 1.1em;
-        }
-        .alert .close:hover { opacity: 1; }
-        .alert-success { background: #052e16; border: 1px solid #22c55e; color: #4ade80; }
-        .alert-error { background: #2d0a0a; border: 1px solid #ef4444; color: #fca5a5; }
-        .alert-info { background: #0c1929; border: 1px solid #3b82f6; color: #93c5fd; }
-
-        .empty { color: #94a3b8; text-align: center; padding: 24px; font-size: 0.9em; line-height: 1.6; }
-        .warn-line { color: #fbbf24; font-size: 0.85em; margin-top: 10px; line-height: 1.5; }
-        .hidden { display: none; }
-        .actions { display: flex; gap: 6px; }
-
-        /* Modal */
-        .modal-overlay {
-            position: fixed; inset: 0; background: rgba(2,6,23,0.7);
-            display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50;
-        }
-        /* Beat .modal-overlay's display:flex at equal specificity (it is declared
-           later in source order), so the `hidden` class actually hides the modal. */
+        /* ---- Modal (live progress console) ---- */
+        .modal-overlay { position: fixed; inset: 0; background: rgba(26,25,22,0.55); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50; }
         .modal-overlay.hidden { display: none; }
-        .modal {
-            background: #1e293b; border: 1px solid #334155; border-radius: 12px;
-            padding: 24px; width: 100%; max-width: 460px;
-        }
-        .modal h3 { color: #f1f5f9; margin-bottom: 16px; font-size: 1.1em; }
-
-        /* Live progress console */
+        .modal { background: var(--surface); border: 1px solid var(--ink); width: 100%; max-width: 640px; }
+        .modal .mhead { padding: 14px 18px; border-bottom: 2px solid var(--ink); font-size: 13px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+        .modal .mbody { padding: 18px; }
         .log-output {
-            background: #0b1220; border: 1px solid #334155; border-radius: 8px;
-            padding: 12px 14px; margin-top: 4px;
-            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
-            font-size: 0.78em; line-height: 1.55; color: #cbd5e1;
-            max-height: 320px; overflow-y: auto;
-            white-space: pre-wrap; word-break: break-word;
+            background: #15140f; border: 1px solid var(--line-2); padding: 12px 14px;
+            font-family: var(--mono); font-size: 12px; line-height: 1.55; color: #d8d4c4;
+            max-height: 320px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;
         }
-        .log-output:empty::before { content: 'Starting\2026'; color: #64748b; }
-        .log-result { margin-top: 12px; font-size: 0.9em; min-height: 1.2em; }
-        .log-result .ok { color: #4ade80; }
-        .log-result .bad { color: #fca5a5; }
-        .log-spin { display: inline-flex; align-items: center; gap: 8px; color: #93c5fd; font-size: 0.85em; }
+        .log-output:empty::before { content: 'Starting\2026'; color: #6f6c5e; }
+        .log-result { margin-top: 12px; font-size: 13px; min-height: 1.3em; }
+        .log-result .ok  { color: var(--green); font-weight: 700; }
+        .log-result .bad { color: var(--red); font-weight: 700; }
+        .log-spin { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 13px; }
 
-        @media (max-width: 640px) {
+        .hidden { display: none; }
+
+        @media (max-width: 820px) {
+            .stats { grid-template-columns: repeat(2, 1fr); }
+            .grid { grid-template-columns: 1fr 1fr; }
+            .cols2 { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 600px) {
+            .grid { grid-template-columns: 1fr; }
+            .edit-box .grid2 { grid-template-columns: 1fr; }
+            .covrow { grid-template-columns: 1fr; gap: 4px; }
             table thead { display: none; }
             table, tbody, tr, td { display: block; width: 100%; }
-            tr { border: 1px solid #334155; border-radius: 8px; margin-bottom: 10px; padding: 4px 0; }
-            td { border: none; display: flex; justify-content: space-between; gap: 12px; padding: 7px 14px; }
-            td::before { content: attr(data-th); color: #94a3b8; font-size: 0.78em; text-transform: uppercase; }
-            td.actions { justify-content: flex-end; }
+            tr { border: 1px solid var(--line-2); margin-bottom: 10px; }
+            td { border: none; display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; }
+            td.edit-cell { display: block; }
+            td::before { content: attr(data-th); color: var(--ink-3); font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; align-self: center; }
+            td.tnum { justify-content: flex-end; }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>IDME Settings</h1>
-        <p class="subtitle">Automated MOEIS attendance submission &mdash; teachers, roster &amp; daily run state</p>
 
-        <!-- Safety banner (server-rendered so it survives a JS failure) -->
+        <!-- ===== Masthead ===== -->
+        <header class="mast">
+            <div class="mark">ST</div>
+            <div>
+                <div class="wordmark">SMKSAT</div>
+                <h1>IDME Settings</h1>
+                <div class="sub">MOEIS attendance &middot; teachers, roster &amp; daily run state</div>
+            </div>
+            <div class="right">
+                <div class="label">Cutoff</div>
+                <div class="num" style="font-size:20px; font-weight:700;">{{ cutoff_time }}</div>
+            </div>
+        </header>
+
+        <!-- ===== Mode banner (server-rendered so it survives a JS failure) ===== -->
         {% if not overview.config.enabled %}
         <div class="banner banner-off">
-            <span class="glyph">&#9711;</span>
             <div class="body">
                 <div class="mode">MODULE OFF</div>
                 <div class="desc">IDME is disabled (IDME_ENABLED=false). Nothing is submitted to MOEIS. Settings below are saved but inert until enabled.</div>
@@ -186,245 +358,222 @@
         </div>
         {% elif overview.config.scheduler_confirm %}
         <div class="banner banner-locked">
-            <span class="glyph">&#9888;</span>
             <div class="body">
-                <div class="mode">AUTO-CONFIRM &middot; LIVE</div>
-                <div class="desc">The daily run <strong>locks records (TELAH DISAHKAN)</strong> unattended &mdash; hard to reverse. Every onboarded class is submitted and confirmed automatically at the cutoff.</div>
+                <div class="mode">AUTO-CONFIRM &middot; LOCKS RECORDS</div>
+                <div class="desc">The daily run <strong>locks records (TELAH DISAHKAN)</strong> unattended - hard to reverse. Every onboarded class is submitted and confirmed automatically at the cutoff.</div>
             </div>
-            <div class="fire" id="next-fire" data-next="{{ overview.scheduler.next_run if overview.scheduler else '' }}">Cutoff {{ overview.config.cutoff_time }}</div>
+            <div class="fire" id="next-fire" data-next="{{ overview.scheduler.next_run if overview.scheduler else '' }}">cutoff {{ overview.config.cutoff_time }}</div>
         </div>
         {% else %}
         <div class="banner banner-draft">
-            <span class="glyph">&#128221;</span>
             <div class="body">
-                <div class="mode">DRAFT MODE &middot; LIVE</div>
-                <div class="desc">The daily run saves re-editable <strong>drafts (MENUNGGU PENGESAHAN)</strong> for a human to confirm each morning. Safe default &mdash; nothing is locked automatically.</div>
+                <div class="mode">DRAFT &middot; LIVE</div>
+                <div class="desc">The daily run saves re-editable <strong>drafts (MENUNGGU PENGESAHAN)</strong> for a human to confirm each morning. Safe default - nothing is locked automatically.</div>
             </div>
-            <div class="fire" id="next-fire" data-next="{{ overview.scheduler.next_run if overview.scheduler else '' }}">Cutoff {{ overview.config.cutoff_time }}</div>
+            <div class="fire" id="next-fire" data-next="{{ overview.scheduler.next_run if overview.scheduler else '' }}">cutoff {{ overview.config.cutoff_time }}</div>
         </div>
         {% endif %}
 
-        <!-- Status Bar -->
-        <div class="status-bar">
-            <div class="status-item">
-                <div class="label">Teachers</div>
-                <div class="value" id="teacher-count">{{ teachers|length }}</div>
-            </div>
-            <div class="status-item">
-                <div class="label">Students</div>
-                <div class="value" id="student-count">{{ total_students }}</div>
-            </div>
-            <div class="status-item">
-                <div class="label">Classes</div>
-                <div class="value" id="class-count">{{ total_classes }}</div>
-            </div>
-            <div class="status-item">
-                <div class="label">Cutoff Time</div>
-                <div class="value green">{{ cutoff_time }}</div>
-            </div>
+        <!-- ===== Overview stat strip ===== -->
+        <div class="stats">
+            <div class="stat"><div class="label">Teachers</div><div class="v" id="stat-teachers">{{ teachers|length }}</div></div>
+            <div class="stat"><div class="label">Students</div><div class="v" id="stat-students">{{ total_students }}</div></div>
+            <div class="stat"><div class="label">Classes</div><div class="v" id="stat-classes">{{ total_classes }}</div></div>
+            <div class="stat"><div class="label">Onboarded</div><div class="v green" id="stat-onboarded">{{ overview.summary.onboarded }}</div></div>
         </div>
 
-        <!-- Alert area -->
-        <div id="alert-area"></div>
-
-        <!-- Today & Alignment -->
-        <div class="card">
-            <div class="card-head">
-                <h2>Today &amp; Class Alignment</h2>
-                <button class="btn btn-ghost btn-sm" id="refresh-overview" type="button">Refresh</button>
-            </div>
-            <p class="hint">
-                What the cutoff run will see right now: <strong>roster &minus; scans = absent</strong>.
-                Only <span class="badge badge-green">onboarded</span> classes (those with an enabled
-                teacher) are submitted to MOEIS. A class string must match across roster, RFID
-                section and teacher, or it silently misfires.
-            </p>
-            <div id="overview-content">Loading&hellip;</div>
+        <!-- ===== Operational summary ===== -->
+        <div class="opsum" id="op-summary">
+            <span class="label">At cutoff {{ cutoff_time }}</span>
+            <span><strong class="num" id="op-absent">{{ overview.summary.absent_today }}</strong> marked absent across <strong class="num" id="op-sending">{{ overview.summary.onboarded }}</strong> submitting classes</span>
+            <span class="sep"></span>
+            <span><strong class="num" id="op-coverage">{{ overview.summary.coverage_pct }}%</strong> tag coverage</span>
+            {% set issues = overview.summary.misfires + overview.summary.no_teacher %}
+            <span class="opchip {{ 'bad' if overview.summary.misfires else ('warn' if overview.summary.no_teacher else 'ok') }}" id="op-issue">
+                <span class="dot"></span>
+                <span id="op-issue-text">{% if overview.summary.misfires %}{{ overview.summary.misfires }} misfire &middot; {{ overview.summary.no_teacher }} no teacher{% elif overview.summary.no_teacher %}{{ overview.summary.no_teacher }} need a teacher{% else %}all aligned{% endif %}</span>
+            </span>
         </div>
 
-        <!-- Teacher List -->
-        <div class="card">
-            <h2 style="margin-bottom:14px;">Teachers</h2>
+        <!-- ===== Misfire alert (the silent-misfire surface) ===== -->
+        {% if overview.orphan_teachers or overview.orphan_sections %}
+        <div class="misfire">
+            <span class="hz">&#9650; MISFIRE</span>
+            <div class="txt">
+                {% if overview.orphan_teachers %}
+                <div><strong>{{ overview.orphan_teachers|length }} teacher class string(s) match no roster</strong> - they submit nothing:
+                {% for t in overview.orphan_teachers %}<strong>{{ t.name }}</strong> (<code>{{ t.class_name }}</code>){% if not loop.last %}, {% endif %}{% endfor %}.
+                Fix the class string to exactly match a roster class, or initialise that roster.</div>
+                {% endif %}
+                {% if overview.orphan_sections %}
+                <div style="margin-top:6px;">Today&rsquo;s scans landed under section(s) no roster class knows: {% for s in overview.orphan_sections %}<code>{{ s }}</code>{% if not loop.last %}, {% endif %}{% endfor %}. Those taps count toward no class.</div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- ===== Alert area (transient JS alerts) ===== -->
+        <div id="alert-area" style="margin-top:16px;"></div>
+
+        <!-- ===== View switch ===== -->
+        <div class="switch" role="tablist">
+            <button id="view-classes-btn" class="on" type="button">Classes</button>
+            <button id="view-teachers-btn" type="button">Teachers</button>
+        </div>
+
+        <!-- =========================================================
+             CLASSES VIEW
+             ========================================================= -->
+        <section id="view-classes">
+            <div class="controls" id="class-controls">
+                <div class="tabs" id="form-tabs"></div>
+                <button class="filter" id="issues-toggle" type="button">&#9650; Issues only</button>
+                <button class="btn btn-sm" id="refresh-overview" type="button" style="border-color:var(--line-2);">Refresh</button>
+            </div>
+            <div id="class-grid" class="grid"><div class="empty">Loading classes&hellip;</div></div>
+        </section>
+
+        <!-- =========================================================
+             TEACHERS VIEW
+             ========================================================= -->
+        <section id="view-teachers" class="hidden">
             {% if teachers %}
-            <table>
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>IC Number</th>
-                        <th>Class</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="teacher-tbody">
-                    {% for teacher in teachers %}
-                    <tr id="teacher-row-{{ teacher.id }}"
-                        data-id="{{ teacher.id }}"
-                        data-name="{{ teacher.name }}"
-                        data-class="{{ teacher.class_name }}"
-                        data-enabled="{{ 1 if teacher.enabled else 0 }}">
-                        <td data-th="Name">{{ teacher.name }}</td>
-                        <td data-th="IC" class="ic-masked">{{ teacher.ic_number[:4] }}****{{ teacher.ic_number[-4:] }}</td>
-                        <td data-th="Class">{{ teacher.class_name }}</td>
-                        <td data-th="Status">
-                            {% if teacher.enabled %}
-                            <span class="badge badge-green">Active</span>
-                            {% else %}
-                            <span class="badge badge-grey">Disabled</span>
-                            {% endif %}
-                        </td>
-                        <td data-th="Actions" class="actions">
-                            <button class="btn btn-ghost btn-sm js-edit">Edit</button>
-                            <button class="btn btn-secondary btn-sm js-test">Test</button>
-                            <button class="btn btn-danger btn-sm js-delete">Delete</button>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            {% else %}
-            <p class="empty">No teachers configured yet.<br>Add one below to onboard a class for MOEIS submission.</p>
-            {% endif %}
-        </div>
-
-        <!-- Add Teacher Form -->
-        <div class="card">
-            <h2 style="margin-bottom:14px;">Add Teacher</h2>
-            <form id="add-teacher-form">
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Full Name</label>
-                        <input type="text" id="teacher-name" required placeholder="CIKGU AHMAD BIN ALI">
-                    </div>
-                    <div class="form-group">
-                        <label>Class</label>
-                        <input type="text" id="teacher-class" required placeholder="5 UKM">
-                        <div class="field-hint" id="class-hint"></div>
-                    </div>
+            <div class="panel">
+                <div class="panel-head">
+                    <h3>Teachers</h3>
+                    <span class="pill grey num">{{ teachers|length }}</span>
+                    <input type="text" id="teacher-search" placeholder="Search name or class&hellip;" style="margin-left:auto; width:240px; max-width:50vw;">
                 </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>IC Number (12 digits)</label>
-                        <input type="text" id="teacher-ic" required pattern="\d{12}" placeholder="980331026309" maxlength="12" inputmode="numeric">
-                        <div class="field-hint" id="ic-hint"></div>
+                <div class="hint" style="margin-bottom:12px;">A verified login is trusted for 12 hours, then shows <strong>Re-test</strong> and must be probed again. A class string in <span class="mono" style="color:var(--red);">red</span> matches no roster - that teacher submits nothing.</div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th><th>IC Number</th><th>Class</th>
+                            <th>Credentials</th><th>Login</th><th class="tnum">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="teacher-tbody">
+                        {% for t in teachers %}
+                        <tr id="teacher-row-{{ t.id }}"
+                            data-id="{{ t.id }}"
+                            data-name="{{ t.name }}"
+                            data-class="{{ t.class_name }}"
+                            data-enabled="{{ 1 if t.enabled else 0 }}"
+                            data-aligned="{{ 1 if t.class_aligned else 0 }}">
+                            <td data-th="Name">{{ t.name }}</td>
+                            <td data-th="IC" class="ic-masked">{{ t.ic_number[:4] }}&bull;&bull;&bull;&bull;{{ t.ic_number[-4:] }}</td>
+                            <td data-th="Class" class="mono"{% if not t.class_aligned %} style="color:var(--red);"{% endif %}>
+                                {{ t.class_name }}
+                                {% if not t.class_aligned %}<span class="classwarn">&#9650; no roster match</span>{% endif %}
+                            </td>
+                            <td data-th="Credentials"><span class="cred">&#128274; Encrypted</span></td>
+                            <td data-th="Login" class="login-cell" data-state="{{ t.login.state }}" data-age="{{ t.login.age_text }}"></td>
+                            <td data-th="Actions" class="tnum">
+                                <button class="btn btn-sm js-edit" type="button">Edit</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                <div id="teacher-nomatch" class="empty hidden">No teachers match your search.</div>
+            </div>
+            {% else %}
+            <div class="firstrun">
+                <h3>No teachers yet</h3>
+                <p>Add your first teacher below. Each one needs their MOEIS IC and password so IDME can log in and submit their class at cutoff.</p>
+            </div>
+            {% endif %}
+        </section>
+
+        <!-- ===== Secondary tools ===== -->
+        <div class="sechead"><h2>Onboarding tools</h2><span class="rule"></span></div>
+        <div class="cols2">
+            <!-- Add teacher -->
+            <div class="panel">
+                <h3>Add a teacher</h3>
+                <p class="hint">Onboard a class by giving it an enabled teacher. The class string must exactly match a roster class.</p>
+                <form id="add-teacher-form" style="margin-top:14px;">
+                    <div class="row">
+                        <div class="field"><label>Full name</label><input type="text" id="teacher-name" required placeholder="CIKGU AHMAD BIN ALI"></div>
+                        <div class="field" style="flex:0 0 130px;"><label>Class</label><input type="text" id="teacher-class" class="mono" required placeholder="5 UKM"><div class="fhint" id="class-hint"></div></div>
                     </div>
-                    <div class="form-group">
-                        <label>IDME Password</label>
-                        <div class="pw-wrap">
-                            <input type="password" id="teacher-password" required placeholder="Password for IDME portal">
-                            <button type="button" class="pw-toggle" data-target="teacher-password">Show</button>
+                    <div class="row">
+                        <div class="field"><label>IC number (12 digits)</label><input type="text" id="teacher-ic" class="mono" required pattern="\d{12}" placeholder="980331026309" maxlength="12" inputmode="numeric"><div class="fhint" id="ic-hint"></div></div>
+                        <div class="field">
+                            <label>MOEIS password</label>
+                            <div class="pw-wrap">
+                                <input type="password" id="teacher-password" required placeholder="Portal password" style="padding-right:50px;">
+                                <button type="button" class="pw-toggle" data-target="teacher-password">Show</button>
+                            </div>
                         </div>
                     </div>
-                </div>
-                <button type="submit" class="btn btn-primary" id="add-teacher-btn">Add Teacher</button>
-            </form>
-        </div>
-
-        <!-- Initialise Roster from Portal -->
-        <div class="card">
-            <h2 style="margin-bottom:8px;">Initialise Roster from Portal</h2>
-            <p class="hint">
-                Seed/refresh a class roster directly from the MOEIS portal (read-only login &mdash;
-                reads the student table, never marks or submits). The portal becomes authoritative
-                for name + class + student id. Learned RFID card mappings are preserved.
-            </p>
-            <form id="roster-init-form">
-                <div class="form-group">
-                    <label>Class (must have a configured teacher)</label>
-                    <input type="text" id="roster-init-class" placeholder="e.g. 5 UKM" required>
-                </div>
-                <button type="submit" class="btn btn-primary" id="roster-init-btn">Initialise from Portal</button>
-            </form>
-        </div>
-
-        <!-- Roster Import -->
-        <div class="card">
-            <h2 style="margin-bottom:8px;">Student Roster</h2>
-            <p class="hint">
-                Upload the school's student Excel file. Need the format?
-                <a href="/idme/roster/template" class="btn btn-secondary btn-sm" style="margin-left:4px;">Download Template</a>
-            </p>
-            <form id="roster-form">
-                <div class="form-group">
-                    <label>Excel File (.xlsx)</label>
-                    <input type="file" id="roster-file" accept=".xlsx,.xls" required>
-                </div>
-                <div class="form-group" style="display:flex; align-items:center; gap:8px;">
-                    <input type="checkbox" id="roster-replace" style="width:auto;">
-                    <label for="roster-replace" style="margin:0;">
-                        Replace existing roster (clears all current students first &mdash; recommended to avoid duplicates)
-                    </label>
-                </div>
-                <button type="submit" class="btn btn-success" id="roster-btn">Upload &amp; Import</button>
-            </form>
-        </div>
-
-        <!-- Tag-mapping coverage -->
-        <div class="card">
-            <div class="card-head">
-                <h2>RFID Tag Coverage</h2>
-                <button class="btn btn-ghost btn-sm" id="refresh-coverage" type="button">Refresh</button>
+                    <button type="submit" class="btn btn-primary" id="add-teacher-btn">Add teacher</button>
+                    <div class="lock-note"><span style="color:var(--red);">&#128274;</span> Stored Fernet-encrypted &middot; used only to log in to MOEIS at cutoff.</div>
+                </form>
             </div>
-            <p class="hint">
-                Cards are learned automatically as students tap. During the warm-up, un-mapped
-                students are still matched by name. Tag-based (name-free) detection is fully
-                trustworthy once a class reaches 100%.
-            </p>
-            <div id="coverage-content" style="color:#94a3b8; font-size:0.9em;">Loading coverage&hellip;</div>
-        </div>
-    </div>
 
-    <!-- Edit modal -->
-    <div id="edit-modal" class="modal-overlay hidden">
-        <div class="modal">
-            <h3>Edit Teacher</h3>
-            <form id="edit-teacher-form">
-                <input type="hidden" id="edit-id">
-                <div class="form-group">
-                    <label>Full Name</label>
-                    <input type="text" id="edit-name" required>
+            <!-- Roster source -->
+            <div class="panel">
+                <div class="panel-head" style="justify-content:space-between;">
+                    <h3>Roster source</h3>
+                    <a href="/idme/roster/template">Excel template &darr;</a>
                 </div>
-                <div class="form-group">
-                    <label>Class</label>
-                    <input type="text" id="edit-class" required>
-                </div>
-                <div class="form-group">
-                    <label>New Password <span style="color:#64748b;">(leave blank to keep current)</span></label>
-                    <div class="pw-wrap">
-                        <input type="password" id="edit-password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;">
-                        <button type="button" class="pw-toggle" data-target="edit-password">Show</button>
+                <p class="hint">Seed a class from the MOEIS portal (read-only login), or import a school Excel roster. The portal becomes authoritative for name + class + student id; learned RFID tags are preserved.</p>
+
+                <form id="roster-init-form" style="margin-top:14px;">
+                    <div class="field"><label>Initialise from portal (class must have a configured teacher)</label>
+                        <div class="row" style="gap:8px;">
+                            <input type="text" id="roster-init-class" class="mono" placeholder="5 UKM" required style="flex:1;">
+                            <button type="submit" class="btn" id="roster-init-btn" style="white-space:nowrap;">Read portal</button>
+                        </div>
                     </div>
-                </div>
-                <div class="form-group" style="display:flex; align-items:center; gap:8px;">
-                    <input type="checkbox" id="edit-enabled" style="width:auto;">
-                    <label for="edit-enabled" style="margin:0;">Enabled (class is submitted to MOEIS)</label>
-                </div>
-                <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:8px;">
-                    <button type="button" class="btn btn-secondary" id="edit-cancel">Cancel</button>
-                    <button type="submit" class="btn btn-primary" id="edit-save">Save changes</button>
-                </div>
-            </form>
+                </form>
+
+                <form id="roster-form" style="margin-top:4px; border-top:1px solid var(--line); padding-top:14px;">
+                    <div class="field"><label>Import Excel roster (.xlsx)</label><input type="file" id="roster-file" accept=".xlsx,.xls" required></div>
+                    <div class="checkrow" style="margin-bottom:12px;">
+                        <input type="checkbox" id="roster-replace">
+                        <label for="roster-replace" style="margin:0; font-size:12px;">Replace existing roster (clears all current students first - avoids duplicates)</label>
+                    </div>
+                    <button type="submit" class="btn btn-primary" id="roster-btn">Upload &amp; import</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- ===== RFID tag coverage detail ===== -->
+        <div class="sechead"><h2>RFID tag coverage</h2><span class="rule"></span><button class="btn btn-sm" id="refresh-coverage" type="button" style="border-color:var(--line-2);">Refresh</button></div>
+        <div class="panel">
+            <p class="hint" style="margin-bottom:12px;">Cards are learned automatically as students tap. During warm-up, un-mapped students are still matched by name; tag-based (name-free) detection is fully trustworthy once a class reaches 100%. Only classes below 100% are listed.</p>
+            <div id="coverage-content" style="color:var(--ink-3); font-size:13px;">Loading coverage&hellip;</div>
         </div>
     </div>
 
-    <!-- Live progress console (Test login / Initialise from portal) -->
+    <!-- ===== Live progress console (Test login / Initialise from portal) ===== -->
     <div id="log-console" class="modal-overlay hidden">
-        <div class="modal" style="max-width: 620px;">
-            <h3 id="log-title">Working&hellip;</h3>
-            <pre id="log-output" class="log-output"></pre>
-            <div id="log-result" class="log-result">
-                <span class="log-spin"><span class="spinner"></span> Running&hellip;</span>
-            </div>
-            <div style="display:flex; justify-content:flex-end; margin-top:14px;">
-                <button type="button" class="btn btn-secondary" id="log-close" disabled>Close</button>
+        <div class="modal">
+            <div class="mhead" id="log-title">Working&hellip;</div>
+            <div class="mbody">
+                <pre id="log-output" class="log-output"></pre>
+                <div id="log-result" class="log-result"><span class="log-spin"><span class="spinner"></span> Running&hellip;</span></div>
+                <div style="display:flex; justify-content:flex-end; margin-top:14px;">
+                    <button type="button" class="btn" id="log-close" disabled>Close</button>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
         const INITIAL_OVERVIEW = {{ overview|tojson }};
+        let COVERAGE = null;           // {class_name: {mapped, total, pct, unmapped[]}}
+        let LAST_OVERVIEW = INITIAL_OVERVIEW;
+        const viewState = { view: 'classes', form: 'all', issuesOnly: false };
 
-        // ---- Alerts (persistent, dismissible) ----
+        // ---- Utilities ----
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[c]));
+        }
         function showAlert(type, message) {
             const area = document.getElementById('alert-area');
             const alert = document.createElement('div');
@@ -433,64 +582,40 @@
             span.textContent = message;
             alert.appendChild(span);
             const close = document.createElement('button');
-            close.className = 'close';
-            close.innerHTML = '&times;';
+            close.className = 'close'; close.innerHTML = '&times;';
             close.onclick = () => alert.remove();
             alert.appendChild(close);
             area.appendChild(alert);
-            if (type === 'success' || type === 'info') {
-                setTimeout(() => alert.remove(), 9000);
-            }
+            if (type === 'success' || type === 'info') setTimeout(() => alert.remove(), 9000);
             return alert;
         }
-
-        function escapeHtml(s) {
-            return String(s).replace(/[&<>"']/g, c => ({
-                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-            }[c]));
-        }
-
         function busy(btn, on, label) {
-            if (on) {
-                btn.dataset.label = btn.innerHTML;
-                btn.disabled = true;
-                btn.innerHTML = `<span class="spinner"></span>${label || ''}`;
-            } else {
-                btn.disabled = false;
-                btn.innerHTML = btn.dataset.label || btn.innerHTML;
-            }
+            if (on) { btn.dataset.label = btn.innerHTML; btn.disabled = true; btn.innerHTML = `<span class="spinner"></span>${label || ''}`; }
+            else { btn.disabled = false; btn.innerHTML = btn.dataset.label || btn.innerHTML; }
         }
 
         // ---- Live progress console (streamed Test / Initialise) ----
         const RESULT_MARKER = '\x1e';   // matches api_routes._RESULT_MARKER
-        let _consoleReload = false;     // reload the page when the console closes
-
+        let _consoleReload = false;
         function appendLog(line) {
             const out = document.getElementById('log-output');
             out.textContent += (out.textContent ? '\n' : '') + line;
             out.scrollTop = out.scrollHeight;
         }
-
         function finishConsole(summary) {
             document.getElementById('log-close').disabled = false;
             const el = document.getElementById('log-result');
             const cls = summary.ok ? 'ok' : 'bad';
-            const mark = summary.ok ? '✓' : '✗';
+            const mark = summary.ok ? '✓' : '✕';
             el.innerHTML = `<span class="${cls}">${mark} ${escapeHtml(summary.text)}</span>`;
         }
-
-        // POST `url` and stream the server's log lines into the console modal in
-        // real time. Pass/fail comes from the final in-band result line (status is
-        // always 200), not resp.ok. `summarize(result)` -> {ok, text}.
         async function streamOperation(url, body, title, summarize) {
             _consoleReload = false;
             document.getElementById('log-title').textContent = title;
             document.getElementById('log-output').textContent = '';
-            document.getElementById('log-result').innerHTML =
-                '<span class="log-spin"><span class="spinner"></span> Running&hellip;</span>';
+            document.getElementById('log-result').innerHTML = '<span class="log-spin"><span class="spinner"></span> Running&hellip;</span>';
             document.getElementById('log-close').disabled = true;
             document.getElementById('log-console').classList.remove('hidden');
-
             let result = null;
             try {
                 const resp = await fetch(url, {
@@ -501,9 +626,7 @@
                 if (!resp.ok) {
                     let msg = `HTTP ${resp.status}`;
                     try { const j = await resp.json(); msg = j.error || msg; } catch (e) {}
-                    appendLog('✗ ' + msg);
-                    finishConsole({ ok: false, text: msg });
-                    return null;
+                    appendLog('✕ ' + msg); finishConsole({ ok: false, text: msg }); return null;
                 }
                 const reader = resp.body.getReader();
                 const decoder = new TextDecoder();
@@ -514,24 +637,17 @@
                     buf += decoder.decode(value, { stream: true });
                     let nl;
                     while ((nl = buf.indexOf('\n')) >= 0) {
-                        const line = buf.slice(0, nl);
-                        buf = buf.slice(nl + 1);
-                        if (line.startsWith(RESULT_MARKER)) {
-                            try { result = JSON.parse(line.slice(1)); } catch (e) {}
-                        } else if (line.length) {
-                            appendLog(line);
-                        }
+                        const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+                        if (line.startsWith(RESULT_MARKER)) { try { result = JSON.parse(line.slice(1)); } catch (e) {} }
+                        else if (line.length) appendLog(line);
                     }
                 }
             } catch (err) {
-                appendLog('✗ Error: ' + err.message);
-                finishConsole({ ok: false, text: err.message });
-                return null;
+                appendLog('✕ Error: ' + err.message); finishConsole({ ok: false, text: err.message }); return null;
             }
             finishConsole(summarize(result));
             return result;
         }
-
         document.getElementById('log-close').addEventListener('click', () => {
             if (_consoleReload) { location.reload(); return; }
             document.getElementById('log-console').classList.add('hidden');
@@ -550,87 +666,354 @@
         function formatFire() {
             const el = document.getElementById('next-fire');
             if (!el) return;
-            const iso = el.dataset.next;
-            if (!iso) return;
-            const next = new Date(iso);
-            if (isNaN(next)) return;
-            const diffMs = next - new Date();
-            if (diffMs <= 0) { return; }
-            const hrs = Math.floor(diffMs / 3600000);
-            const mins = Math.floor((diffMs % 3600000) / 60000);
-            const rel = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
-            el.textContent = `Next run in ${rel}`;
+            const iso = el.dataset.next; if (!iso) return;
+            const next = new Date(iso); if (isNaN(next)) return;
+            const diffMs = next - new Date(); if (diffMs <= 0) return;
+            const hrs = Math.floor(diffMs / 3600000), mins = Math.floor((diffMs % 3600000) / 60000);
+            el.textContent = `next run in ${hrs > 0 ? hrs + 'h ' + mins + 'm' : mins + 'm'}`;
         }
 
-        // ---- Today & Alignment ----
-        function renderOverview(data) {
-            const el = document.getElementById('overview-content');
-            const classes = data.classes || [];
-            const orphanT = data.orphan_teachers || [];
-            const orphanS = data.orphan_sections || [];
+        // ---- View switch ----
+        function setView(view) {
+            viewState.view = view;
+            document.getElementById('view-classes').classList.toggle('hidden', view !== 'classes');
+            document.getElementById('view-teachers').classList.toggle('hidden', view !== 'teachers');
+            document.getElementById('view-classes-btn').classList.toggle('on', view === 'classes');
+            document.getElementById('view-teachers-btn').classList.toggle('on', view === 'teachers');
+        }
+        document.getElementById('view-classes-btn').addEventListener('click', () => setView('classes'));
+        document.getElementById('view-teachers-btn').addEventListener('click', () => setView('teachers'));
 
-            if (!classes.length && !orphanT.length) {
-                el.innerHTML = `<p class="empty">No roster classes yet.<br>`
-                    + `Add a teacher and import a roster (or initialise from the portal) to onboard a class.</p>`;
+        // ---- Class classification / form derivation ----
+        function classifyClass(c) {
+            if (c.onboarded) return 'onboarded';
+            if (c.teacher_name && !c.teacher_enabled) return 'disabled';
+            return 'noteacher';
+        }
+        function formOf(className) {
+            const tok = (className || '').trim().split(/\s+/)[0];
+            return /^[1-6]$/.test(tok) ? tok : 'other';
+        }
+        const STATUS_META = {
+            onboarded: { dot: 'var(--green)', badge: 'Onboarded', cls: '' },
+            disabled:  { dot: 'var(--ink-3)', badge: 'Teacher off', cls: '' },
+            noteacher: { dot: 'var(--amber)', badge: 'No teacher', cls: 'warn' },
+        };
+
+        // ---- Operational summary (refresh) ----
+        function renderOpSummary(ov) {
+            const s = ov.summary || {};
+            const setNum = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+            setNum('op-absent', s.absent_today);
+            setNum('op-sending', s.onboarded);
+            setNum('op-coverage', (s.coverage_pct || 0) + '%');
+            setNum('stat-teachers', s.teachers);
+            setNum('stat-students', s.students);
+            setNum('stat-classes', s.classes);
+            setNum('stat-onboarded', s.onboarded);
+            const chip = document.getElementById('op-issue'), txt = document.getElementById('op-issue-text');
+            if (chip && txt) {
+                if (s.misfires) { chip.className = 'opchip bad'; txt.textContent = `${s.misfires} misfire · ${s.no_teacher} no teacher`; }
+                else if (s.no_teacher) { chip.className = 'opchip warn'; txt.textContent = `${s.no_teacher} need a teacher`; }
+                else { chip.className = 'opchip ok'; txt.textContent = 'all aligned'; }
+            }
+        }
+
+        // ---- Form tabs ----
+        function renderTabs(classes) {
+            const wrap = document.getElementById('form-tabs');
+            const byForm = {};
+            classes.forEach(c => { const f = formOf(c.class_name); (byForm[f] = byForm[f] || []).push(c); });
+            const forms = Object.keys(byForm).sort((a, b) => (a === 'other' ? 1 : b === 'other' ? -1 : a - b));
+            const mk = (id, label, members) => {
+                const issues = members.filter(c => classifyClass(c) !== 'onboarded').length;
+                const active = viewState.form === id;
+                const btn = document.createElement('button');
+                btn.className = 'tab' + (active ? ' on' : '');
+                btn.innerHTML = `<span>${escapeHtml(label)}</span><span class="cnt num">${members.length}</span>`;
+                if (issues > 0) { const d = document.createElement('span'); d.className = 'idot'; d.style.background = 'var(--amber)'; btn.appendChild(d); }
+                btn.addEventListener('click', () => { viewState.form = id; renderClasses(); });
+                return btn;
+            };
+            wrap.innerHTML = '';
+            wrap.appendChild(mk('all', 'All', classes));
+            forms.forEach(f => wrap.appendChild(mk(f, f === 'other' ? 'Other' : 'Form ' + f, byForm[f])));
+        }
+
+        // ---- Class cards ----
+        function chainLeg(label, mark, color) {
+            return `<span class="leg" style="color:${color};">${mark} ${label}</span>`;
+        }
+        function renderClasses() {
+            const ov = LAST_OVERVIEW;
+            const grid = document.getElementById('class-grid');
+            const classes = ov.classes || [];
+            renderTabs(classes);
+
+            if (!classes.length) {
+                grid.className = '';
+                grid.innerHTML = `<div class="firstrun"><h3>No classes set up yet</h3>`
+                    + `<p>IDME submits attendance for any class that has an enabled teacher and an imported roster. Add a teacher, then initialise that class&rsquo;s roster - both tools are below.</p>`
+                    + `<div class="steps"><span class="step"><span class="n">1</span> Add a teacher</span><span class="step"><span class="n">2</span> Initialise roster</span></div></div>`;
                 return;
             }
 
-            let html = '';
-            if (classes.length) {
-                html += `<table><thead><tr>`
-                    + `<th>Class</th><th>Teacher</th><th class="num">Roster</th>`
-                    + `<th class="num">Scanned</th><th class="num">Absent</th><th>Status</th>`
-                    + `</tr></thead><tbody>`;
-                for (const c of classes) {
-                    let status, teacherCell;
-                    if (c.onboarded) {
-                        status = `<span class="badge badge-green">Onboarded</span>`;
-                        teacherCell = escapeHtml(c.teacher_name);
-                    } else if (c.teacher_name && !c.teacher_enabled) {
-                        status = `<span class="badge badge-grey">Teacher disabled</span>`;
-                        teacherCell = escapeHtml(c.teacher_name);
-                    } else {
-                        status = `<span class="badge badge-amber">No teacher &mdash; not submitted</span>`;
-                        teacherCell = `<span style="color:#94a3b8;">&mdash;</span>`;
-                    }
-                    const absentColor = c.absent > 0 ? '#fbbf24' : '#4ade80';
-                    html += `<tr>`
-                        + `<td data-th="Class">${escapeHtml(c.class_name)}</td>`
-                        + `<td data-th="Teacher">${teacherCell}</td>`
-                        + `<td data-th="Roster" class="num">${c.roster}</td>`
-                        + `<td data-th="Scanned" class="num">${c.scanned}</td>`
-                        + `<td data-th="Absent" class="num" style="color:${absentColor};font-weight:600;">${c.absent}</td>`
-                        + `<td data-th="Status">${status}</td>`
-                        + `</tr>`;
-                }
-                html += `</tbody></table>`;
+            let list = classes.slice();
+            if (viewState.form !== 'all') list = list.filter(c => formOf(c.class_name) === viewState.form);
+            if (viewState.issuesOnly) list = list.filter(c => classifyClass(c) !== 'onboarded');
+            list.sort((a, b) => a.class_name.localeCompare(b.class_name, undefined, { numeric: true }));
+
+            if (!list.length) {
+                grid.className = '';
+                grid.innerHTML = `<div class="empty"><div style="font-size:22px; margin-bottom:6px;">&#10003;</div>No classes match this filter - all aligned here.</div>`;
+                return;
             }
 
-            if (orphanT.length) {
-                html += `<div class="warn-line">&#9888; Teacher(s) whose class matches no roster &mdash; will silently submit nothing: `
-                    + orphanT.map(t => `<strong>${escapeHtml(t.name)}</strong> (&ldquo;${escapeHtml(t.class_name)}&rdquo;)`).join(', ')
-                    + `. Fix the class string or import that roster.</div>`;
-            }
-            if (orphanS.length) {
-                html += `<div class="warn-line">&#9888; Today's scans landed under section(s) no roster class knows: `
-                    + orphanS.map(s => `&ldquo;${escapeHtml(s)}&rdquo;`).join(', ')
-                    + `. Those taps won't count toward any class.</div>`;
-            }
-            el.innerHTML = html;
+            grid.className = 'grid';
+            grid.innerHTML = list.map(c => {
+                const st = classifyClass(c);
+                const meta = STATUS_META[st];
+                const green = 'var(--green)', amber = 'var(--amber)', off = 'var(--ink-3)', line = 'var(--line-2)';
+
+                // match chain: roster always present; section ✓ if taps landed; teacher per status
+                const sectionOk = c.scanned > 0;
+                const sMark = sectionOk ? '✓' : '·', sColor = sectionOk ? green : off;
+                let tMark = '✓', tColor = green, tLabel = 'Teacher';
+                if (st === 'disabled') { tMark = '○'; tColor = off; tLabel = 'Off'; }
+                if (st === 'noteacher') { tMark = '✕'; tColor = amber; tLabel = 'Teacher'; }
+
+                // third metric
+                let m3 = '', m3c = green, m3l = 'absent';
+                if (st === 'onboarded') { m3 = c.absent; m3c = c.absent > 0 ? amber : green; m3l = 'absent'; }
+                else if (st === 'disabled') { m3 = '·'; m3c = off; m3l = 'not sent'; }
+                else { m3 = '·'; m3c = amber; m3l = 'not sent'; }
+
+                // coverage from merged map
+                const cov = (COVERAGE && COVERAGE[c.class_name]) || null;
+                const pct = cov ? cov.pct : null;
+                const barColor = pct === null ? line : (pct >= 100 ? green : amber);
+                const covText = cov ? `${cov.mapped}/${cov.total} · ${pct}%` : 'no roster tags';
+
+                const seg1 = `<span class="seg" style="background:${sColor};"></span>`;
+                const seg2 = `<span class="seg" style="background:${tColor};"></span>`;
+                return `<div class="ccard ${meta.cls}">
+                    <div class="top">
+                        <span class="sdot" style="background:${meta.dot};"></span>
+                        <span class="code">${escapeHtml(c.class_name)}</span>
+                        <span class="badge" style="color:${meta.dot === 'var(--green)' ? green : (st === 'noteacher' ? amber : off)};border-color:${meta.dot === 'var(--green)' ? green : (st === 'noteacher' ? amber : line)};">${meta.badge}</span>
+                    </div>
+                    <div class="teacher">${c.teacher_name ? escapeHtml(c.teacher_name) : 'No teacher assigned'}</div>
+                    <div class="chain">
+                        ${chainLeg('Roster', '✓', green)}${seg1}${chainLeg('Section', sMark, sColor)}${seg2}${chainLeg(tLabel, tMark, tColor)}
+                    </div>
+                    <div class="metrics">
+                        <div class="m"><span class="mn">${c.roster}</span><span class="ml">roster</span></div>
+                        <div class="m"><span class="mn">${c.scanned}</span><span class="ml">scanned</span></div>
+                        <div class="m"><span class="mn" style="color:${m3c};">${m3}</span><span class="ml">${m3l}</span></div>
+                    </div>
+                    <div class="cov">
+                        <div class="track"><div class="fill" style="width:${pct === null ? 0 : pct}%;background:${barColor};"></div></div>
+                        <span class="ct">${covText}</span>
+                    </div>
+                </div>`;
+            }).join('');
         }
 
+        document.getElementById('issues-toggle').addEventListener('click', (e) => {
+            viewState.issuesOnly = !viewState.issuesOnly;
+            e.currentTarget.classList.toggle('on', viewState.issuesOnly);
+            renderClasses();
+        });
+
+        // ---- Data loaders ----
+        function buildCoverageMap(c) {
+            const map = {};
+            (c.classes || []).forEach(cl => {
+                map[cl.class_name] = { mapped: cl.mapped, total: cl.total, unmapped: cl.unmapped || [], pct: cl.total ? Math.round(cl.mapped / cl.total * 100) : 0 };
+            });
+            return map;
+        }
+        async function loadCoverage() {
+            const el = document.getElementById('coverage-content');
+            try {
+                const resp = await fetch('/idme/roster/coverage');
+                const c = await resp.json();
+                if (!resp.ok) { el.textContent = c.error || 'Failed to load coverage'; return; }
+                COVERAGE = buildCoverageMap(c);
+                renderClasses();   // re-render cards now that coverage is known
+
+                if (!c.classes || !c.classes.length) { el.textContent = 'No students in the registry yet. Import a roster or initialise from the portal.'; return; }
+                const pct = c.total ? Math.round((c.mapped / c.total) * 100) : 0;
+                const um = c.unmatched || { no_match: 0, ambiguous: 0 };
+                let head = `<div style="margin-bottom:12px; color:var(--ink);"><strong class="num">${c.mapped} / ${c.total}</strong> cards mapped school-wide (<span class="num">${pct}%</span>)`;
+                if (um.no_match || um.ambiguous) head += ` &middot; <span style="color:var(--amber);">${um.no_match} unmatched, ${um.ambiguous} ambiguous scan(s) need attention</span>`;
+                head += `</div>`;
+                const partial = c.classes.filter(cl => !cl.total || cl.mapped < cl.total);
+                if (!partial.length) { el.innerHTML = head + `<div style="color:var(--green);">&#10003; Every class is fully tagged.</div>`; return; }
+                const rows = partial.map(cl => {
+                    const cpct = cl.total ? Math.round((cl.mapped / cl.total) * 100) : 0;
+                    return `<div class="covrow">
+                        <span class="cname">${escapeHtml(cl.class_name)}</span>
+                        <span class="cbar"><div style="width:${cpct}%;background:${cpct >= 100 ? 'var(--green)' : 'var(--amber)'};"></div></span>
+                        <span class="cunmapped">${cl.mapped}/${cl.total} &middot; ${(cl.unmapped && cl.unmapped.length) ? 'unmapped: ' + cl.unmapped.map(escapeHtml).join(', ') : '<span class="done">all mapped</span>'}</span>
+                    </div>`;
+                }).join('');
+                el.innerHTML = head + rows;
+            } catch (err) { el.textContent = `Error loading coverage: ${err.message}`; }
+        }
         async function refreshOverview(btn) {
             if (btn) busy(btn, true, ' Refreshing');
             try {
                 const resp = await fetch('/idme/overview');
                 const data = await resp.json();
-                if (resp.ok) renderOverview(data);
+                if (resp.ok) { LAST_OVERVIEW = data; renderOpSummary(data); renderClasses(); }
                 else showAlert('error', data.error || 'Failed to load overview');
-            } catch (err) {
-                showAlert('error', `Error: ${err.message}`);
-            } finally {
-                if (btn) busy(btn, false);
+            } catch (err) { showAlert('error', `Error: ${err.message}`); }
+            finally { if (btn) busy(btn, false); }
+        }
+        document.getElementById('refresh-overview').addEventListener('click', (e) => refreshOverview(e.currentTarget));
+        document.getElementById('refresh-coverage').addEventListener('click', loadCoverage);
+
+        // ---- Teacher login chip ----
+        function loginChipHtml(state, age) {
+            if (state === 'verified') return `<button class="chip-btn ok js-test" type="button" title="Test again">✓ Verified${age ? ` <span class="age">${escapeHtml(age)}</span>` : ''}</button>`;
+            if (state === 'expired')  return `<button class="chip-btn warn js-test" type="button" title="Re-test">↻ Re-test <span class="age">expired</span></button>`;
+            if (state === 'failed')   return `<button class="chip-btn bad js-test" type="button" title="Test again">✕ Wrong password</button>`;
+            return `<button class="chip-btn js-test" type="button">Test login</button>`;
+        }
+        function paintLoginCells() {
+            document.querySelectorAll('.login-cell').forEach(cell => {
+                cell.innerHTML = loginChipHtml(cell.dataset.state || 'untested', cell.dataset.age || '');
+            });
+        }
+
+        // ---- Teacher search ----
+        const searchInput = document.getElementById('teacher-search');
+        if (searchInput) searchInput.addEventListener('input', () => {
+            const q = searchInput.value.trim().toLowerCase();
+            let shown = 0;
+            document.querySelectorAll('#teacher-tbody tr[data-id]').forEach(row => {
+                if (row.classList.contains('edit-row')) return;
+                const hay = (row.dataset.name + ' ' + row.dataset.class).toLowerCase();
+                const match = !q || hay.includes(q);
+                row.classList.toggle('hidden', !match);
+                const er = document.getElementById('edit-row-' + row.dataset.id);
+                if (er) er.classList.toggle('hidden', !match || er.dataset.open !== '1');
+                if (match) shown++;
+            });
+            document.getElementById('teacher-nomatch').classList.toggle('hidden', shown > 0);
+        });
+
+        // ---- Teacher row actions (delegated) ----
+        document.getElementById('teacher-tbody')?.addEventListener('click', async (e) => {
+            const btn = e.target.closest('button'); if (!btn) return;
+            const row = btn.closest('tr'); const id = row.dataset.id; const name = row.dataset.name;
+
+            if (btn.classList.contains('js-test')) {
+                const cell = row.querySelector('.login-cell');
+                const r = await streamOperation(
+                    `/idme/teachers/${id}/test/stream`, null,
+                    `Testing IDME login: ${name}`,
+                    (r) => (r && r.success)
+                        ? { ok: true, text: `Login OK (${r.duration}, ${r.cookies} cookies, CSRF ${r.csrf_token ? 'yes' : 'no'})` }
+                        : { ok: false, text: (r && r.error) || 'Login failed' }
+                );
+                if (cell && r) {
+                    if (r.success) { cell.dataset.state = 'verified'; cell.dataset.age = 'just now'; }
+                    else { cell.dataset.state = 'failed'; cell.dataset.age = ''; }
+                    cell.innerHTML = loginChipHtml(cell.dataset.state, cell.dataset.age);
+                }
+            } else if (btn.classList.contains('js-edit')) {
+                toggleEdit(row);
             }
+        });
+
+        // ---- Inline teacher edit (replaces the old modal) ----
+        function toggleEdit(row) {
+            const id = row.dataset.id;
+            const existing = document.getElementById('edit-row-' + id);
+            if (existing) { closeEdit(id); return; }
+            const tr = document.createElement('tr');
+            tr.className = 'edit-row'; tr.id = 'edit-row-' + id; tr.dataset.open = '1';
+            const aligned = row.dataset.aligned === '1';
+            tr.innerHTML = `<td class="edit-cell" colspan="6">
+                <div class="edit-box">
+                    <div class="label" style="margin-bottom:12px;">Edit teacher</div>
+                    <form class="js-edit-form" data-id="${id}">
+                        <div class="grid2">
+                            <div class="field"><label>Full name</label><input type="text" class="ef-name" value="${escapeHtml(row.dataset.name)}" required></div>
+                            <div class="field"><label>Class string</label><input type="text" class="ef-class mono" value="${escapeHtml(row.dataset.class)}" required>
+                                <div class="fhint ${aligned ? 'ok' : 'bad'}">${aligned ? 'Matches a roster class' : 'No roster class matches yet'}</div></div>
+                            <div class="field"><label>IC number (leave blank to keep)</label><input type="text" class="ef-ic mono" placeholder="New 12-digit IC&hellip;" pattern="\\d{12}" maxlength="12" inputmode="numeric"></div>
+                            <div class="field"><label>MOEIS password (leave blank to keep)</label>
+                                <div class="pw-wrap"><input type="password" class="ef-pw" placeholder="New password&hellip;" style="padding-right:50px;"><button type="button" class="pw-toggle ef-pwtoggle">Show</button></div></div>
+                        </div>
+                        <div class="edit-actions">
+                            <label class="checkrow"><input type="checkbox" class="ef-enabled" ${row.dataset.enabled === '1' ? 'checked' : ''}> Enabled (submits at cutoff)</label>
+                            <div class="right">
+                                <button type="button" class="btn btn-sm btn-danger js-edit-delete">Delete</button>
+                                <button type="button" class="btn btn-sm js-edit-cancel" data-edit-for="${id}">Cancel</button>
+                                <button type="submit" class="btn btn-sm btn-primary js-edit-save">Save changes</button>
+                            </div>
+                        </div>
+                    </form>
+                </div></td>`;
+            row.after(tr);
+            row.querySelector('.js-edit').textContent = 'Close';
+
+            // local password toggle
+            tr.querySelector('.ef-pwtoggle').addEventListener('click', (ev) => {
+                const inp = tr.querySelector('.ef-pw');
+                if (inp.type === 'password') { inp.type = 'text'; ev.currentTarget.textContent = 'Hide'; }
+                else { inp.type = 'password'; ev.currentTarget.textContent = 'Show'; }
+            });
+            // live class-match hint
+            const known = (LAST_OVERVIEW.classes || []).map(c => c.class_name);
+            tr.querySelector('.ef-class').addEventListener('input', (ev) => {
+                const hint = ev.target.parentElement.querySelector('.fhint');
+                const ok = known.includes(ev.target.value.trim());
+                hint.textContent = ok ? 'Matches a roster class' : 'No roster class matches yet';
+                hint.className = 'fhint ' + (ok ? 'ok' : 'bad');
+            });
+            tr.querySelector('.js-edit-cancel').addEventListener('click', () => closeEdit(id));
+            tr.querySelector('.js-edit-delete').addEventListener('click', () => deleteTeacher(id, row.dataset.name));
+            tr.querySelector('.js-edit-form').addEventListener('submit', (ev) => saveTeacher(ev, id));
+        }
+        function closeEdit(id) {
+            const tr = document.getElementById('edit-row-' + id);
+            if (tr) tr.remove();
+            const row = document.getElementById('teacher-row-' + id);
+            if (row) row.querySelector('.js-edit').textContent = 'Edit';
+        }
+        async function saveTeacher(ev, id) {
+            ev.preventDefault();
+            const form = ev.currentTarget;
+            const btn = form.querySelector('.js-edit-save');
+            const body = {
+                name: form.querySelector('.ef-name').value.trim(),
+                class_name: form.querySelector('.ef-class').value.trim(),
+                enabled: form.querySelector('.ef-enabled').checked,
+            };
+            const ic = form.querySelector('.ef-ic').value.trim();
+            const pw = form.querySelector('.ef-pw').value;
+            if (ic) body.ic_number = ic;
+            if (pw) body.password = pw;
+            busy(btn, true, ' Saving');
+            try {
+                const resp = await fetch(`/idme/teachers/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                const result = await resp.json();
+                if (resp.ok) { showAlert('success', `Teacher ${body.name} updated.`); setTimeout(() => location.reload(), 800); }
+                else { showAlert('error', result.error || 'Update failed'); busy(btn, false); }
+            } catch (err) { showAlert('error', `Error: ${err.message}`); busy(btn, false); }
+        }
+        async function deleteTeacher(id, name) {
+            if (!confirm(`Delete teacher ${name}? This cannot be undone.`)) return;
+            try {
+                const resp = await fetch(`/idme/teachers/${id}`, { method: 'DELETE' });
+                const result = await resp.json();
+                if (resp.ok) { showAlert('success', `Teacher ${name} deleted`); setTimeout(() => location.reload(), 700); }
+                else showAlert('error', result.error || 'Failed to delete');
+            } catch (err) { showAlert('error', `Error: ${err.message}`); }
         }
 
         // ---- Add teacher ----
@@ -645,141 +1028,27 @@
             };
             busy(btn, true, ' Adding');
             try {
-                const resp = await fetch('/idme/teachers', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data),
-                });
+                const resp = await fetch('/idme/teachers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
                 const result = await resp.json();
-                if (resp.ok) {
-                    showAlert('success', `Teacher ${data.name} added.`);
-                    setTimeout(() => location.reload(), 900);
-                } else {
-                    showAlert('error', result.error || 'Failed to add teacher');
-                    busy(btn, false);
-                }
-            } catch (err) {
-                showAlert('error', `Error: ${err.message}`);
-                busy(btn, false);
-            }
+                if (resp.ok) { showAlert('success', `Teacher ${data.name} added.`); setTimeout(() => location.reload(), 800); }
+                else { showAlert('error', result.error || 'Failed to add teacher'); busy(btn, false); }
+            } catch (err) { showAlert('error', `Error: ${err.message}`); busy(btn, false); }
         });
-
-        // Live IC validation
+        // Live IC + class hints
         const icInput = document.getElementById('teacher-ic');
         icInput.addEventListener('input', () => {
-            const v = icInput.value.trim();
-            const hint = document.getElementById('ic-hint');
-            if (!v) { hint.textContent = ''; hint.className = 'field-hint'; return; }
-            if (/^\d{12}$/.test(v)) { hint.textContent = 'Valid IC format'; hint.className = 'field-hint ok'; }
-            else { hint.textContent = `${v.replace(/\D/g,'').length}/12 digits`; hint.className = 'field-hint bad'; }
+            const v = icInput.value.trim(), hint = document.getElementById('ic-hint');
+            if (!v) { hint.textContent = ''; hint.className = 'fhint'; return; }
+            if (/^\d{12}$/.test(v)) { hint.textContent = 'Valid IC format'; hint.className = 'fhint ok'; }
+            else { hint.textContent = `${v.replace(/\D/g, '').length}/12 digits`; hint.className = 'fhint bad'; }
         });
-
-        // Live class-match hint (against known roster classes)
         const classInput = document.getElementById('teacher-class');
         classInput.addEventListener('input', () => {
-            const v = classInput.value.trim();
-            const hint = document.getElementById('class-hint');
-            if (!v) { hint.textContent = ''; hint.className = 'field-hint'; return; }
-            const known = (INITIAL_OVERVIEW.classes || []).map(c => c.class_name);
-            if (known.includes(v)) { hint.textContent = 'Matches a roster class'; hint.className = 'field-hint ok'; }
-            else { hint.textContent = 'No roster class matches yet (must match exactly to submit)'; hint.className = 'field-hint bad'; }
-        });
-
-        // ---- Teacher row actions (delegated; data-attr safe for any name) ----
-        document.getElementById('teacher-tbody')?.addEventListener('click', async (e) => {
-            const btn = e.target.closest('button');
-            if (!btn) return;
-            const row = btn.closest('tr');
-            const id = row.dataset.id;
-            const name = row.dataset.name;
-
-            if (btn.classList.contains('js-delete')) {
-                if (!confirm(`Delete teacher ${name}? This cannot be undone.`)) return;
-                busy(btn, true);
-                try {
-                    const resp = await fetch(`/idme/teachers/${id}`, { method: 'DELETE' });
-                    const result = await resp.json();
-                    if (resp.ok) { showAlert('success', `Teacher ${name} deleted`); row.remove(); }
-                    else { showAlert('error', result.error || 'Failed to delete'); busy(btn, false); }
-                } catch (err) { showAlert('error', `Error: ${err.message}`); busy(btn, false); }
-
-            } else if (btn.classList.contains('js-test')) {
-                streamOperation(
-                    `/idme/teachers/${id}/test/stream`, null,
-                    `Testing IDME login — ${name}`,
-                    (r) => (r && r.success)
-                        ? { ok: true, text: `Login OK (${r.duration}, ${r.cookies} cookies, CSRF ${r.csrf_token ? 'yes' : 'no'})` }
-                        : { ok: false, text: (r && r.error) || 'Login failed' }
-                );
-
-            } else if (btn.classList.contains('js-edit')) {
-                openEdit(row);
-            }
-        });
-
-        // ---- Edit modal ----
-        function openEdit(row) {
-            document.getElementById('edit-id').value = row.dataset.id;
-            document.getElementById('edit-name').value = row.dataset.name;
-            document.getElementById('edit-class').value = row.dataset.class;
-            document.getElementById('edit-password').value = '';
-            document.getElementById('edit-enabled').checked = row.dataset.enabled === '1';
-            document.getElementById('edit-modal').classList.remove('hidden');
-        }
-        function closeEdit() { document.getElementById('edit-modal').classList.add('hidden'); }
-        document.getElementById('edit-cancel').addEventListener('click', closeEdit);
-        document.getElementById('edit-modal').addEventListener('click', (e) => {
-            if (e.target.id === 'edit-modal') closeEdit();
-        });
-        document.getElementById('edit-teacher-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const btn = document.getElementById('edit-save');
-            const id = document.getElementById('edit-id').value;
-            const body = {
-                name: document.getElementById('edit-name').value.trim(),
-                class_name: document.getElementById('edit-class').value.trim(),
-                enabled: document.getElementById('edit-enabled').checked,
-            };
-            const pw = document.getElementById('edit-password').value;
-            if (pw) body.password = pw;
-            busy(btn, true, ' Saving');
-            try {
-                const resp = await fetch(`/idme/teachers/${id}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body),
-                });
-                const result = await resp.json();
-                if (resp.ok) { showAlert('success', `Teacher ${body.name} updated.`); setTimeout(() => location.reload(), 900); }
-                else { showAlert('error', result.error || 'Update failed'); busy(btn, false); }
-            } catch (err) { showAlert('error', `Error: ${err.message}`); busy(btn, false); }
-        });
-
-        // ---- Roster upload ----
-        document.getElementById('roster-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const btn = document.getElementById('roster-btn');
-            const fileInput = document.getElementById('roster-file');
-            const replace = document.getElementById('roster-replace').checked;
-            if (!fileInput.files.length) { showAlert('error', 'Please choose an Excel file'); return; }
-            if (replace && !confirm('Replace the entire roster? All current students will be cleared first.')) return;
-
-            const formData = new FormData();
-            formData.append('file', fileInput.files[0]);
-            formData.append('replace', replace ? 'true' : 'false');
-            busy(btn, true, ' Importing');
-            showAlert('info', 'Uploading and importing roster…');
-            try {
-                const resp = await fetch('/idme/roster/upload', { method: 'POST', body: formData });
-                const result = await resp.json();
-                if (resp.ok) {
-                    let msg = `Imported ${result.imported} students across ${result.classes} classes`;
-                    if (result.replaced) msg += ` (cleared ${result.cleared} existing)`;
-                    if (result.skipped) msg += `, ${result.skipped} skipped`;
-                    showAlert('success', msg);
-                    setTimeout(() => location.reload(), 1500);
-                } else { showAlert('error', result.error || 'Import failed'); busy(btn, false); }
-            } catch (err) { showAlert('error', `Error: ${err.message}`); busy(btn, false); }
+            const v = classInput.value.trim(), hint = document.getElementById('class-hint');
+            if (!v) { hint.textContent = ''; hint.className = 'fhint'; return; }
+            const known = (LAST_OVERVIEW.classes || []).map(c => c.class_name);
+            if (known.includes(v)) { hint.textContent = 'Matches a roster class'; hint.className = 'fhint ok'; }
+            else { hint.textContent = 'No roster match yet (must match exactly)'; hint.className = 'fhint bad'; }
         });
 
         // ---- Roster init from portal (streamed) ----
@@ -800,57 +1069,40 @@
                     return { ok: false, text: (r && r.error) || 'Roster init failed' };
                 }
             );
-            // Refresh the page (roster counts/coverage changed) when the user closes.
             if (result && !result.error && result.class_name) _consoleReload = true;
         });
 
-        // ---- Coverage ----
-        async function loadCoverage() {
-            const el = document.getElementById('coverage-content');
+        // ---- Roster upload ----
+        document.getElementById('roster-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('roster-btn');
+            const fileInput = document.getElementById('roster-file');
+            const replace = document.getElementById('roster-replace').checked;
+            if (!fileInput.files.length) { showAlert('error', 'Please choose an Excel file'); return; }
+            if (replace && !confirm('Replace the entire roster? All current students will be cleared first.')) return;
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('replace', replace ? 'true' : 'false');
+            busy(btn, true, ' Importing');
+            showAlert('info', 'Uploading and importing roster…');
             try {
-                const resp = await fetch('/idme/roster/coverage');
-                const c = await resp.json();
-                if (!resp.ok) { el.textContent = c.error || 'Failed to load coverage'; return; }
-                if (!c.classes || !c.classes.length) {
-                    el.textContent = 'No students in the registry yet. Import a roster or initialise from the portal.';
-                    return;
-                }
-                const pct = c.total ? Math.round((c.mapped / c.total) * 100) : 0;
-                const um = c.unmatched || { no_match: 0, ambiguous: 0 };
-                let html = `<div style="margin-bottom:10px;color:#e2e8f0;">`
-                    + `<strong>${c.mapped} / ${c.total}</strong> cards mapped school-wide (${pct}%)`;
-                if (um.no_match || um.ambiguous) {
-                    html += ` &middot; <span style="color:#fbbf24;">`
-                        + `${um.no_match} unmatched, ${um.ambiguous} ambiguous scan(s) need attention</span>`;
-                }
-                html += `</div>`;
-                html += `<table style="width:100%;border-collapse:collapse;font-size:0.88em;">`;
-                for (const cl of c.classes) {
-                    const cpct = cl.total ? Math.round((cl.mapped / cl.total) * 100) : 0;
-                    const bar = `<div style="background:#334155;border-radius:4px;height:8px;width:120px;display:inline-block;vertical-align:middle;overflow:hidden;">`
-                        + `<div style="background:${cpct === 100 ? '#22c55e' : '#3b82f6'};height:8px;width:${cpct}%;"></div></div>`;
-                    html += `<tr style="border-top:1px solid #1e293b;">`
-                        + `<td style="padding:6px 8px;color:#e2e8f0;">${escapeHtml(cl.class_name)}</td>`
-                        + `<td style="padding:6px 8px;">${bar}</td>`
-                        + `<td style="padding:6px 8px;color:#94a3b8;white-space:nowrap;">${cl.mapped}/${cl.total}</td>`
-                        + `<td style="padding:6px 8px;color:#94a3b8;">`
-                        + (cl.unmapped && cl.unmapped.length
-                            ? `unmapped: ${cl.unmapped.map(escapeHtml).join(', ')}`
-                            : '<span style="color:#22c55e;">all mapped</span>')
-                        + `</td></tr>`;
-                }
-                html += `</table>`;
-                el.innerHTML = html;
-            } catch (err) {
-                el.textContent = `Error loading coverage: ${err.message}`;
-            }
-        }
+                const resp = await fetch('/idme/roster/upload', { method: 'POST', body: formData });
+                const result = await resp.json();
+                if (resp.ok) {
+                    let msg = `Imported ${result.imported} students across ${result.classes} classes`;
+                    if (result.replaced) msg += ` (cleared ${result.cleared} existing)`;
+                    if (result.skipped) msg += `, ${result.skipped} skipped`;
+                    showAlert('success', msg);
+                    setTimeout(() => location.reload(), 1500);
+                } else { showAlert('error', result.error || 'Import failed'); busy(btn, false); }
+            } catch (err) { showAlert('error', `Error: ${err.message}`); busy(btn, false); }
+        });
 
-        // ---- Wire up ----
-        document.getElementById('refresh-overview').addEventListener('click', (e) => refreshOverview(e.currentTarget));
-        document.getElementById('refresh-coverage').addEventListener('click', loadCoverage);
+        // ---- Boot ----
         formatFire();
-        renderOverview(INITIAL_OVERVIEW);
+        paintLoginCells();
+        renderOpSummary(INITIAL_OVERVIEW);
+        renderClasses();
         loadCoverage();
     </script>
 </body>
