@@ -136,6 +136,9 @@
             position: fixed; inset: 0; background: rgba(2,6,23,0.7);
             display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50;
         }
+        /* Beat .modal-overlay's display:flex at equal specificity (it is declared
+           later in source order), so the `hidden` class actually hides the modal. */
+        .modal-overlay.hidden { display: none; }
         .modal {
             background: #1e293b; border: 1px solid #334155; border-radius: 12px;
             padding: 24px; width: 100%; max-width: 460px;
