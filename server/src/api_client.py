@@ -37,6 +37,11 @@ class NetworkError(DatangAPIError):
 class DatangAPIClient:
     """Client for Datang attendance API"""
 
+    # Error codes the attendance endpoint returns (as a 200-OK body, not a
+    # 401/403) that actually mean "your token is dead" — these must trigger a
+    # re-login, not be treated as a permanent per-card submission failure.
+    AUTH_ERROR_CODES = frozenset({"INVALID_LOGIN", "INVALID_TOKEN", "TOKEN_EXPIRED"})
+
     def __init__(self, token: Optional[str] = None):
         """
         Initialize API client
@@ -215,6 +220,18 @@ class DatangAPIClient:
                     error_msg = response_json.get("error", "Unknown error")
                     message = response_json.get("message", "")
                     logger.error(f"Attendance error: {error_msg} - {message}")
+
+                    # Some auth failures come back as HTTP 200 with an error
+                    # body (e.g. INVALID_LOGIN) instead of a 401/403. Treat
+                    # these as an authentication failure so the service clears
+                    # the dead token, re-logins and retries — otherwise they get
+                    # misclassified as a permanent submission error and EVERY
+                    # scan fails (without even queueing) until the container is
+                    # restarted.
+                    if str(error_msg).strip().upper() in self.AUTH_ERROR_CODES:
+                        self.token = None
+                        raise AuthenticationError(f"{error_msg}: {message}")
+
                     raise AttendanceSubmissionError(f"{error_msg}: {message}")
 
                 else:
