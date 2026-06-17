@@ -328,12 +328,13 @@ class IDMEOrchestrator:
     def submit_all_classes(
         self,
         submission_date: Optional[str] = None,
-        confirm: Optional[bool] = None
+        confirm: Optional[bool] = None,
+        forms: Optional[set] = None
     ) -> List[Dict[str, Any]]:
         """
         Submit absences for ALL configured teacher-class pairs.
 
-        Called by the scheduler at cutoff time.
+        Called by the scheduler at each session's cutoff time.
 
         Args:
             submission_date: Date in YYYY-MM-DD (default: today).
@@ -341,6 +342,11 @@ class IDMEOrchestrator:
                 save re-editable DRAFTS (MENUNGGU PENGESAHAN). When None (the
                 scheduler's call), falls back to IDMEConfig.SCHEDULER_CONFIRM,
                 which defaults to False (drafts) for the supervised rollout.
+            forms: Optional set of form numbers (e.g. {3, 4, 5, 6}) limiting the
+                run to one session. When None, every configured class is
+                submitted (the manual "submit all" path). The school runs two
+                sessions at different cutoffs, so the scheduler passes only the
+                forms due at the cutoff that just fired.
 
         Returns:
             List of per-class results.
@@ -352,7 +358,10 @@ class IDMEOrchestrator:
             confirm = IDMEConfig.SCHEDULER_CONFIRM
 
         mode = 'CONFIRM (TELAH DISAHKAN, locked)' if confirm else 'DRAFT (MENUNGGU PENGESAHAN)'
-        self.logger.info(f"Starting bulk submission for {submission_date} — mode: {mode}")
+        scope = f"forms {sorted(forms)}" if forms is not None else "all forms"
+        self.logger.info(
+            f"Starting bulk submission for {submission_date} ({scope}) — mode: {mode}"
+        )
 
         teachers = self.teacher_manager.get_all_teachers()
         if not teachers:
@@ -363,6 +372,19 @@ class IDMEOrchestrator:
         for teacher in teachers:
             class_name = teacher['class_name']
             teacher_id = teacher['id']
+
+            # Skip classes outside this session's forms. A class whose form can't
+            # be parsed (form_of -> None) belongs to no session and is skipped by
+            # the scheduler here — the settings UI surfaces these separately so
+            # they aren't a silent misfire.
+            if forms is not None:
+                form = IDMEConfig.form_of(class_name)
+                if form not in forms:
+                    self.logger.debug(
+                        f"Skipping {class_name} (form {form}) — not in this "
+                        f"session's forms {sorted(forms)}"
+                    )
+                    continue
 
             self.logger.info(f"Processing: {teacher['name']} → {class_name}")
 

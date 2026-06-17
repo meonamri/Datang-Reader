@@ -35,7 +35,10 @@ Add:
 ```ini
 IDME_ENABLED=true
 IDME_ENCRYPTION_KEY=<the key from step 2>
-IDME_CUTOFF_TIME=HH:MM           # 24h, after the school's scan window closes
+# Two sessions: upper forms (3-6) submit at the morning cutoff, lower forms
+# (1-2) at the afternoon cutoff. Each after that session's scan window closes.
+IDME_CUTOFF_TIME_MORNING=12:00   # 24h; forms 3, 4, 5, 6
+IDME_CUTOFF_TIME_EVENING=16:00   # 24h; forms 1, 2
 IDME_SCHEDULER_CONFIRM=false     # KEEP false until post-deploy checks pass
 ```
 

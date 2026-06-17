@@ -10,7 +10,14 @@ operational facts that aren't obvious from the code.
 
 At a daily cutoff time the module computes `roster − RFID scans = absent
 students`, logs into `idme.moe.gov.my` (Playwright/Firefox), fills the MOEIS
-attendance form, and submits. It is **off by default** (`IDME_ENABLED=false`)
+attendance form, and submits. This is a **two-session school**: upper forms
+(3–6) submit at a morning cutoff and lower forms (1–2) at an afternoon cutoff.
+The scheduler runs one timer per session and each fire submits only that
+session's forms; a class is routed to a session purely by the **leading form
+number in its class string** (`5 UKM` → Form 5 → morning). A class whose form
+maps to no session is never submitted — the settings UI flags these (`no
+session`) so they don't silently misfire, the same way it flags class-string
+misfires. It is **off by default** (`IDME_ENABLED=false`)
 and runs inside the same `datang-reader` container — it is not a separate
 service. Datang scanning for every student is unchanged; the only added
 behaviour is MOEIS submission for *onboarded* classes (those with a configured
@@ -18,7 +25,9 @@ teacher). Classes without a teacher are never submitted to MOEIS.
 
 ### Operating it
 
-- **Config (env / `.env`):** `IDME_ENABLED`, `IDME_CUTOFF_TIME=HH:MM`,
+- **Config (env / `.env`):** `IDME_ENABLED`, `IDME_CUTOFF_TIME_MORNING=HH:MM`
+  (upper forms 3–6) and `IDME_CUTOFF_TIME_EVENING=HH:MM` (lower forms 1–2) —
+  legacy single `IDME_CUTOFF_TIME` is still honoured as the morning fallback;
   `IDME_ENCRYPTION_KEY` (Fernet, generate with `server/gen_fernet_key.py` —
   generate ONCE, never commit; losing it makes stored teacher credentials
   undecryptable), and `IDME_SCHEDULER_CONFIRM`.

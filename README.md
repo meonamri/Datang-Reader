@@ -23,7 +23,7 @@ Split-architecture RFID attendance tracking for Datang API with Docker deploymen
 │  - Offline Queue│       │  HTTPS on your tailnet│
 │  - IDME Module  │       └──────────────────────┘
 └────────┬────────┘
-         │ At cutoff time (e.g. 09:00)
+         │ At each session cutoff (e.g. 12:00 / 16:00)
          ↓
 ┌─────────────────┐
 │  IDME/MOEIS     │  Playwright (Firefox)
@@ -141,7 +141,8 @@ DATANG_HOST_PORT=8080            # Host port (container always listens on 8080 i
 
 # IDME Module (optional)
 IDME_ENABLED=false               # Set true to enable IDME portal automation
-IDME_CUTOFF_TIME=09:00           # Daily auto-submission time (24h format)
+IDME_CUTOFF_TIME_MORNING=12:00   # Upper forms (3-6) auto-submission time (24h)
+IDME_CUTOFF_TIME_EVENING=16:00   # Lower forms (1-2) auto-submission time (24h)
 IDME_ENCRYPTION_KEY=             # Fernet key for teacher password encryption
 IDME_DEBUG=false                 # Save screenshots during automation
 ```
@@ -284,7 +285,7 @@ cd gui && python3 input_client_gui.py
 
 ## IDME Module (Automated MOEIS Submission)
 
-The IDME module automates absence submission to Malaysia's IDME/MOEIS portal. It detects which students didn't scan their RFID card by a cutoff time and submits them as absent.
+The IDME module automates absence submission to Malaysia's IDME/MOEIS portal. It detects which students didn't scan their RFID card by a cutoff time and submits them as absent. The school runs two sessions — upper forms (3-6) in the morning and lower forms (1-2) in the afternoon — each with its own cutoff; a class is routed to a session by the leading form number in its class string.
 
 ### How It Works
 
@@ -293,7 +294,7 @@ RFID Scan → Datang API (unchanged)
                │
                └──→ scan_tracker records scan locally
 
-...at cutoff time (default 09:00)...
+...at each session cutoff (default 12:00 upper / 16:00 lower)...
 
 Scheduler triggers → absence_detector: roster - scans = absent students
                    → login_engine: 6-step IDME login (Playwright/Firefox)
@@ -308,7 +309,8 @@ All absences default to reason code `N0040027` (PONTENG - MALAS KE SEKOLAH). The
 **1. Enable the module** in `server/.env`:
 ```env
 IDME_ENABLED=true
-IDME_CUTOFF_TIME=09:00
+IDME_CUTOFF_TIME_MORNING=12:00   # upper forms (3-6)
+IDME_CUTOFF_TIME_EVENING=16:00   # lower forms (1-2)
 IDME_ENCRYPTION_KEY=your_fernet_key_here
 ```
 

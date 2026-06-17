@@ -23,7 +23,12 @@ services:
 
       # === IDME Module (Optional) ===
       - IDME_ENABLED=${IDME_ENABLED:-false}
-      - IDME_CUTOFF_TIME=${IDME_CUTOFF_TIME:-09:00}
+      # Two-session school: upper forms (3-6) submit at the morning cutoff,
+      # lower forms (1-2) at the afternoon cutoff. IDME_CUTOFF_TIME (legacy
+      # single cutoff) is the morning fallback.
+      - IDME_CUTOFF_TIME=${IDME_CUTOFF_TIME:-12:00}
+      - IDME_CUTOFF_TIME_MORNING=${IDME_CUTOFF_TIME_MORNING:-}
+      - IDME_CUTOFF_TIME_EVENING=${IDME_CUTOFF_TIME_EVENING:-16:00}
       # Scheduler auto-confirm. Default false = scheduled submits save re-editable
       # DRAFTS (MENUNGGU PENGESAHAN). Set true ONLY after a supervised period —
       # true auto-confirms LOCKED (TELAH DISAHKAN) records daily, unattended.

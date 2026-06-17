@@ -129,8 +129,8 @@ def init_idme_module(service_manager=None):
         service_manager.scan_tracker = _scan_tracker
         logger.info("IDME scan tracker hooked into ServiceManager")
 
-    # Start scheduler
-    _scheduler = IDMEScheduler(_orchestrator, IDMEConfig.CUTOFF_TIME)
+    # Start scheduler (one timer per session — morning/upper + afternoon/lower)
+    _scheduler = IDMEScheduler(_orchestrator, IDMEConfig.SESSIONS)
     _scheduler.start()
 
     logger.info("IDME module initialized successfully")
@@ -195,6 +195,12 @@ def _build_overview():
         teacher = next((t for t in teachers if t['class_name'] == cn), None)
         roster_n = c.get('student_count', 0)
         scanned = scans.get(cn, 0)
+        # Which session (and therefore which cutoff) this class submits at,
+        # derived from its form number (parsed once). None = its form maps to no
+        # session, so the scheduler never submits it (flagged in
+        # `summary.unclassified`).
+        form = IDMEConfig.form_of(cn)
+        session = IDMEConfig.session_for_form(form)
         class_rows.append({
             'class_name': cn,
             'roster': roster_n,
@@ -203,6 +209,10 @@ def _build_overview():
             'teacher_name': teacher['name'] if teacher else None,
             'teacher_enabled': bool(teacher['enabled']) if teacher else False,
             'onboarded': bool(teacher and teacher['enabled']),
+            'form': form,
+            'session': session['name'] if session else None,
+            'session_label': session['label'] if session else None,
+            'session_cutoff': session['cutoff'] if session else None,
         })
 
     # Teachers whose class_name matches no roster class — the silent-misfire
@@ -224,6 +234,12 @@ def _build_overview():
     onboarded = sum(1 for c in class_rows if c['onboarded'])
     no_teacher = sum(1 for c in class_rows if not c['teacher_name'])
     disabled = sum(1 for c in class_rows if c['teacher_name'] and not c['teacher_enabled'])
+    # Onboarded classes whose form maps to no session would never be submitted by
+    # the scheduler (a silent misfire), so surface them like orphans. Computed
+    # once: the count is just the length of the named list (they can't drift).
+    unclassified_classes = [
+        c['class_name'] for c in class_rows if c['onboarded'] and not c['session']
+    ]
 
     summary = {
         'teachers': len(teachers),
@@ -239,6 +255,7 @@ def _build_overview():
         # misconfiguration, so it must not inflate the red misfire count.
         'misfires': len(orphan_teachers),
         'unrostered': len(orphan_sections),
+        'unclassified': len(unclassified_classes),
         'coverage_mapped': cov_mapped,
         'coverage_total': cov_total,
         'coverage_pct': round(cov_mapped / cov_total * 100) if cov_total else 0,
@@ -250,6 +267,7 @@ def _build_overview():
         'classes': class_rows,
         'orphan_teachers': orphan_teachers,
         'orphan_sections': orphan_sections,
+        'unclassified_classes': unclassified_classes,
         'summary': summary,
     }
 
@@ -297,7 +315,7 @@ def settings_page():
         teachers=teachers,
         total_students=total_students,
         total_classes=total_classes,
-        cutoff_time=IDMEConfig.CUTOFF_TIME,
+        sessions=IDMEConfig.SESSIONS,
         overview=overview,
     )
 
@@ -582,9 +600,15 @@ def submit_to_idme():
         except Exception as e:
             return jsonify({'error': str(e), 'status': 'failed'}), 500
     else:
-        # Submit all configured classes
+        # Submit all configured classes — but only those whose form maps to a
+        # session, matching the scheduler. A no-session class (flagged in the UI
+        # as "never submitted") stays excluded here too; submit it explicitly by
+        # passing its class_name if that's really intended.
         try:
-            results = _orchestrator.submit_all_classes(submission_date, confirm=confirm)
+            results = _orchestrator.submit_all_classes(
+                submission_date, confirm=confirm,
+                forms=IDMEConfig.all_session_forms(),
+            )
             return jsonify({'results': results}), 200
         except Exception as e:
             return jsonify({'error': str(e)}), 500
