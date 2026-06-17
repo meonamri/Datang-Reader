@@ -260,6 +260,18 @@ def overview():
     return jsonify(_build_overview()), 200
 
 
+@idme_bp.route('/logo', methods=['GET'])
+def idme_logo():
+    """Serve the SMKSAT crest for the settings masthead (downscaled PNG bundled
+    in the package). Cached aggressively — it never changes between releases."""
+    logo_path = Path(__file__).parent / 'assets' / 'smksat-logo.png'
+    if not logo_path.exists():
+        return ('', 404)
+    resp = send_file(logo_path, mimetype='image/png')
+    resp.headers['Cache-Control'] = 'public, max-age=86400'
+    return resp
+
+
 @idme_bp.route('/settings', methods=['GET'])
 def settings_page():
     """Render the teacher management Web UI."""

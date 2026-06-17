@@ -64,11 +64,7 @@
             padding: 26px 0 16px; border-bottom: 2px solid var(--ink);
             margin-bottom: 0;
         }
-        .mark {
-            width: 34px; height: 34px; background: var(--ink); flex-shrink: 0;
-            display: flex; align-items: center; justify-content: center;
-            color: var(--paper); font-weight: 800; font-size: 13px; letter-spacing: -0.04em;
-        }
+        .crest { width: 46px; height: auto; flex-shrink: 0; align-self: center; display: block; }
         .mast .wordmark { font-weight: 800; font-size: 15px; letter-spacing: 0.16em; color: var(--ink); }
         .mast h1 { font-size: 25px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
         .mast .sub { font-size: 12px; color: var(--ink-3); margin-top: 4px; }
@@ -95,6 +91,7 @@
         .stats {
             display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
             background: var(--line); border: 1px solid var(--line); margin-top: 16px;
+            box-shadow: 0 1px 2px rgba(48,42,30,0.04), 0 2px 8px rgba(48,42,30,0.05);
         }
         .stat { background: var(--surface); padding: 14px 18px; }
         .stat .v { font-size: 28px; font-weight: 700; line-height: 1; margin-top: 6px; font-family: var(--mono); font-variant-numeric: tabular-nums; }
@@ -174,10 +171,23 @@
         .filter.on { background: var(--red); color: #fff; border-color: var(--red); }
 
         /* ---- Class card grid ---- */
-        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-        .ccard { background: var(--surface); border: 1px solid var(--line-2); padding: 15px 16px; }
+        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+        .ccard {
+            background: var(--surface); border: 1px solid var(--line-2); padding: 15px 16px;
+            /* warm-tinted shadow (not pure black) so cards lift off the paper */
+            box-shadow: 0 1px 1px rgba(48,42,30,0.04), 0 3px 10px rgba(48,42,30,0.07);
+            transition: transform 0.18s cubic-bezier(0.16,1,0.3,1), box-shadow 0.18s ease;
+        }
+        .ccard:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 2px 4px rgba(48,42,30,0.06), 0 12px 24px rgba(48,42,30,0.13);
+        }
         .ccard.bad { border-color: var(--red); border-left-width: 3px; }
         .ccard.warn { border-color: var(--amber); border-left-width: 3px; }
+        @media (prefers-reduced-motion: reduce) {
+            .ccard { transition: none; }
+            .ccard:hover { transform: none; }
+        }
         .ccard .top { display: flex; align-items: center; gap: 9px; }
         .ccard .sdot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
         .ccard .code { font-family: var(--mono); font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
@@ -206,7 +216,7 @@
         .step .n { width: 18px; height: 18px; background: var(--ink); color: var(--paper); font-family: var(--mono); font-size: 11px; display: flex; align-items: center; justify-content: center; }
 
         /* ---- Panels / cards ---- */
-        .panel { background: var(--surface); border: 1px solid var(--line-2); padding: 20px 22px; }
+        .panel { background: var(--surface); border: 1px solid var(--line-2); padding: 20px 22px; box-shadow: 0 1px 2px rgba(48,42,30,0.04), 0 2px 8px rgba(48,42,30,0.05); }
         .panel h3 { font-size: 14px; font-weight: 800; letter-spacing: 0.02em; }
         .panel .hint { color: var(--ink-2); font-size: 12.5px; line-height: 1.55; margin-top: 4px; }
         .panel-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
@@ -344,7 +354,7 @@
 
         <!-- ===== Masthead ===== -->
         <header class="mast">
-            <div class="mark">ST</div>
+            <img class="crest" src="/idme/logo" alt="SMK Sultan Ahmad Tajuddin crest" width="46" height="49">
             <div>
                 <div class="wordmark">SMKSAT</div>
                 <h1>IDME Settings</h1>
