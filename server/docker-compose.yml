@@ -14,6 +14,11 @@ services:
     # Environment variables for configuration
     # IMPORTANT: Set these values or use .env file
     environment:
+      # Container timezone. The school is in Malaysia (UTC+8); without this the
+      # container runs in UTC, so IDME cutoff times and the daily scan-date
+      # boundary would be 8h off. Cutoff times below are interpreted in THIS zone.
+      - TZ=${TZ:-Asia/Kuala_Lumpur}
+
       # === Datang API Configuration ===
       - DATANG_API_BASE_URL=${DATANG_API_BASE_URL}
       - DATANG_READER_USERNAME=${DATANG_READER_USERNAME}
