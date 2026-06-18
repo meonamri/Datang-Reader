@@ -57,6 +57,16 @@ class NavigationError(LoginEngineError):
     pass
 
 
+class NonSchoolDayError(LoginEngineError):
+    """Raised when the portal signals today is a non-school day (weekend / public holiday).
+
+    The portal shows a 'Tarikh semasa tidak tersedia' modal and silently shifts
+    the attendance form to the previous working day. We must not submit in this
+    state — the date on the form is wrong.
+    """
+    pass
+
+
 class IDMELoginEngine:
     """
     Playwright-based automation engine for IDME portal login.
@@ -404,6 +414,19 @@ class IDMELoginEngine:
             }"""
         )
         await attendance_page.wait_for_selector('input.case-hadir', timeout=20000)
+
+        # Detect holiday/weekend: the portal shows a "Tarikh semasa tidak tersedia"
+        # modal and silently shifts the form to the previous working day.
+        # Detect this before filling so we never submit for the wrong date.
+        holiday_msg = await attendance_page.evaluate("""() => {
+            const h = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6'))
+                .find(el => el.textContent.includes('Tarikh semasa tidak tersedia'));
+            if (!h) return null;
+            const p = h.parentElement && h.parentElement.querySelector('p');
+            return p ? p.textContent.trim() : h.textContent.trim();
+        }""")
+        if holiday_msg:
+            raise NonSchoolDayError(holiday_msg)
 
         # Hand the attendance page to the remaining steps (CSRF, cookies,
         # form filling all operate on self.page). Close the stuck home page so

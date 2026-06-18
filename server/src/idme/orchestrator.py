@@ -26,7 +26,7 @@ from .roster_manager import RosterManager
 from .scan_tracker import ScanTracker
 from .absence_detector import AbsenceDetector
 from .session_cache import SessionCache
-from .login_engine import IDMELoginEngine, LoginEngineError
+from .login_engine import IDMELoginEngine, LoginEngineError, NonSchoolDayError
 from .form_filler import IDMEFormFiller, FormFillerError
 
 
@@ -248,6 +248,23 @@ class IDMEOrchestrator:
                 if engine:
                     await engine.close()
 
+        except NonSchoolDayError as e:
+            duration = (datetime.now() - start).total_seconds()
+            self.logger.info(f"Non-school day — skipping {class_name}: {e}")
+            self._update_submission(submission_id, status='skipped', duration=duration)
+            return {
+                'class_name': class_name,
+                'date': submission_date,
+                'roster_count': 0,
+                'scanned_count': 0,
+                'absent_count': 0,
+                'submitted': 0,
+                'failed': 0,
+                'form_submitted': False,
+                'duration': duration,
+                'status': 'skipped',
+                'message': str(e),
+            }
         except OrchestratorError:
             raise
         except Exception as e:
@@ -403,10 +420,12 @@ class IDMEOrchestrator:
         # Summary
         total = len(results)
         completed = sum(1 for r in results if r.get('status') == 'completed')
-        failed = total - completed
+        skipped = sum(1 for r in results if r.get('status') == 'skipped')
+        failed = total - completed - skipped
 
         self.logger.info(
-            f"Bulk submission done: {completed}/{total} succeeded, {failed} failed"
+            f"Bulk submission done: {completed}/{total} succeeded, "
+            f"{skipped} skipped (non-school day), {failed} failed"
         )
 
         return results
@@ -468,7 +487,7 @@ class IDMEOrchestrator:
         if error:
             updates.append("error_message = ?")
             params.append(error)
-        if status in ('completed', 'failed'):
+        if status in ('completed', 'failed', 'skipped'):
             updates.append("completed_at = ?")
             params.append(datetime.now().isoformat())
 
