@@ -565,7 +565,7 @@
                                 {% if t.telegram_linked %}
                                 <span class="chip-btn ok js-tg-unlink" title="Click to unlink">&#10003; Linked</span>
                                 {% else %}
-                                <button class="btn btn-sm js-tg-link" type="button">Link Telegram</button>
+                                <span style="color:var(--ink-3);">Not linked</span>
                                 {% endif %}
                             </td>
                             {% endif %}
@@ -1048,10 +1048,10 @@
             const unlink = e.target.closest('.js-tg-unlink');
             if (unlink) {
                 const row = unlink.closest('tr'); const id = row.dataset.id;
-                if (!confirm('Unlink this teacher\'s Telegram chat? They will stop receiving reason prompts.')) return;
+                if (!confirm('Unlink this teacher\'s Telegram chat? They will stop receiving reason prompts. They can re-link from Telegram afterwards.')) return;
                 const resp = await fetch(`/idme/teachers/${id}/telegram`, { method: 'DELETE' });
                 if (resp.ok) {
-                    unlink.outerHTML = '<button class="btn btn-sm js-tg-link" type="button">Link Telegram</button>';
+                    unlink.outerHTML = '<span style="color:var(--ink-3);">Not linked</span>';
                 } else { alert('Failed to unlink.'); }
                 return;
             }
@@ -1059,17 +1059,7 @@
             const btn = e.target.closest('button'); if (!btn) return;
             const row = btn.closest('tr'); const id = row.dataset.id; const name = row.dataset.name;
 
-            if (btn.classList.contains('js-tg-link')) {
-                btn.disabled = true; btn.textContent = 'Generating…';
-                try {
-                    const resp = await fetch(`/idme/teachers/${id}/telegram/link`, { method: 'POST' });
-                    const data = await resp.json();
-                    if (resp.ok && data.link) {
-                        prompt('Send this one-time link to ' + name + '. They tap it in Telegram to link their chat:', data.link);
-                    } else { alert((data && data.error) || 'Failed to generate link.'); }
-                } finally { btn.disabled = false; btn.textContent = 'Link Telegram'; }
-                return;
-            } else if (btn.classList.contains('js-test')) {
+            if (btn.classList.contains('js-test')) {
                 const cell = row.querySelector('.login-cell');
                 const r = await streamOperation(
                     `/idme/teachers/${id}/test/stream`, null,

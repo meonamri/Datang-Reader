@@ -14,13 +14,15 @@ behind NAT/Tailscale), and avoids an asyncio dependency.
 This module is OFF unless IDME_TELEGRAM_ENABLED=true and a bot token is set.
 """
 
+import hmac
 import json
 import logging
 import secrets
+import sqlite3
 import threading
 import time
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
@@ -35,6 +37,91 @@ _API_BASE = "https://api.telegram.org/bot{token}/{method}"
 _POLL_TIMEOUT = 30          # long-poll seconds passed to getUpdates
 _HTTP_TIMEOUT = _POLL_TIMEOUT + 10
 _MAX_BTN_LABEL = 40         # truncate long Malay reason labels on buttons
+
+# Self-link passphrase brute-force guard: after this many wrong tries a chat is
+# locked for the cooldown window. Persisted in telegram_auth_attempts so a
+# restart can't reset the counter; the lock auto-clears once the window passes.
+_MAX_ATTEMPTS = 3
+_LOCKOUT_SECONDS = 3600     # 1 hour
+
+
+class TelegramAuthGuard:
+    """Persisted per-chat brute-force guard for the self-link passphrase.
+
+    Backed by the `telegram_auth_attempts` table (created by schema.sql via
+    TeacherManager._ensure_db, which always runs first). Opens its own short-lived
+    connections so it stays decoupled from TeacherManager."""
+
+    def __init__(self, db_path: str):
+        self.db_path = str(db_path)
+        self.logger = logging.getLogger(__name__)
+
+    def _conn(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path, timeout=5)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        return conn
+
+    def is_locked(self, chat_id) -> Tuple[bool, int]:
+        """Return (locked, seconds_remaining). An expired lock is cleared lazily
+        (counter reset to zero) so a teacher who mistyped recovers on their own."""
+        conn = self._conn()
+        try:
+            row = conn.execute(
+                "SELECT blocked_until FROM telegram_auth_attempts WHERE chat_id = ?",
+                (str(chat_id),)
+            ).fetchone()
+            if not row or not row['blocked_until']:
+                return (False, 0)
+            blocked_until = datetime.fromisoformat(row['blocked_until'])
+            now = datetime.now()
+            if now >= blocked_until:
+                conn.execute(
+                    "DELETE FROM telegram_auth_attempts WHERE chat_id = ?", (str(chat_id),))
+                conn.commit()
+                return (False, 0)
+            return (True, int((blocked_until - now).total_seconds()))
+        finally:
+            conn.close()
+
+    def record_failure(self, chat_id) -> Tuple[bool, int]:
+        """Count a wrong passphrase. Returns (locked_now, attempts_remaining).
+        On the Nth failure the chat is locked for the cooldown window."""
+        conn = self._conn()
+        try:
+            row = conn.execute(
+                "SELECT failed_attempts FROM telegram_auth_attempts WHERE chat_id = ?",
+                (str(chat_id),)
+            ).fetchone()
+            attempts = (row['failed_attempts'] if row else 0) + 1
+            now = datetime.now()
+            locked = attempts >= _MAX_ATTEMPTS
+            blocked_until = (
+                (now + timedelta(seconds=_LOCKOUT_SECONDS)).isoformat() if locked else None
+            )
+            conn.execute(
+                "INSERT INTO telegram_auth_attempts "
+                "(chat_id, failed_attempts, blocked_until, updated_at) "
+                "VALUES (?, ?, ?, ?) ON CONFLICT(chat_id) DO UPDATE SET "
+                "failed_attempts = excluded.failed_attempts, "
+                "blocked_until = excluded.blocked_until, "
+                "updated_at = excluded.updated_at",
+                (str(chat_id), attempts, blocked_until, now.isoformat())
+            )
+            conn.commit()
+            return (locked, max(0, _MAX_ATTEMPTS - attempts))
+        finally:
+            conn.close()
+
+    def reset(self, chat_id) -> None:
+        """Clear a chat's counter/lock (called on a successful passphrase)."""
+        conn = self._conn()
+        try:
+            conn.execute(
+                "DELETE FROM telegram_auth_attempts WHERE chat_id = ?", (str(chat_id),))
+            conn.commit()
+        finally:
+            conn.close()
 
 
 class TelegramClient:
@@ -95,11 +182,12 @@ def _truncate(label: str) -> str:
 class IDMETelegramBot:
     """Long-polling Telegram bot: teacher linking, reason prompts, reason capture."""
 
-    def __init__(self, token, teacher_manager, absence_detector, reason_store):
+    def __init__(self, token, teacher_manager, absence_detector, reason_store, db_path):
         self.client = TelegramClient(token)
         self.teacher_manager = teacher_manager
         self.absence_detector = absence_detector
         self.reason_store = reason_store
+        self.guard = TelegramAuthGuard(db_path)
         self.logger = logging.getLogger(__name__)
 
         self.running = False
@@ -110,6 +198,11 @@ class IDMETelegramBot:
         # entry_id -> student record being reasoned about. Short-lived (one prompt
         # round); a stale tap after a restart is answered with "expired".
         self._entries: Dict[str, Dict[str, Any]] = {}
+        # Per-chat self-link conversation state (in-memory; only the security-
+        # relevant failure counter is persisted). chat_id -> 'await_password' |
+        # 'await_class', and chat_id -> {token: class_name} for the class menu.
+        self._link_state: Dict[Any, str] = {}
+        self._class_choices: Dict[Any, Dict[str, str]] = {}
         self._lock = threading.Lock()
 
     # ---- lifecycle -------------------------------------------------------
@@ -145,17 +238,6 @@ class IDMETelegramBot:
                 self.logger.warning(f"Telegram poll error: {e}")
                 time.sleep(3)
 
-    # ---- linking deep-link ----------------------------------------------
-
-    def build_link(self, teacher_id: int) -> Optional[str]:
-        """Mint a one-time link token for a teacher and return the t.me deep link
-        the teacher taps to bind their chat. None if the bot username is unknown."""
-        if not self.bot_username:
-            return None
-        token = secrets.token_urlsafe(8)
-        self.teacher_manager.set_telegram_link_token(teacher_id, token)
-        return f"https://t.me/{self.bot_username}?start={token}"
-
     # ---- update dispatch -------------------------------------------------
 
     def _dispatch(self, update: dict):
@@ -169,39 +251,150 @@ class IDMETelegramBot:
         chat_id = message['chat']['id']
 
         if text.startswith('/start'):
-            parts = text.split(maxsplit=1)
-            token = parts[1].strip() if len(parts) > 1 else ''
-            if not token:
-                self.client.send_message(
-                    chat_id,
-                    "Selamat datang ke pembantu kehadiran IDME.\n\n"
-                    "Untuk menghubungkan akaun anda, sila gunakan pautan "
-                    "\"Link Telegram\" di halaman tetapan IDME sekolah.",
-                )
-                return
-            teacher = self.teacher_manager.link_telegram_chat(token, chat_id)
-            if teacher:
-                self.client.send_message(
-                    chat_id,
-                    f"✅ Berjaya dihubungkan sebagai {teacher['name']} "
-                    f"({teacher['class_name']}).\n\n"
-                    "Anda akan menerima senarai pelajar tidak hadir sebelum waktu "
-                    "penghantaran untuk merekod sebab.",
-                )
-            else:
-                self.client.send_message(
-                    chat_id,
-                    "⚠️ Pautan ini tidak sah atau telah digunakan. Sila jana "
-                    "pautan baharu dari halaman tetapan IDME.",
-                )
+            self._begin_link(chat_id)
+            return
+
+        # Mid-conversation: a teacher typing their passphrase.
+        with self._lock:
+            state = self._link_state.get(chat_id)
+        if state == 'await_password':
+            self._check_passphrase(chat_id, text)
             return
 
         # Any other message: gentle hint.
         self.client.send_message(
             chat_id,
-            "Sila gunakan butang pada mesej senarai pelajar untuk merekod sebab "
-            "tidak hadir.",
+            "Hantar /start untuk menghubungkan akaun anda, atau gunakan butang "
+            "pada mesej senarai pelajar untuk merekod sebab tidak hadir.",
         )
+
+    # ---- self-link conversation -----------------------------------------
+
+    def _begin_link(self, chat_id):
+        """Handle /start: if already linked say so; if locked say so; otherwise
+        ask for the shared passphrase."""
+        existing = self.teacher_manager.get_teacher_by_chat_id(chat_id)
+        if existing:
+            self.client.send_message(
+                chat_id,
+                f"✅ Akaun ini telah dihubungkan sebagai {existing['name']} "
+                f"({existing['class_name']}).\n\n"
+                "Untuk menukar kelas atau telefon, minta pentadbir nyahpaut anda "
+                "di halaman tetapan IDME terlebih dahulu.",
+            )
+            return
+        locked, retry = self.guard.is_locked(chat_id)
+        if locked:
+            self.client.send_message(chat_id, self._locked_text(retry))
+            return
+        with self._lock:
+            self._link_state[chat_id] = 'await_password'
+            self._class_choices.pop(chat_id, None)
+        self.client.send_message(
+            chat_id,
+            "Selamat datang ke pembantu kehadiran IDME.\n\n"
+            "Sila masukkan kata laluan akses (tanya pentadbir sekolah jika anda "
+            "tidak pasti).",
+        )
+
+    def _check_passphrase(self, chat_id, text):
+        from .idme_config import IDMEConfig
+        locked, retry = self.guard.is_locked(chat_id)
+        if locked:
+            self.client.send_message(chat_id, self._locked_text(retry))
+            return
+
+        passphrase = IDMEConfig.TELEGRAM_PASSPHRASE
+        if passphrase and hmac.compare_digest(text, passphrase):
+            self.guard.reset(chat_id)
+            self._offer_classes(chat_id)
+            return
+
+        now_locked, remaining = self.guard.record_failure(chat_id)
+        if now_locked:
+            self._clear_link_state(chat_id)
+            self.client.send_message(
+                chat_id,
+                "❌ Terlalu banyak percubaan. Akaun ini dikunci selama "
+                f"{_LOCKOUT_SECONDS // 60} minit. Cuba lagi kemudian.",
+            )
+        else:
+            self.client.send_message(
+                chat_id,
+                f"❌ Kata laluan salah. Baki {remaining} percubaan.",
+            )
+
+    def _offer_classes(self, chat_id):
+        """After a correct passphrase, show the unlinked configured classes as
+        inline buttons (only unlinked, so a colleague's class can't be grabbed)."""
+        classes = self.teacher_manager.get_unlinked_configured_classes()
+        if not classes:
+            self._clear_link_state(chat_id)
+            self.client.send_message(
+                chat_id,
+                "Tiada kelas tersedia untuk dipautkan (semua telah dipautkan atau "
+                "belum disediakan). Sila hubungi pentadbir sekolah.",
+            )
+            return
+        choices: Dict[str, str] = {}
+        rows = []
+        for class_name in classes:
+            token = secrets.token_urlsafe(4)
+            choices[token] = class_name
+            rows.append([{'text': class_name, 'callback_data': f"k|{token}"}])
+        with self._lock:
+            self._link_state[chat_id] = 'await_class'
+            self._class_choices[chat_id] = choices
+        self.client.send_message(
+            chat_id, "✅ Disahkan. Pilih kelas anda:",
+            reply_markup=json.dumps({'inline_keyboard': rows}),
+        )
+
+    def _handle_class_choice(self, chat_id, message_id, cq_id, token):
+        with self._lock:
+            state = self._link_state.get(chat_id)
+            class_name = self._class_choices.get(chat_id, {}).get(token)
+        if state != 'await_class' or not class_name:
+            self.client.answer_callback_query(
+                cq_id, "Pilihan tamat tempoh — hantar /start semula.")
+            return
+        # Race guard: another chat may have linked this class meanwhile.
+        if class_name not in self.teacher_manager.get_unlinked_configured_classes():
+            self._clear_link_state(chat_id)
+            self.client.answer_callback_query(
+                cq_id, "Kelas ini telah dipautkan. Hantar /start semula.")
+            return
+        teacher = self.teacher_manager.get_teacher_for_class(class_name)
+        if not teacher:
+            self._clear_link_state(chat_id)
+            self.client.answer_callback_query(cq_id, "Kelas tidak dijumpai.")
+            return
+        linked = self.teacher_manager.link_telegram_chat(teacher['id'], chat_id)
+        self._clear_link_state(chat_id)
+        if linked:
+            self.client.edit_message_text(
+                chat_id, message_id,
+                f"✅ Berjaya dihubungkan sebagai {linked['name']} "
+                f"({linked['class_name']}).\n\n"
+                "Anda akan menerima senarai pelajar tidak hadir sebelum waktu "
+                "penghantaran untuk merekod sebab.",
+            )
+            self.client.answer_callback_query(cq_id, "Dihubungkan ✅")
+        else:
+            self.client.answer_callback_query(cq_id, "Gagal menghubungkan. Cuba lagi.")
+
+    def _clear_link_state(self, chat_id):
+        with self._lock:
+            self._link_state.pop(chat_id, None)
+            self._class_choices.pop(chat_id, None)
+
+    @staticmethod
+    def _locked_text(retry_seconds: int) -> str:
+        minutes = max(1, (retry_seconds + 59) // 60)
+        return (f"🔒 Terlalu banyak percubaan kata laluan. Sila cuba lagi dalam "
+                f"lebih kurang {minutes} minit.")
+
+    # ---- callback dispatch -----------------------------------------------
 
     def _handle_callback(self, cq: dict):
         data = cq.get('data') or ''
@@ -212,6 +405,12 @@ class IDMETelegramBot:
 
         parts = data.split('|')
         action = parts[0] if parts else ''
+
+        if action == 'k':
+            # Class selection during self-link: parts = [k, token]
+            token = parts[1] if len(parts) > 1 else ''
+            self._handle_class_choice(chat_id, message_id, cq_id, token)
+            return
 
         entry_id = parts[1] if len(parts) > 1 else ''
         with self._lock:

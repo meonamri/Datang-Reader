@@ -58,17 +58,24 @@ left untouched keeps MALAS KE SEKOLAH — the original behaviour, so this only
 *adds* data the existing submission pipeline already consumes.
 
 - **Config (env / `.env`):** `IDME_TELEGRAM_ENABLED` (default false),
-  `IDME_TELEGRAM_BOT_TOKEN` (from @BotFather), and per-session prompt times
-  `IDME_TELEGRAM_PROMPT_TIME_MORNING` (default 10:00) /
+  `IDME_TELEGRAM_BOT_TOKEN` (from @BotFather), `IDME_TELEGRAM_PASSPHRASE` (shared
+  self-link secret, **required** when the bot is enabled), and per-session prompt
+  times `IDME_TELEGRAM_PROMPT_TIME_MORNING` (default 10:00) /
   `IDME_TELEGRAM_PROMPT_TIME_EVENING` (default 15:00) — must be *before* that
   session's cutoff. Off and independent of `IDME_SCHEDULER_CONFIRM`; needs
   outbound HTTPS to `api.telegram.org`.
-- **Linking:** each teacher links their Telegram once from `/idme/settings`
-  ("Link Telegram" → one-time `t.me/<bot>?start=<token>` deep link → bot binds
-  their `chat_id`). Teachers are routed to a prompt by the same leading-form-number
-  rule as the cutoff scheduler. Implementation is `server/src/idme/telegram_bot.py`
-  (requests-based long-polling daemon thread — same style as `scheduler.py`, no
-  webhook/asyncio).
+- **Linking (self-service):** the bot is public (BotFather), so the gate is the
+  shared passphrase. A teacher searches the bot, sends `/start`, types
+  `IDME_TELEGRAM_PASSPHRASE` (constant-time compared), then taps their class — the
+  bot binds their `chat_id` to that class's teacher. Only **unlinked** configured
+  classes are offered, so a passphrase-holder can't re-point a colleague's class
+  to their own chat; an admin unlinks from `/idme/settings` (read-only Linked /
+  Not-linked status + unlink) to free a class for a phone change. A persisted,
+  auto-expiring lockout (`telegram_auth_attempts`: 3 tries → ~1h) survives
+  restarts so the counter can't be reset by bouncing the container. Teachers are
+  routed to a prompt by the same leading-form-number rule as the cutoff scheduler.
+  Implementation is `server/src/idme/telegram_bot.py` (requests-based long-polling
+  daemon thread — same style as `scheduler.py`, no webhook/asyncio).
 
 ### Deploying / turning it on
 

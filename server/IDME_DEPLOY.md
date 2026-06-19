@@ -45,12 +45,16 @@ IDME_SCHEDULER_CONFIRM=false     # KEEP false until post-deploy checks pass
 **Optional — Telegram per-student reason collection.** Off unless you set these.
 Lets teachers record why each student is absent (sick, family, etc.) before the
 cutoff; untouched students stay MALAS KE SEKOLAH. Independent of the safety gate.
-Needs outbound HTTPS to `api.telegram.org`. After deploy, link each teacher's
-Telegram from `/idme/settings` ("Link Telegram").
+Needs outbound HTTPS to `api.telegram.org`. After deploy, give teachers the bot
+name and the passphrase: each teacher searches the bot, sends `/start`, types the
+passphrase, and taps their class to self-link (only unlinked classes are offered;
+3 wrong tries locks that chat ~1h). To move a teacher to a new phone, unlink them
+from `/idme/settings` first, then they re-link.
 
 ```ini
 IDME_TELEGRAM_ENABLED=true
 IDME_TELEGRAM_BOT_TOKEN=<token from @BotFather>
+IDME_TELEGRAM_PASSPHRASE=<shared self-link passphrase>   # required when enabled
 IDME_TELEGRAM_PROMPT_TIME_MORNING=10:00   # before the morning cutoff
 IDME_TELEGRAM_PROMPT_TIME_EVENING=15:00   # before the afternoon cutoff
 ```

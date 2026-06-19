@@ -146,6 +146,7 @@ def init_idme_module(service_manager=None):
             _teacher_manager,
             _absence_detector,
             _orchestrator.reason_store,
+            IDMEConfig.DATABASE_PATH,
         )
         if _telegram_bot.start():
             _prompt_scheduler = TelegramPromptScheduler(_telegram_bot, IDMEConfig.SESSIONS)
@@ -639,30 +640,13 @@ def _run_and_record_login_test(teacher_id, creds):
     return result
 
 
-@idme_bp.route('/teachers/<int:teacher_id>/telegram/link', methods=['POST'])
-def link_teacher_telegram(teacher_id):
-    """Mint a one-time deep link the teacher taps to bind their Telegram chat.
-
-    Returns the t.me URL; the teacher opens it, the bot receives /start <token>
-    and binds their chat to this teacher (TeacherManager.link_telegram_chat)."""
-    if not _teacher_manager:
-        return jsonify({'error': 'IDME module not initialized'}), 503
-    if not _telegram_bot:
-        return jsonify({'error': 'Telegram bot is not enabled'}), 503
-
-    teacher = _teacher_manager.get_teacher(teacher_id)
-    if not teacher:
-        return jsonify({'error': 'Teacher not found'}), 404
-
-    link = _telegram_bot.build_link(teacher_id)
-    if not link:
-        return jsonify({'error': 'Telegram bot not ready (no username)'}), 503
-    return jsonify({'success': True, 'link': link}), 200
-
-
 @idme_bp.route('/teachers/<int:teacher_id>/telegram', methods=['DELETE'])
 def unlink_teacher_telegram(teacher_id):
-    """Clear a teacher's Telegram chat binding."""
+    """Clear a teacher's Telegram chat binding (admin action).
+
+    Teachers self-link inside Telegram (search bot → /start → passphrase → pick
+    class); unlinking here frees the class back into the bot's selectable list so
+    the teacher can re-link from a new phone."""
     if not _teacher_manager:
         return jsonify({'error': 'IDME module not initialized'}), 503
     try:

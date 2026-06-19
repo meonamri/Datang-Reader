@@ -55,14 +55,25 @@ CREATE TABLE IF NOT EXISTS teachers (
     login_test_status TEXT,                 -- last login probe: 'ok' | 'fail' | NULL (untested)
     login_test_at TIMESTAMP,                -- when the last login probe ran (ISO)
     telegram_chat_id TEXT,                  -- Telegram chat id (set when the teacher links their chat)
-    telegram_link_token TEXT,               -- one-time deep-link token (cleared after linking)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
--- NOTE: login_test_* and telegram_* are also added to EXISTING databases by
--- migrations.apply_migrations() (CREATE TABLE IF NOT EXISTS is a no-op once the
--- table exists, so new columns never reach an already-created teachers table).
+-- NOTE: login_test_* and telegram_chat_id are also added to EXISTING databases
+-- by migrations.apply_migrations() (CREATE TABLE IF NOT EXISTS is a no-op once
+-- the table exists, so new columns never reach an already-created teachers table).
 CREATE INDEX IF NOT EXISTS idx_teachers_class ON teachers(class_name);
+
+-- Per-chat brute-force guard for the Telegram self-link passphrase. A teacher
+-- types the shared passphrase to the bot to link their chat; after too many
+-- wrong tries the chat is locked for a cooldown window. Persisted (not just
+-- in-memory) so a restart can't reset an attacker's counter; the lock auto-
+-- clears once `blocked_until` passes, and a successful link resets the row.
+CREATE TABLE IF NOT EXISTS telegram_auth_attempts (
+    chat_id         TEXT PRIMARY KEY,
+    failed_attempts INTEGER NOT NULL DEFAULT 0,
+    blocked_until   TIMESTAMP,        -- NULL = not locked; else locked until this ISO time
+    updated_at      TIMESTAMP
+);
 
 -- Daily scan records (populated as students tap RFID cards)
 CREATE TABLE IF NOT EXISTS daily_scans (

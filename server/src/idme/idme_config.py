@@ -121,6 +121,10 @@ class IDMEConfig:
     # the existing pipeline consumes (an unset student keeps the default reason).
     TELEGRAM_ENABLED = os.getenv('IDME_TELEGRAM_ENABLED', 'false').lower() == 'true'
     TELEGRAM_BOT_TOKEN = os.getenv('IDME_TELEGRAM_BOT_TOKEN', '').strip()
+    # Shared access passphrase teachers type to the bot to self-link their chat.
+    # The bot is public (BotFather), so this single secret — not obscurity — is
+    # the gate. Required when the bot is enabled, or no one could ever onboard.
+    TELEGRAM_PASSPHRASE = os.getenv('IDME_TELEGRAM_PASSPHRASE', '')
 
     # Database path
     DATABASE_PATH = os.getenv('IDME_DATABASE_PATH', '/data/idme/idme_data.db')
@@ -253,6 +257,14 @@ class IDMEConfig:
                             "collected in time."
                         )
 
+            # The bot can't onboard any teacher without the shared passphrase,
+            # so an enabled bot with no passphrase is a misconfiguration.
+            if cls.TELEGRAM_ENABLED and not cls.TELEGRAM_PASSPHRASE:
+                errors.append(
+                    "IDME_TELEGRAM_PASSPHRASE is required when IDME_TELEGRAM_ENABLED "
+                    "is true — teachers type it to the bot to link their chat."
+                )
+
         is_valid = len(errors) == 0
 
         if is_valid and cls.ENABLED:
@@ -281,4 +293,5 @@ class IDMEConfig:
             'has_roster_path': bool(cls.ROSTER_EXCEL_PATH),
             'telegram_enabled': cls.TELEGRAM_ENABLED,
             'has_telegram_token': bool(cls.TELEGRAM_BOT_TOKEN),
+            'has_telegram_passphrase': bool(cls.TELEGRAM_PASSPHRASE),
         }
