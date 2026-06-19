@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Pre-flight for the IDME in-place upgrade. Run from the prod server dir
-# (e.g. ~/Datang-Reader/server) BEFORE `docker compose up -d`.
+# Pre-flight for the IDME in-place upgrade. Run BEFORE `docker compose up -d`.
+# Safe to invoke from any directory — paths are resolved relative to this
+# script's own location, not the current working directory.
 #
 # - Creates the idme data dir the merged compose mounts (../docker-data/idme).
 # - Asserts the sqlite bind sources (queue.db, token) are FILES, not dirs.
@@ -9,9 +10,14 @@
 #   it as an empty file; if it's wrongly a directory, this aborts loudly.
 set -euo pipefail
 
-DATA_DIR="../docker-data"
+# This script lives in server/; compose binds ../docker-data relative to server/.
+# Anchor to the script's own dir so the resolved path matches compose regardless
+# of the caller's CWD (running from the repo root would otherwise create the
+# files in the wrong ~/docker-data).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DATA_DIR="$(cd "$SCRIPT_DIR/.." && pwd)/docker-data"
 
-echo "Pre-flight: IDME volumes (data dir: $(cd "$(dirname "$DATA_DIR")" && pwd)/$(basename "$DATA_DIR"))"
+echo "Pre-flight: IDME volumes (data dir: $DATA_DIR)"
 
 # 1. idme data dir (database + screenshots) — must exist as a directory.
 mkdir -p "$DATA_DIR/idme"
