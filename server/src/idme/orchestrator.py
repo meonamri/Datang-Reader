@@ -409,6 +409,12 @@ class IDMEOrchestrator:
             # too. Skip the rest without a full Playwright/Firefox login + SSO
             # each (the only cause of a 'skipped' status today).
             if non_school_day:
+                # Persist a skip row too (not just the first class that hit the
+                # banner) so the durable submissions log — and the settings UI's
+                # daily-run status sourced from it — reflects the full count, not
+                # an under-report of 1.
+                self._record_skip(teacher_id, class_name, submission_date,
+                                  'Non-school day')
                 results.append({
                     'class_name': class_name,
                     'date': submission_date,
@@ -525,6 +531,39 @@ class IDMEOrchestrator:
             conn.commit()
         except sqlite3.Error as e:
             self.logger.warning(f"Failed to update submission: {e}")
+        finally:
+            conn.close()
+
+    def _record_skip(
+        self, teacher_id: int, class_name: str, submission_date: str, message: str
+    ):
+        """Write a durable 'skipped' submission row for a class skipped without a
+        login (the non-school-day short-circuit). Mirrors the row submit_class
+        writes for the one class that actually probed the portal, so the log is
+        complete. Errors are swallowed by the helpers — logging must never break a
+        submission run."""
+        submission_id = self._create_submission_record(
+            teacher_id, class_name, submission_date
+        )
+        self._update_submission(submission_id, status='skipped', error=message)
+
+    def get_submissions_for_date(
+        self, submission_date: str
+    ) -> List[Dict[str, Any]]:
+        """All submission rows for a given day, oldest first. Filters on
+        ``submission_date`` (the local date the run was *for*), NOT ``created_at``
+        (SQLite CURRENT_TIMESTAMP is UTC and would mis-bucket a near-midnight
+        fire). Ordered by id ASC so a caller building a latest-per-class map lets
+        later rows overwrite earlier ones."""
+        conn = sqlite3.connect(str(self.db_path))
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                "SELECT * FROM idme_submissions WHERE submission_date = ? "
+                "ORDER BY id ASC",
+                (submission_date,)
+            ).fetchall()
+            return [dict(row) for row in rows]
         finally:
             conn.close()
 

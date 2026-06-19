@@ -169,6 +169,116 @@ def idme_status():
 # Settings Web UI
 # ============================================================
 
+def _hhmm(iso):
+    """Local HH:MM from an ISO timestamp (submission stamps are written in the
+    container's local TZ). Empty string on anything unparseable."""
+    if not iso:
+        return ''
+    try:
+        return datetime.fromisoformat(iso).strftime('%H:%M')
+    except (ValueError, TypeError):
+        return ''
+
+
+def _pl(n):
+    """Plural suffix for the word 'class' (1 -> 'class', else 'classes')."""
+    return '' if n == 1 else 'es'
+
+
+def _fire_card(session, rows, onboarded):
+    """Roll one session's latest-per-class rows into a single verdict plus a
+    human headline/detail. The text is built here (not in the template or JS) so
+    the server-render and the live refresh always agree."""
+    statuses = [r['status'] for r in rows]
+    completed = statuses.count('completed')
+    skipped = statuses.count('skipped')
+    failed = statuses.count('failed')
+    running = statuses.count('running')
+    total = len(rows)
+
+    stamps = [s for s in (r.get('completed_at') or r.get('started_at') for r in rows) if s]
+    when = max(stamps) if stamps else None
+    at_text = _hhmm(when)
+
+    def _msg(status):
+        return next((' '.join((r.get('error_message') or '').split())
+                     for r in rows
+                     if r['status'] == status and r.get('error_message')), '')
+
+    cutoff = session['cutoff']
+    card = {
+        'name': session['name'],
+        'label': session['label'],
+        'cutoff': cutoff,
+        'forms_label': session.get('forms_label', ''),
+        'when': when,
+        'at_text': at_text,
+        'message': '',
+        'counts': {
+            'total': total, 'completed': completed,
+            'skipped': skipped, 'failed': failed, 'onboarded': onboarded,
+        },
+    }
+
+    if running:
+        card.update(status='running', headline='Running',
+                    detail='submission in progress')
+    elif total == 0:
+        if onboarded:
+            card.update(status='pending', headline='Not run yet',
+                        detail=f"{onboarded} class{_pl(onboarded)} due at {cutoff}")
+        else:
+            card.update(status='none', headline='No classes',
+                        detail='nothing onboarded for this session')
+    elif skipped and not completed and not failed:
+        card.update(status='skipped', headline='Skipped',
+                    detail='non-school day', message=_msg('skipped'))
+    elif failed and not completed:
+        card.update(status='failed', headline='Failed',
+                    detail=f"{failed} class{_pl(failed)} failed",
+                    message=_msg('failed'))
+    elif completed and not failed and not skipped:
+        card.update(status='success', headline='Submitted',
+                    detail=f"{completed} class{_pl(completed)}"
+                           + (f" · {at_text}" if at_text else ''))
+    else:
+        bits = []
+        if completed:
+            bits.append(f"{completed} sent")
+        if failed:
+            bits.append(f"{failed} failed")
+        if skipped:
+            bits.append(f"{skipped} skipped")
+        card.update(status='partial', headline='Partial',
+                    detail=' · '.join(bits), message=_msg('failed'))
+    return card
+
+
+def _build_last_fire(class_rows):
+    """Per-session status of *today's* run, sourced from the durable submissions
+    log. Date-scoped to today so a previous day's result never renders as today's
+    (the WHERE clause in get_submissions_for_date is the date-guard). Returns one
+    card per configured session; empty when no sessions are configured."""
+    today = date.today().isoformat()
+    rows = _orchestrator.get_submissions_for_date(today) if _orchestrator else []
+
+    # Latest row per class — rows are id-ascending so the last write wins (a
+    # manual re-submit after the scheduled fire supersedes it).
+    latest = {}
+    for r in rows:
+        latest[r['class_name']] = r
+
+    cards = []
+    for session in IDMEConfig.SESSIONS:
+        forms = set(session['forms'])
+        sess_rows = [r for cn, r in latest.items()
+                     if IDMEConfig.form_of(cn) in forms]
+        onboarded = sum(1 for c in class_rows
+                        if c['onboarded'] and c['form'] in forms)
+        cards.append(_fire_card(session, sess_rows, onboarded))
+    return cards
+
+
 def _build_overview():
     """
     Aggregate the operational state the settings UI needs in one shot:
@@ -268,6 +378,7 @@ def _build_overview():
         'orphan_teachers': orphan_teachers,
         'orphan_sections': orphan_sections,
         'unclassified_classes': unclassified_classes,
+        'last_fire': _build_last_fire(class_rows),
         'summary': summary,
     }
 

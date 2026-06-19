@@ -118,6 +118,39 @@
         .opchip.bad  { color: var(--red); border-color: var(--red); background: var(--red-bg); }
         .opchip.bad .dot { background: var(--red); }
 
+        /* ---- Daily-run status (per-session fire outcome, from the
+           submissions log; date-scoped to today) ---- */
+        .runcap { margin: 18px 0 8px 2px; }
+        .runstrip {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1px; background: var(--line); border: 1px solid var(--line);
+            box-shadow: 0 1px 2px rgba(48,42,30,0.04), 0 2px 8px rgba(48,42,30,0.05);
+        }
+        .runcard {
+            display: flex; align-items: center; gap: 12px;
+            background: var(--surface); padding: 12px 16px 12px 15px;
+            border-left: 3px solid var(--line-2);
+        }
+        .runcard .rc-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; background: var(--ink-3); }
+        .runcard .rc-main { flex: 1; min-width: 0; }
+        .runcard .rc-sess { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+        .runcard .rc-line { display: flex; align-items: baseline; gap: 9px; margin-top: 3px; flex-wrap: wrap; }
+        .runcard .rc-head { font-size: 14.5px; font-weight: 700; color: var(--ink); }
+        .runcard .rc-detail { font-size: 12px; color: var(--ink-2); font-family: var(--mono); }
+        .runcard .rc-cut { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+        .runcard.run-success { border-left-color: var(--green); }
+        .runcard.run-success .rc-dot { background: var(--green); }
+        .runcard.run-success .rc-head { color: var(--green); }
+        .runcard.run-skipped { border-left-color: var(--amber); }
+        .runcard.run-skipped .rc-dot { background: var(--amber); }
+        .runcard.run-skipped .rc-head { color: var(--amber); }
+        .runcard.run-failed, .runcard.run-partial { border-left-color: var(--red); background: var(--red-bg); }
+        .runcard.run-failed .rc-dot, .runcard.run-partial .rc-dot { background: var(--red); }
+        .runcard.run-failed .rc-head, .runcard.run-partial .rc-head { color: var(--red); }
+        .runcard.run-running { border-left-color: var(--ink); }
+        .runcard.run-running .rc-dot { background: var(--ink); }
+        /* run-pending / run-none keep the neutral grey default */
+
         /* ---- Misfire alert ---- */
         .misfire {
             display: flex; gap: 14px; align-items: flex-start; margin-top: 16px;
@@ -398,6 +431,25 @@
                 <div class="desc">The daily run saves re-editable <strong>drafts (MENUNGGU PENGESAHAN)</strong> for a human to confirm each session. Safe default - nothing is locked automatically.</div>
             </div>
             <div class="fire" id="next-fire" data-next="{{ overview.scheduler.next_run if overview.scheduler else '' }}">cutoffs {{ sessions|map(attribute='cutoff')|join(' / ') }}</div>
+        </div>
+        {% endif %}
+
+        <!-- ===== Daily-run status (per-session fire outcome, today) =====
+             Server-rendered so it survives a JS failure; renderLastFire()
+             rebuilds the same markup on refresh. -->
+        {% if overview.last_fire %}
+        <div class="label runcap">Daily run &middot; today</div>
+        <div class="runstrip" id="run-strip">
+            {% for f in overview.last_fire %}
+            <div class="runcard run-{{ f.status }}"{% if f.message %} title="{{ f.message }}"{% endif %}>
+                <span class="rc-dot"></span>
+                <div class="rc-main">
+                    <div class="rc-sess">{{ f.forms_label }} &middot; {{ f.label }}</div>
+                    <div class="rc-line"><span class="rc-head">{{ f.headline }}</span><span class="rc-detail">{{ f.detail }}</span></div>
+                </div>
+                <span class="rc-cut">{{ f.cutoff }}</span>
+            </div>
+            {% endfor %}
         </div>
         {% endif %}
 
@@ -743,6 +795,30 @@
             noteacher: { dot: 'var(--amber)', badge: 'No teacher', cls: 'warn' },
         };
 
+        // ---- Daily-run status (refresh) ----
+        // Rebuilds the per-session fire cards from ov.last_fire, byte-for-byte
+        // matching the server-rendered markup so a refresh never looks different
+        // from a hard reload. Verdict/headline/detail are computed server-side.
+        function renderLastFire(ov) {
+            const strip = document.getElementById('run-strip');
+            if (!strip) return;
+            const fires = ov.last_fire || [];
+            if (!fires.length) { strip.style.display = 'none'; return; }
+            strip.style.display = '';
+            strip.innerHTML = fires.map(f => {
+                const title = f.message ? ` title="${escapeHtml(f.message)}"` : '';
+                return `<div class="runcard run-${escapeHtml(f.status)}"${title}>`
+                    + `<span class="rc-dot"></span>`
+                    + `<div class="rc-main">`
+                    + `<div class="rc-sess">${escapeHtml(f.forms_label || '')} &middot; ${escapeHtml(f.label || '')}</div>`
+                    + `<div class="rc-line"><span class="rc-head">${escapeHtml(f.headline || '')}</span>`
+                    + `<span class="rc-detail">${escapeHtml(f.detail || '')}</span></div>`
+                    + `</div>`
+                    + `<span class="rc-cut">${escapeHtml(f.cutoff || '')}</span>`
+                    + `</div>`;
+            }).join('');
+        }
+
         // ---- Operational summary (refresh) ----
         function renderOpSummary(ov) {
             const s = ov.summary || {};
@@ -919,7 +995,7 @@
             try {
                 const resp = await fetch('/idme/overview');
                 const data = await resp.json();
-                if (resp.ok) { LAST_OVERVIEW = data; renderOpSummary(data); renderClasses(); }
+                if (resp.ok) { LAST_OVERVIEW = data; renderOpSummary(data); renderLastFire(data); renderClasses(); }
                 else showAlert('error', data.error || 'Failed to load overview');
             } catch (err) { showAlert('error', `Error: ${err.message}`); }
             finally { if (btn) busy(btn, false); }
@@ -1155,6 +1231,7 @@
         formatFire();
         paintLoginCells();
         renderOpSummary(INITIAL_OVERVIEW);
+        renderLastFire(INITIAL_OVERVIEW);
         renderClasses();
         loadCoverage();
     </script>
