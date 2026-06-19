@@ -418,15 +418,21 @@ class IDMELoginEngine:
         # Detect holiday/weekend: the portal shows a "Tarikh semasa tidak tersedia"
         # modal and silently shifts the form to the previous working day.
         # Detect this before filling so we never submit for the wrong date.
-        holiday_msg = await attendance_page.evaluate("""() => {
+        # The guard must fail SAFE: presence of the heading alone means
+        # non-school day, regardless of whether we can extract a message body
+        # (an empty/missing <p> must NOT let us fall through and submit).
+        holiday = await attendance_page.evaluate("""() => {
             const h = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6'))
                 .find(el => el.textContent.includes('Tarikh semasa tidak tersedia'));
-            if (!h) return null;
+            if (!h) return {detected: false, message: ''};
             const p = h.parentElement && h.parentElement.querySelector('p');
-            return p ? p.textContent.trim() : h.textContent.trim();
+            const message = (p && p.textContent.trim()) || h.textContent.trim();
+            return {detected: true, message};
         }""")
-        if holiday_msg:
-            raise NonSchoolDayError(holiday_msg)
+        if holiday['detected']:
+            raise NonSchoolDayError(
+                holiday['message'] or 'Tarikh semasa tidak tersedia'
+            )
 
         # Hand the attendance page to the remaining steps (CSRF, cookies,
         # form filling all operate on self.page). Close the stuck home page so
@@ -535,6 +541,19 @@ class IDMELoginEngine:
                 'success': True,
                 'duration': duration,
             }
+
+        except NonSchoolDayError:
+            # Normal operating condition (weekend / public holiday), not a login
+            # failure. Don't emit a LOGIN FAILED log or error_final screenshot:
+            # during the supervised rollout those are the operator's gating
+            # signal and a daily false alarm would pollute it.
+            duration = (datetime.now() - start).total_seconds()
+            self.logger.info(
+                f"Non-school day detected after login ({duration:.1f}s) — "
+                f"skipping submission"
+            )
+            await self.close()
+            raise
 
         except Exception as e:
             duration = (datetime.now() - start).total_seconds()

@@ -386,6 +386,7 @@ class IDMEOrchestrator:
             return []
 
         results = []
+        non_school_day = False
         for teacher in teachers:
             class_name = teacher['class_name']
             teacher_id = teacher['id']
@@ -403,11 +404,30 @@ class IDMEOrchestrator:
                     )
                     continue
 
+            # A non-school day is school-wide: once one class reports the portal's
+            # "Tarikh semasa tidak tersedia" state, every remaining class would
+            # too. Skip the rest without a full Playwright/Firefox login + SSO
+            # each (the only cause of a 'skipped' status today).
+            if non_school_day:
+                results.append({
+                    'class_name': class_name,
+                    'date': submission_date,
+                    'status': 'skipped',
+                    'message': 'Non-school day',
+                })
+                continue
+
             self.logger.info(f"Processing: {teacher['name']} → {class_name}")
 
             try:
                 result = self.submit_class(teacher_id, class_name, submission_date, confirm=confirm)
                 results.append(result)
+                if result.get('status') == 'skipped':
+                    non_school_day = True
+                    self.logger.info(
+                        "Non-school day detected — skipping remaining classes "
+                        "without login"
+                    )
             except Exception as e:
                 self.logger.error(f"Failed for {class_name}: {e}")
                 results.append({
