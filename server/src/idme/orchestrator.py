@@ -24,6 +24,7 @@ from .credential_manager import CredentialManager, DecryptionError
 from .teacher_manager import TeacherManager, TeacherManagerError
 from .roster_manager import RosterManager
 from .scan_tracker import ScanTracker
+from .absence_reason_store import AbsenceReasonStore
 from .absence_detector import AbsenceDetector
 from .session_cache import SessionCache
 from .login_engine import IDMELoginEngine, LoginEngineError, NonSchoolDayError
@@ -67,7 +68,10 @@ class IDMEOrchestrator:
         self.teacher_manager = TeacherManager(self.db_path, self.credential_manager)
         self.roster_manager = RosterManager(self.db_path)
         self.scan_tracker = ScanTracker(self.db_path)
-        self.absence_detector = AbsenceDetector(self.roster_manager, self.scan_tracker)
+        self.reason_store = AbsenceReasonStore(self.db_path)
+        self.absence_detector = AbsenceDetector(
+            self.roster_manager, self.scan_tracker, self.reason_store
+        )
         self.session_cache = SessionCache(self.db_path)
 
         self.logger.info("IDME Orchestrator initialized")

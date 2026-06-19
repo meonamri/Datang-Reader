@@ -72,9 +72,19 @@ class IDMEConfig:
     CUTOFF_TIME_MORNING = _read_cutoff('IDME_CUTOFF_TIME_MORNING', CUTOFF_TIME)
     CUTOFF_TIME_EVENING = _read_cutoff('IDME_CUTOFF_TIME_EVENING', '16:00')
 
+    # Telegram bot prompt times — when the bot DMs teachers their current
+    # absentee list to collect a per-student reason BEFORE the cutoff submits.
+    # Per-session (upper forms in the morning, lower forms in the afternoon),
+    # defaulting to safely before the default cutoffs. A disabling sentinel
+    # (off/none/-) drops the prompt for that session without dropping its cutoff.
+    PROMPT_TIME_MORNING = _read_cutoff('IDME_TELEGRAM_PROMPT_TIME_MORNING', '10:00')
+    PROMPT_TIME_EVENING = _read_cutoff('IDME_TELEGRAM_PROMPT_TIME_EVENING', '15:00')
+
     # Only sessions with a resolved cutoff are scheduled; a disabled one (cutoff
     # None) is dropped here so the scheduler never arms it and the UI never lists
     # it. `forms_label` is precomputed so display labels track the form lists.
+    # `prompt_time` (may be None) is the Telegram bot's pre-cutoff prompt time for
+    # the session.
     SESSIONS = [
         {**spec, 'forms_label': _forms_label(spec['forms'])}
         for spec in (
@@ -82,12 +92,14 @@ class IDMEConfig:
                 'name': 'morning',
                 'label': 'Morning (upper forms)',
                 'cutoff': CUTOFF_TIME_MORNING,
+                'prompt_time': PROMPT_TIME_MORNING,
                 'forms': [3, 4, 5, 6],
             },
             {
                 'name': 'evening',
                 'label': 'Afternoon (lower forms)',
                 'cutoff': CUTOFF_TIME_EVENING,
+                'prompt_time': PROMPT_TIME_EVENING,
                 'forms': [1, 2],
             },
         )
@@ -103,6 +115,12 @@ class IDMEConfig:
 
     # Encryption key for teacher passwords
     ENCRYPTION_KEY = os.getenv('IDME_ENCRYPTION_KEY', '')
+
+    # Telegram bot (per-student absence-reason collection). Off by default and
+    # independent of the submission scheduler — when on it only ADDS reason data
+    # the existing pipeline consumes (an unset student keeps the default reason).
+    TELEGRAM_ENABLED = os.getenv('IDME_TELEGRAM_ENABLED', 'false').lower() == 'true'
+    TELEGRAM_BOT_TOKEN = os.getenv('IDME_TELEGRAM_BOT_TOKEN', '').strip()
 
     # Database path
     DATABASE_PATH = os.getenv('IDME_DATABASE_PATH', '/data/idme/idme_data.db')
@@ -124,6 +142,19 @@ class IDMEConfig:
     LOGIN_URL = 'https://idme.moe.gov.my/login'
     HOME_URL = 'https://idme.moe.gov.my/'
     MOEIS_ATTENDANCE_URL = 'https://moeispel.moe.gov.my/sahsiah/kehadiran/tabguru'
+
+    @staticmethod
+    def _parse_hhmm(value):
+        """Parse an 'HH:MM' (24h) string to minutes-since-midnight, or None if it
+        isn't a valid time. Used to validate/compare cutoff and prompt times."""
+        try:
+            parts = (value or '').split(':')
+            hour, minute = int(parts[0]), int(parts[1])
+        except (ValueError, IndexError, AttributeError):
+            return None
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            return None
+        return hour * 60 + minute
 
     @staticmethod
     def form_of(class_name):
@@ -197,18 +228,30 @@ class IDMEConfig:
             # Validate each session's cutoff time format
             for session in cls.SESSIONS:
                 cutoff = session['cutoff']
-                try:
-                    parts = cutoff.split(':')
-                    hour, minute = int(parts[0]), int(parts[1])
-                    if not (0 <= hour <= 23 and 0 <= minute <= 59):
-                        errors.append(
-                            f"Invalid {session['name']} cutoff time: {cutoff}"
-                        )
-                except (ValueError, IndexError):
+                cutoff_mins = cls._parse_hhmm(cutoff)
+                if cutoff_mins is None:
                     errors.append(
                         f"Invalid {session['name']} cutoff time format: {cutoff}. "
                         "Use HH:MM (24h format)."
                     )
+
+                # The Telegram prompt time, when set, must parse and ideally fire
+                # before the cutoff (otherwise reasons can't be collected in time).
+                # A late prompt is a warning, not a hard error.
+                prompt = session.get('prompt_time')
+                if prompt is not None:
+                    prompt_mins = cls._parse_hhmm(prompt)
+                    if prompt_mins is None:
+                        errors.append(
+                            f"Invalid {session['name']} prompt time format: {prompt}. "
+                            "Use HH:MM (24h format)."
+                        )
+                    elif cutoff_mins is not None and prompt_mins >= cutoff_mins:
+                        logger.warning(
+                            f"IDME {session['name']} Telegram prompt time {prompt} is "
+                            f"not before its cutoff {cutoff} — reasons may not be "
+                            "collected in time."
+                        )
 
         is_valid = len(errors) == 0
 
@@ -236,4 +279,6 @@ class IDMEConfig:
             'default_sebab_id': cls.DEFAULT_SEBAB_ID,
             'has_encryption_key': bool(cls.ENCRYPTION_KEY),
             'has_roster_path': bool(cls.ROSTER_EXCEL_PATH),
+            'telegram_enabled': cls.TELEGRAM_ENABLED,
+            'has_telegram_token': bool(cls.TELEGRAM_BOT_TOKEN),
         }

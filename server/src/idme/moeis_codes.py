@@ -165,6 +165,25 @@ COMPLETE_MOEIS_SEBAB = {
     'P0270084': {'category': 'P', 'keterangan': 'SEKOLAH DALAM HOSPITAL'},
 }
 
+# =============================================================================
+# CURATED QUICK-PICK REASONS (Telegram bot)
+# =============================================================================
+# The short list of reasons offered as one-tap buttons when a teacher records why
+# a student is absent. The full set is still reachable via "More…" -> category ->
+# reason (built from MOEIS_CATEGORIES / COMPLETE_MOEIS_SEBAB). Ordered most-common
+# first; the default (MALAS KE SEKOLAH) is last so it isn't the easy default tap.
+COMMON_SEBAB = [
+    'D0010075',  # DEMAM
+    'D0260030',  # SURAT CUTI SAKIT HOSPITAL/KLINIK
+    'D0260001',  # MAKLUMAN IBU BAPA PENJAGA
+    'D0020059',  # TEMUJANJI HOSPITAL/KLINIK
+    'J0040030',  # MENGIKUT KELUARGA BERCUTI/BERKURSUS
+    'J0020028',  # KEMATIAN AHLI KELUARGA TERDEKAT
+    'M0030060',  # HAJI/UMRAH/KEGIATAN AGAMA
+    DEFAULT_SEBAB_ID,  # N0040027 MALAS KE SEKOLAH (default)
+]
+
+
 # Reverse lookup: sebab_id -> category
 SEBAB_TO_CATEGORY = {
     sebab_id: info['category']

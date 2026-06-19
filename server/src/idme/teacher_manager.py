@@ -253,7 +253,8 @@ class TeacherManager:
         try:
             row = conn.execute(
                 "SELECT id, name, ic_number, class_name, enabled, "
-                "login_test_status, login_test_at, created_at, updated_at "
+                "login_test_status, login_test_at, telegram_chat_id, "
+                "created_at, updated_at "
                 "FROM teachers WHERE id = ?",
                 (teacher_id,)
             ).fetchone()
@@ -278,7 +279,8 @@ class TeacherManager:
         conn = self._get_conn()
         try:
             cols = ("id, name, ic_number, class_name, enabled, "
-                    "login_test_status, login_test_at, created_at, updated_at")
+                    "login_test_status, login_test_at, telegram_chat_id, "
+                    "created_at, updated_at")
             if include_disabled:
                 rows = conn.execute(
                     f"SELECT {cols} FROM teachers ORDER BY name"
@@ -371,6 +373,92 @@ class TeacherManager:
             # Non-fatal: the probe already ran; failing to cache it just means
             # the chip stays 'untested'. Never let it mask the test result.
             self.logger.warning(f"Failed to record login test for teacher {teacher_id}: {e}")
+        finally:
+            conn.close()
+
+    def set_telegram_link_token(self, teacher_id: int, token: str) -> None:
+        """Store a one-time deep-link token for a teacher. The teacher taps
+        https://t.me/<bot>?start=<token>; the bot then calls link_telegram_chat to
+        bind their chat to this teacher and clear the token.
+
+        Args:
+            teacher_id: Teacher database ID.
+            token: Opaque one-time token (also encodes which teacher to link).
+        """
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                "UPDATE teachers SET telegram_link_token = ?, updated_at = ? WHERE id = ?",
+                (token, datetime.now().isoformat(), teacher_id)
+            )
+            conn.commit()
+        except sqlite3.Error as e:
+            raise TeacherManagerError(f"Failed to set telegram link token: {e}")
+        finally:
+            conn.close()
+
+    def link_telegram_chat(self, token: str, chat_id: str) -> Optional[Dict[str, Any]]:
+        """Bind a Telegram chat to the teacher holding `token`, clearing the token
+        so it can't be reused.
+
+        Args:
+            token: The one-time token the teacher sent via /start.
+            chat_id: The Telegram chat id to bind (stored as text).
+
+        Returns:
+            The linked teacher dict, or None if the token matched no teacher
+            (already used / invalid).
+        """
+        if not token:
+            return None
+        conn = self._get_conn()
+        try:
+            row = conn.execute(
+                "SELECT id FROM teachers WHERE telegram_link_token = ?",
+                (token,)
+            ).fetchone()
+            if not row:
+                return None
+            teacher_id = row['id']
+            conn.execute(
+                "UPDATE teachers SET telegram_chat_id = ?, telegram_link_token = NULL, "
+                "updated_at = ? WHERE id = ?",
+                (str(chat_id), datetime.now().isoformat(), teacher_id)
+            )
+            conn.commit()
+        except sqlite3.Error as e:
+            raise TeacherManagerError(f"Failed to link telegram chat: {e}")
+        finally:
+            conn.close()
+
+        self.logger.info(f"Linked Telegram chat {chat_id} to teacher ID={teacher_id}")
+        return self.get_teacher(teacher_id)
+
+    def unlink_telegram_chat(self, teacher_id: int) -> None:
+        """Clear a teacher's Telegram chat binding and any pending link token."""
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                "UPDATE teachers SET telegram_chat_id = NULL, telegram_link_token = NULL, "
+                "updated_at = ? WHERE id = ?",
+                (datetime.now().isoformat(), teacher_id)
+            )
+            conn.commit()
+        except sqlite3.Error as e:
+            raise TeacherManagerError(f"Failed to unlink telegram chat: {e}")
+        finally:
+            conn.close()
+
+    def get_teacher_by_chat_id(self, chat_id: str) -> Optional[Dict[str, Any]]:
+        """Find the enabled teacher bound to a Telegram chat id, or None."""
+        conn = self._get_conn()
+        try:
+            row = conn.execute(
+                "SELECT id, name, ic_number, class_name, enabled, telegram_chat_id "
+                "FROM teachers WHERE telegram_chat_id = ? AND enabled = 1",
+                (str(chat_id),)
+            ).fetchone()
+            return dict(row) if row else None
         finally:
             conn.close()
 

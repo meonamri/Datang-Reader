@@ -42,6 +42,19 @@ IDME_CUTOFF_TIME_EVENING=16:00   # 24h; forms 1, 2
 IDME_SCHEDULER_CONFIRM=false     # KEEP false until post-deploy checks pass
 ```
 
+**Optional — Telegram per-student reason collection.** Off unless you set these.
+Lets teachers record why each student is absent (sick, family, etc.) before the
+cutoff; untouched students stay MALAS KE SEKOLAH. Independent of the safety gate.
+Needs outbound HTTPS to `api.telegram.org`. After deploy, link each teacher's
+Telegram from `/idme/settings` ("Link Telegram").
+
+```ini
+IDME_TELEGRAM_ENABLED=true
+IDME_TELEGRAM_BOT_TOKEN=<token from @BotFather>
+IDME_TELEGRAM_PROMPT_TIME_MORNING=10:00   # before the morning cutoff
+IDME_TELEGRAM_PROMPT_TIME_EVENING=15:00   # before the afternoon cutoff
+```
+
 ## 4. Volumes — the two gotchas
 
 The merged compose mounts `../docker-data/idme:/data/idme`. Run the pre-flight

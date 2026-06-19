@@ -46,6 +46,30 @@ teacher). Classes without a teacher are never submitted to MOEIS.
   name-fallback). IC is unavailable on both sides. See
   `server/src/idme/IDENTITY_RESOLUTION_DESIGN.md`.
 
+### Telegram reason collection (optional, off by default)
+
+By default every absence is submitted as `N0040027` PONTENG · MALAS KE SEKOLAH.
+An optional Telegram bot lets each class teacher record a **per-student reason**
+*before* the cutoff: at a per-session prompt time the bot DMs the teacher their
+current absentee list with inline buttons (curated quick-pick + "More…" → full
+MOEIS list by category); the chosen reason is stored in the `absence_reasons`
+table and `AbsenceDetector.detect_absences` merges it over the default. A student
+left untouched keeps MALAS KE SEKOLAH — the original behaviour, so this only
+*adds* data the existing submission pipeline already consumes.
+
+- **Config (env / `.env`):** `IDME_TELEGRAM_ENABLED` (default false),
+  `IDME_TELEGRAM_BOT_TOKEN` (from @BotFather), and per-session prompt times
+  `IDME_TELEGRAM_PROMPT_TIME_MORNING` (default 10:00) /
+  `IDME_TELEGRAM_PROMPT_TIME_EVENING` (default 15:00) — must be *before* that
+  session's cutoff. Off and independent of `IDME_SCHEDULER_CONFIRM`; needs
+  outbound HTTPS to `api.telegram.org`.
+- **Linking:** each teacher links their Telegram once from `/idme/settings`
+  ("Link Telegram" → one-time `t.me/<bot>?start=<token>` deep link → bot binds
+  their `chat_id`). Teachers are routed to a prompt by the same leading-form-number
+  rule as the cutoff scheduler. Implementation is `server/src/idme/telegram_bot.py`
+  (requests-based long-polling daemon thread — same style as `scheduler.py`, no
+  webhook/asyncio).
+
 ### Deploying / turning it on
 
 Rollout is an in-place upgrade of the existing `datang-reader` container.
