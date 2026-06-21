@@ -85,6 +85,8 @@ _roster_manager = None
 _scan_tracker = None
 _absence_detector = None
 _scheduler = None
+_telegram_bot = None
+_prompt_scheduler = None
 
 
 def init_idme_module(service_manager=None):
@@ -102,6 +104,7 @@ def init_idme_module(service_manager=None):
     """
     global _orchestrator, _teacher_manager, _roster_manager
     global _scan_tracker, _absence_detector, _scheduler
+    global _telegram_bot, _prompt_scheduler
 
     if not IDMEConfig.ENABLED:
         logger.info("IDME module disabled (IDME_ENABLED=false)")
@@ -132,6 +135,27 @@ def init_idme_module(service_manager=None):
     # Start scheduler (one timer per session — morning/upper + afternoon/lower)
     _scheduler = IDMEScheduler(_orchestrator, IDMEConfig.SESSIONS)
     _scheduler.start()
+
+    # Optional Telegram bot for per-student absence-reason collection. Independent
+    # of the scheduler and off unless explicitly enabled + a token is set; a bad
+    # token logs and disables the bot without affecting the rest of the module.
+    if IDMEConfig.TELEGRAM_ENABLED and IDMEConfig.TELEGRAM_BOT_TOKEN:
+        from .telegram_bot import IDMETelegramBot, TelegramPromptScheduler
+        _telegram_bot = IDMETelegramBot(
+            IDMEConfig.TELEGRAM_BOT_TOKEN,
+            _teacher_manager,
+            _absence_detector,
+            _orchestrator.reason_store,
+            IDMEConfig.DATABASE_PATH,
+        )
+        if _telegram_bot.start():
+            _prompt_scheduler = TelegramPromptScheduler(_telegram_bot, IDMEConfig.SESSIONS)
+            _prompt_scheduler.start()
+        else:
+            _telegram_bot = None
+            logger.warning("Telegram bot failed to start — reason collection disabled")
+    elif IDMEConfig.TELEGRAM_ENABLED:
+        logger.warning("IDME_TELEGRAM_ENABLED=true but IDME_TELEGRAM_BOT_TOKEN is empty")
 
     logger.info("IDME module initialized successfully")
     return _orchestrator
@@ -420,6 +444,7 @@ def settings_page():
     for t in teachers:
         t['login'] = _login_chip(t.get('login_test_status'), t.get('login_test_at'))
         t['class_aligned'] = t['class_name'] in roster_class_names
+        t['telegram_linked'] = bool(t.get('telegram_chat_id'))
 
     return render_template_string(
         template_content,
@@ -428,6 +453,7 @@ def settings_page():
         total_classes=total_classes,
         sessions=IDMEConfig.SESSIONS,
         overview=overview,
+        telegram_enabled=bool(_telegram_bot),
     )
 
 
@@ -612,6 +638,22 @@ def _run_and_record_login_test(teacher_id, creds):
     if _teacher_manager:
         _teacher_manager.record_login_test(teacher_id, bool(result.get('success')))
     return result
+
+
+@idme_bp.route('/teachers/<int:teacher_id>/telegram', methods=['DELETE'])
+def unlink_teacher_telegram(teacher_id):
+    """Clear a teacher's Telegram chat binding (admin action).
+
+    Teachers self-link inside Telegram (search bot → /start → passphrase → pick
+    class); unlinking here frees the class back into the bot's selectable list so
+    the teacher can re-link from a new phone."""
+    if not _teacher_manager:
+        return jsonify({'error': 'IDME module not initialized'}), 503
+    try:
+        _teacher_manager.unlink_telegram_chat(teacher_id)
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @idme_bp.route('/teachers/<int:teacher_id>/test', methods=['POST'])

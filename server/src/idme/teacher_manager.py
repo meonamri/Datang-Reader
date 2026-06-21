@@ -253,7 +253,8 @@ class TeacherManager:
         try:
             row = conn.execute(
                 "SELECT id, name, ic_number, class_name, enabled, "
-                "login_test_status, login_test_at, created_at, updated_at "
+                "login_test_status, login_test_at, telegram_chat_id, "
+                "created_at, updated_at "
                 "FROM teachers WHERE id = ?",
                 (teacher_id,)
             ).fetchone()
@@ -278,7 +279,8 @@ class TeacherManager:
         conn = self._get_conn()
         try:
             cols = ("id, name, ic_number, class_name, enabled, "
-                    "login_test_status, login_test_at, created_at, updated_at")
+                    "login_test_status, login_test_at, telegram_chat_id, "
+                    "created_at, updated_at")
             if include_disabled:
                 rows = conn.execute(
                     f"SELECT {cols} FROM teachers ORDER BY name"
@@ -371,6 +373,90 @@ class TeacherManager:
             # Non-fatal: the probe already ran; failing to cache it just means
             # the chip stays 'untested'. Never let it mask the test result.
             self.logger.warning(f"Failed to record login test for teacher {teacher_id}: {e}")
+        finally:
+            conn.close()
+
+    def link_telegram_chat(self, teacher_id: int, chat_id: str) -> Optional[Dict[str, Any]]:
+        """Bind a Telegram chat to a teacher.
+
+        A chat maps to exactly one teacher, so any prior binding of this chat_id
+        (to another teacher) is cleared first. Called by the bot once the teacher
+        has passed the passphrase gate and tapped their class.
+
+        Args:
+            teacher_id: Teacher database ID (resolved from the chosen class).
+            chat_id: The Telegram chat id to bind (stored as text).
+
+        Returns:
+            The linked teacher dict, or None if the teacher_id doesn't exist.
+        """
+        chat_id = str(chat_id)
+        conn = self._get_conn()
+        try:
+            now = datetime.now().isoformat()
+            # One chat ↔ one teacher: drop this chat from any other teacher first.
+            conn.execute(
+                "UPDATE teachers SET telegram_chat_id = NULL, updated_at = ? "
+                "WHERE telegram_chat_id = ? AND id != ?",
+                (now, chat_id, teacher_id)
+            )
+            cursor = conn.execute(
+                "UPDATE teachers SET telegram_chat_id = ?, updated_at = ? WHERE id = ?",
+                (chat_id, now, teacher_id)
+            )
+            conn.commit()
+            if cursor.rowcount == 0:
+                return None
+        except sqlite3.Error as e:
+            raise TeacherManagerError(f"Failed to link telegram chat: {e}")
+        finally:
+            conn.close()
+
+        self.logger.info(f"Linked Telegram chat {chat_id} to teacher ID={teacher_id}")
+        return self.get_teacher(teacher_id)
+
+    def unlink_telegram_chat(self, teacher_id: int) -> None:
+        """Clear a teacher's Telegram chat binding (admin action, frees the class
+        back into the bot's selectable list so a new phone can link)."""
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                "UPDATE teachers SET telegram_chat_id = NULL, updated_at = ? WHERE id = ?",
+                (datetime.now().isoformat(), teacher_id)
+            )
+            conn.commit()
+        except sqlite3.Error as e:
+            raise TeacherManagerError(f"Failed to unlink telegram chat: {e}")
+        finally:
+            conn.close()
+
+    def get_unlinked_configured_classes(self) -> List[str]:
+        """Classes with an enabled teacher that have no Telegram chat linked yet.
+
+        This is exactly the set the bot offers a teacher to pick from: an already-
+        linked class never appears, so a passphrase-holder can't re-point a
+        colleague's class to their own chat (an admin must unlink it first).
+        """
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT DISTINCT class_name FROM teachers "
+                "WHERE enabled = 1 AND telegram_chat_id IS NULL ORDER BY class_name"
+            ).fetchall()
+            return [row['class_name'] for row in rows]
+        finally:
+            conn.close()
+
+    def get_teacher_by_chat_id(self, chat_id: str) -> Optional[Dict[str, Any]]:
+        """Find the enabled teacher bound to a Telegram chat id, or None."""
+        conn = self._get_conn()
+        try:
+            row = conn.execute(
+                "SELECT id, name, ic_number, class_name, enabled, telegram_chat_id "
+                "FROM teachers WHERE telegram_chat_id = ? AND enabled = 1",
+                (str(chat_id),)
+            ).fetchone()
+            return dict(row) if row else None
         finally:
             conn.close()
 

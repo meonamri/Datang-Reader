@@ -541,7 +541,7 @@
                     <thead>
                         <tr>
                             <th>Name</th><th>IC Number</th><th>Class</th>
-                            <th>Credentials</th><th>Login</th><th class="tnum">Actions</th>
+                            <th>Credentials</th><th>Login</th>{% if telegram_enabled %}<th>Telegram</th>{% endif %}<th class="tnum">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="teacher-tbody">
@@ -560,6 +560,15 @@
                             </td>
                             <td data-th="Credentials"><span class="cred">&#128274; Encrypted</span></td>
                             <td data-th="Login" class="login-cell" data-state="{{ t.login.state }}" data-age="{{ t.login.age_text }}"></td>
+                            {% if telegram_enabled %}
+                            <td data-th="Telegram" class="telegram-cell">
+                                {% if t.telegram_linked %}
+                                <span class="chip-btn ok js-tg-unlink" title="Click to unlink">&#10003; Linked</span>
+                                {% else %}
+                                <span style="color:var(--ink-3);">Not linked</span>
+                                {% endif %}
+                            </td>
+                            {% endif %}
                             <td data-th="Actions" class="tnum">
                                 <button class="btn btn-sm js-edit" type="button">Edit</button>
                             </td>
@@ -1035,6 +1044,18 @@
 
         // ---- Teacher row actions (delegated) ----
         document.getElementById('teacher-tbody')?.addEventListener('click', async (e) => {
+            // Unlink Telegram is a chip (span), not a button — handle it first.
+            const unlink = e.target.closest('.js-tg-unlink');
+            if (unlink) {
+                const row = unlink.closest('tr'); const id = row.dataset.id;
+                if (!confirm('Unlink this teacher\'s Telegram chat? They will stop receiving reason prompts. They can re-link from Telegram afterwards.')) return;
+                const resp = await fetch(`/idme/teachers/${id}/telegram`, { method: 'DELETE' });
+                if (resp.ok) {
+                    unlink.outerHTML = '<span style="color:var(--ink-3);">Not linked</span>';
+                } else { alert('Failed to unlink.'); }
+                return;
+            }
+
             const btn = e.target.closest('button'); if (!btn) return;
             const row = btn.closest('tr'); const id = row.dataset.id; const name = row.dataset.name;
 
@@ -1065,7 +1086,7 @@
             const tr = document.createElement('tr');
             tr.className = 'edit-row'; tr.id = 'edit-row-' + id; tr.dataset.open = '1';
             const aligned = row.dataset.aligned === '1';
-            tr.innerHTML = `<td class="edit-cell" colspan="6">
+            tr.innerHTML = `<td class="edit-cell" colspan="{{ 7 if telegram_enabled else 6 }}">
                 <div class="edit-box">
                     <div class="label" style="margin-bottom:12px;">Edit teacher</div>
                     <form class="js-edit-form" data-id="${id}">

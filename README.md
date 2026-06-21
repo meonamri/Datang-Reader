@@ -145,6 +145,13 @@ IDME_CUTOFF_TIME_MORNING=12:00   # Upper forms (3-6) auto-submission time (24h)
 IDME_CUTOFF_TIME_EVENING=16:00   # Lower forms (1-2) auto-submission time (24h)
 IDME_ENCRYPTION_KEY=             # Fernet key for teacher password encryption
 IDME_DEBUG=false                 # Save screenshots during automation
+
+# Telegram per-student absence-reason collection (optional, off by default)
+IDME_TELEGRAM_ENABLED=false      # Set true to let teachers record reasons via a bot
+IDME_TELEGRAM_BOT_TOKEN=         # Bot token from @BotFather
+IDME_TELEGRAM_PASSPHRASE=        # Shared passphrase teachers type to the bot to self-link
+IDME_TELEGRAM_PROMPT_TIME_MORNING=10:00  # When the bot prompts upper-form teachers
+IDME_TELEGRAM_PROMPT_TIME_EVENING=15:00  # When the bot prompts lower-form teachers
 ```
 
 **Client** (`client/.env`):
