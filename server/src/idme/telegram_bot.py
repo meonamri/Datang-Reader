@@ -424,7 +424,7 @@ class IDMETelegramBot:
         if action == 'p' or action == 's':
             # Quick-pick or category-pick: parts = [action, entry_id, sebab_id]
             sebab_id = parts[2] if len(parts) > 2 else ''
-            self._record_choice(entry, sebab_id, chat_id, message_id, cq_id)
+            self._record_choice(entry, entry_id, sebab_id, chat_id, message_id, cq_id)
         elif action == 'm':
             # Open the full category browser.
             self.client.edit_message_text(
@@ -450,7 +450,7 @@ class IDMETelegramBot:
         else:
             self.client.answer_callback_query(cq_id)
 
-    def _record_choice(self, entry, sebab_id, chat_id, message_id, cq_id):
+    def _record_choice(self, entry, entry_id, sebab_id, chat_id, message_id, cq_id):
         keterangan = SEBAB_DESCRIPTIONS.get(sebab_id)
         if not keterangan:
             self.client.answer_callback_query(cq_id, "Sebab tidak sah.")
@@ -470,10 +470,19 @@ class IDMETelegramBot:
             self.client.answer_callback_query(cq_id, "Gagal menyimpan. Cuba lagi.")
             return
 
+        # Keep a "change reason" button on the confirmation so a mis-tap is
+        # correctable: it reuses the 'b' (back-to-quick-pick) action on the same
+        # still-live entry. A later re-pick upserts over this one. If the process
+        # has restarted (entry gone), the 'b' tap answers "expired" like any
+        # other stale tap, and the next prompt round restores a fresh keyboard.
+        change_kbd = json.dumps({'inline_keyboard': [[
+            {'text': '↺ Tukar sebab', 'callback_data': f"b|{entry_id}"}
+        ]]})
         self.client.edit_message_text(
             chat_id, message_id,
             f"✅ {entry['student_name']} ({entry['class_name']})\n"
             f"Sebab: {keterangan}",
+            reply_markup=change_kbd,
         )
         self.client.answer_callback_query(cq_id, "Disimpan ✅")
 
