@@ -14,6 +14,7 @@ This is the single entry point for IDME submissions.
 
 import logging
 import asyncio
+import time
 import sqlite3
 from typing import Dict, List, Optional, Any
 from datetime import datetime, date
@@ -28,6 +29,12 @@ from .absence_detector import AbsenceDetector
 from .session_cache import SessionCache
 from .login_engine import IDMELoginEngine, LoginEngineError, NonSchoolDayError
 from .form_filler import IDMEFormFiller, FormFillerError
+
+
+# Pause before the single run-level retry of a transiently-failed class. Long
+# enough to let the gov SSO settle past a momentary bounce, short enough not to
+# look like a rapid re-login the portal might rate-limit.
+RETRY_DELAY_SECONDS = 5
 
 
 class OrchestratorError(Exception):
@@ -215,6 +222,15 @@ class IDMEOrchestrator:
                 status = 'completed' if form_submitted else 'failed'
                 error_msg = fill_result.get('error') if not form_submitted else None
 
+                # A failure is safe to auto-retry only if the submit AJAX was
+                # never fired (write_attempted=False) — otherwise the portal may
+                # already hold the day and a retry would double-submit. Default a
+                # MISSING key to True (assume written) so a future fill path that
+                # forgets to report fails safe rather than risking a double-submit.
+                retryable = status == 'failed' and not fill_result.get(
+                    'write_attempted', True
+                )
+
                 self._update_submission(
                     submission_id, status=status,
                     successful=success_count, failed=failed_count,
@@ -234,6 +250,7 @@ class IDMEOrchestrator:
                     'portal_status': fill_result.get('status', ''),
                     'duration': duration,
                     'status': status,
+                    'retryable': retryable,
                 }
 
                 self.logger.info(
@@ -436,12 +453,68 @@ class IDMEOrchestrator:
                     )
             except Exception as e:
                 self.logger.error(f"Failed for {class_name}: {e}")
+                # An exception here propagated out of the login/navigation phase
+                # (or a pre-fill error). The submit AJAX lives inside form_filler,
+                # which never raises once it has fired the write — so reaching
+                # this handler guarantees nothing was committed: safe to retry.
                 results.append({
                     'class_name': class_name,
                     'date': submission_date,
                     'status': 'failed',
                     'error': str(e),
+                    'retryable': True,
                 })
+
+        # Run-level retry pass: give transient, pre-submission failures (a slow
+        # AJAX student-table load, or an SSO bounce to the app picker) exactly one
+        # more attempt. Only classes that failed BEFORE firing the submit AJAX are
+        # eligible (retryable=True) — never a post-write failure, which could
+        # double-submit the day. Skipped entirely on a non-school day: those
+        # "failures" are the school-wide holiday short-circuit, and a re-login
+        # would only hit the same banner.
+        if not non_school_day:
+            teacher_id_by_class = {t['class_name']: t['id'] for t in teachers}
+            retry_targets = [
+                i for i, r in enumerate(results)
+                if r.get('status') == 'failed' and r.get('retryable')
+            ]
+            if retry_targets:
+                self.logger.info(
+                    f"Retry pass: {len(retry_targets)} class(es) failed before "
+                    f"submission — retrying each once"
+                )
+            for i in retry_targets:
+                class_name = results[i]['class_name']
+                teacher_id = teacher_id_by_class.get(class_name)
+                if teacher_id is None:
+                    # Class no longer configured — nothing to retry against.
+                    continue
+                self.logger.info(f"Retry: re-submitting {class_name}")
+                time.sleep(RETRY_DELAY_SECONDS)
+                try:
+                    retry_result = self.submit_class(
+                        teacher_id, class_name, submission_date, confirm=confirm
+                    )
+                    # Replace in place: the retry wrote its own submission row, so
+                    # the durable log and the settings UI's latest-per-class view
+                    # already reflect it; keep the in-memory list consistent too.
+                    results[i] = retry_result
+                    if retry_result.get('status') == 'completed':
+                        self.logger.info(f"Retry succeeded for {class_name}")
+                    else:
+                        self.logger.warning(
+                            f"Retry did not complete for {class_name}: "
+                            f"{retry_result.get('status')}"
+                        )
+                except Exception as e:
+                    self.logger.error(f"Retry failed for {class_name}: {e}")
+                    results[i] = {
+                        'class_name': class_name,
+                        'date': submission_date,
+                        'status': 'failed',
+                        'error': str(e),
+                        'retryable': False,
+                    }
 
         # Summary
         total = len(results)

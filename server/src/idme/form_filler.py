@@ -62,6 +62,11 @@ class IDMEFormFiller:
         self.page = page
         self.debug = debug
         self.logger = logging.getLogger(__name__)
+        # Becomes True the instant the submit AJAX (the modal action click) is
+        # fired — the point past which the portal may have committed the day.
+        # Callers use it to decide whether a failed submission is safe to retry:
+        # only a failure with write_attempted=False is guaranteed pre-write.
+        self.write_attempted = False
 
     async def _take_screenshot(self, name: str):
         """Take screenshot for debugging."""
@@ -321,6 +326,7 @@ class IDMEFormFiller:
                 'total': total, 'success': 0, 'failed': total,
                 'submitted': False, 'duration': time.time() - start,
                 'error': f"Table not found: {e}",
+                'write_attempted': self.write_attempted,
             }
 
         await self._take_screenshot("before_marking")
@@ -362,6 +368,7 @@ class IDMEFormFiller:
             'failed': failed,
             'submitted': submitted,
             'duration': duration,
+            'write_attempted': self.write_attempted,
         }
 
     async def _submit_form(self, confirm: bool = True) -> str:
@@ -439,7 +446,11 @@ class IDMEFormFiller:
                 return ''
 
             # Step 2: click the chosen modal action (this triggers the AJAX write).
+            # Mark write_attempted BEFORE the click: once fired, the portal may
+            # commit even if everything after (status read) fails, so this class
+            # must never be auto-retried past this line.
             self.logger.info(f"  Clicking modal action '{action_selector}'...")
+            self.write_attempted = True
             await self.page.evaluate("""(sel) => {
                 if (window.jQuery) { jQuery(sel).trigger('click'); }
                 else { document.querySelector(sel).click(); }

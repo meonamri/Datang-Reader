@@ -377,8 +377,19 @@ class IDMELoginEngine:
         self.logger.info(f"On MOEIS: {self.page.url}")
 
         if 'moeispel' not in self.page.url:
-            self.logger.warning("Not on MOEIS after SSO; cannot open attendance page")
-            return
+            # The SSO redirect sometimes lands back on the IDME app picker
+            # (idme.moe.gov.my/list_aplikasi) instead of completing through to
+            # MOEIS — a transient, per-class bounce. Fail loudly here rather than
+            # returning silently: a silent return let login_and_navigate continue
+            # through STEP 5/6 and report success, so the orchestrator then burned
+            # the 10s fill timeout on a page with no attendance table. Raising
+            # makes this a fast 'failed' the run-level retry can recover. NOT a
+            # NonSchoolDayError — that is school-wide and would skip every
+            # remaining class; an SSO bounce is local to this login.
+            raise LoginEngineError(
+                f"Not on MOEIS after SSO (landed on {self.page.url}); "
+                "cannot open attendance page"
+            )
 
         # Fresh page in the same context (shares the auth cookies set above).
         attendance_page = await self.context.new_page()
