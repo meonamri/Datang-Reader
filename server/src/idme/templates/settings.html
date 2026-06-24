@@ -224,10 +224,24 @@
         .ccard .top { display: flex; align-items: center; gap: 9px; }
         .ccard .sdot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
         .ccard .code { font-family: var(--mono); font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+        /* Right-aligned group holding the optional run-status chip + the
+           onboarded badge. The group is pushed right; children sit adjacent. */
+        .ccard .trgroup { margin-left: auto; display: flex; align-items: center; gap: 7px; }
+        .ccard .trgroup .badge { margin-left: 0; }
         .ccard .badge {
             margin-left: auto; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
             padding: 2px 8px; border: 1px solid var(--line-2); white-space: nowrap;
         }
+        /* Today's run outcome, to the left of the onboarded badge. */
+        .ccard .runchip {
+            font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+            padding: 2px 8px; border: 1px solid var(--line-2); white-space: nowrap;
+        }
+        .ccard .runchip.ok   { color: var(--green); border-color: var(--green); }
+        .ccard .runchip.done { color: var(--ink-3); border-color: var(--line-2); }
+        .ccard .runchip.bad  { color: var(--red); border-color: var(--red); }
+        .ccard .runchip.skip { color: var(--ink-3); border-color: var(--line-2); }
+        .ccard .runchip.run  { color: var(--amber); border-color: var(--amber); }
         .ccard .sesschip {
             font-family: var(--mono); font-size: 10.5px; font-weight: 700; color: var(--ink-3);
             border: 1px solid var(--line-2); padding: 1px 6px; white-space: nowrap;
@@ -865,6 +879,35 @@
         function chainLeg(label, mark, color) {
             return `<span class="leg" style="color:${color};">${mark} ${label}</span>`;
         }
+        // Today's run-status chip, shown left of the onboarded badge. Sourced
+        // from the durable submissions log (today only); null until the class
+        // has fired today.
+        //   Success - absences recorded on the portal this run
+        //   Done    - ran with nothing to mark (full attendance)
+        //   Failed  - a student couldn't be marked / submit broke
+        //   Skipped - not submitted (non-school day)
+        //   Running - in progress
+        function runChip(c) {
+            const s = c.today_status;
+            if (!s) return '';
+            const absent = c.today_absent, rec = c.today_recorded, fail = c.today_failed;
+            let cls, label, title;
+            if (s === 'running') {
+                cls = 'run'; label = 'Running'; title = 'Submission in progress';
+            } else if (s === 'skipped') {
+                cls = 'skip'; label = 'Skipped';
+                title = c.today_error || 'Not submitted today (non-school day)';
+            } else if (s === 'failed') {
+                cls = 'bad'; label = 'Failed';
+                title = c.today_error || `${fail || 0} of ${absent || 0} absent student(s) could not be recorded`;
+            } else if (s === 'completed' && (absent || 0) === 0) {
+                cls = 'done'; label = 'Done'; title = 'Ran with no absences to record';
+            } else {
+                cls = 'ok'; label = 'Success';
+                title = `${rec || 0} of ${absent || 0} absent student(s) recorded on the portal`;
+            }
+            return `<span class="runchip ${cls}" title="${escapeHtml(title)}">${label}</span>`;
+        }
         function renderClasses() {
             const ov = LAST_OVERVIEW;
             const grid = document.getElementById('class-grid');
@@ -929,7 +972,7 @@
                         <span class="sdot" style="background:${meta.dot};"></span>
                         <span class="code">${escapeHtml(c.class_name)}</span>
                         ${sessChip}
-                        <span class="badge" style="color:${meta.dot === 'var(--green)' ? green : (st === 'noteacher' ? amber : off)};border-color:${meta.dot === 'var(--green)' ? green : (st === 'noteacher' ? amber : line)};">${meta.badge}</span>
+                        <span class="trgroup">${runChip(c)}<span class="badge" style="color:${meta.dot === 'var(--green)' ? green : (st === 'noteacher' ? amber : off)};border-color:${meta.dot === 'var(--green)' ? green : (st === 'noteacher' ? amber : line)};">${meta.badge}</span></span>
                     </div>
                     <div class="teacher">${c.teacher_name ? escapeHtml(c.teacher_name) : 'No teacher assigned'}</div>
                     <div class="chain">

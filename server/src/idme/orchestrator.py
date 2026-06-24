@@ -216,11 +216,28 @@ class IDMEOrchestrator:
                 duration = (datetime.now() - start).total_seconds()
 
                 success_count = fill_result.get('success', 0)
+                skipped_count = fill_result.get('skipped', 0)
                 failed_count = fill_result.get('failed', 0)
                 form_submitted = fill_result.get('submitted', False)
 
-                status = 'completed' if form_submitted else 'failed'
-                error_msg = fill_result.get('error') if not form_submitted else None
+                # Already-absent students are recorded absent on the portal (the
+                # desired end state), so count them as successful — an
+                # all-already-absent run reads N/N, not 0/N. `failed` stays the
+                # count of students we genuinely could not mark.
+                recorded_count = success_count + skipped_count
+
+                # The class is 'completed' when every absent student is recorded
+                # absent on the portal: either we marked them this run (then the
+                # submit must have landed) or they were already absent (nothing
+                # to submit). It's 'failed' only when a student could not be
+                # marked, or we made marks but the submit step broke.
+                if failed_count > 0:
+                    status = 'failed'
+                elif success_count > 0 and not form_submitted:
+                    status = 'failed'
+                else:
+                    status = 'completed'
+                error_msg = fill_result.get('error') if status == 'failed' else None
 
                 # A failure is safe to auto-retry only if the submit AJAX was
                 # never fired (write_attempted=False) — otherwise the portal may
@@ -233,7 +250,7 @@ class IDMEOrchestrator:
 
                 self._update_submission(
                     submission_id, status=status,
-                    successful=success_count, failed=failed_count,
+                    successful=recorded_count, failed=failed_count,
                     duration=duration, error=error_msg
                 )
 
@@ -243,7 +260,8 @@ class IDMEOrchestrator:
                     'roster_count': roster_count,
                     'scanned_count': scanned_count,
                     'absent_count': absent_count,
-                    'submitted': success_count,
+                    'submitted': recorded_count,
+                    'skipped': skipped_count,
                     'failed': failed_count,
                     'form_submitted': form_submitted,
                     'confirmed': confirm,
@@ -254,8 +272,8 @@ class IDMEOrchestrator:
                 }
 
                 self.logger.info(
-                    f"Submission {'completed' if form_submitted else 'FAILED'}: "
-                    f"{success_count}/{absent_count} submitted in {duration:.1f}s"
+                    f"Submission {'completed' if status == 'completed' else 'FAILED'}: "
+                    f"{recorded_count}/{absent_count} recorded absent in {duration:.1f}s"
                 )
 
                 return result

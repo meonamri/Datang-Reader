@@ -115,7 +115,7 @@ class IDMEFormFiller:
         category: str = DEFAULT_CATEGORY,
         sebab_id: str = DEFAULT_SEBAB_ID,
         idpelajar: str = None
-    ) -> bool:
+    ) -> str:
         """
         Mark a single student as absent.
 
@@ -137,7 +137,9 @@ class IDMEFormFiller:
                 the checkbox is located by this exact id rather than by name.
 
         Returns:
-            True if successful, False otherwise.
+            One of: 'marked' (freshly marked absent this run), 'already_absent'
+            (the portal already had the student absent — desired state, not a
+            failure), or 'failed' (could not be marked).
         """
         # Determine correct category from sebab_id
         correct_category = SEBAB_TO_CATEGORY.get(sebab_id, category)
@@ -264,22 +266,26 @@ class IDMEFormFiller:
             )
 
             if result.get('skipped'):
-                self.logger.debug(f"'{student_name}' already absent")
-                return False
+                # Already unchecked on the portal = already absent. This is the
+                # desired end state, not a failure — log at INFO so it's visible
+                # (a whole class can be 'already absent' if a teacher filled the
+                # day manually) and report it distinctly from a real failure.
+                self.logger.info(f"Already absent on portal: {student_name}")
+                return 'already_absent'
 
             if result.get('success'):
                 if result.get('warning'):
                     self.logger.warning(f"'{student_name}': {result['warning']}")
                 else:
                     self.logger.info(f"Marked absent: {student_name}")
-                return True
+                return 'marked'
             else:
                 self.logger.error(f"Failed: {student_name}: {result.get('error')}")
-                return False
+                return 'failed'
 
         except Exception as e:
             self.logger.error(f"Exception for '{student_name}': {e}")
-            return False
+            return 'failed'
 
     async def mark_absences_and_submit(
         self,
@@ -311,6 +317,7 @@ class IDMEFormFiller:
         start = time.time()
         total = len(absent_students)
         success = 0
+        skipped = 0
         failed = 0
 
         # Wait for student table to load
@@ -340,22 +347,43 @@ class IDMEFormFiller:
             idpelajar = absence.get('idpelajar')
 
             self.logger.info(f"[{i}/{total}] {name}...")
-            result = await self.mark_student_absent(name, category, sebab_id, idpelajar)
+            outcome = await self.mark_student_absent(name, category, sebab_id, idpelajar)
 
-            if result:
+            if outcome == 'marked':
                 success += 1
+            elif outcome == 'already_absent':
+                skipped += 1
             else:
+                # Any unexpected return is treated as a real failure (fail-safe).
                 failed += 1
 
             if i < total:
                 await asyncio.sleep(delay_between)
 
-        self.logger.info(f"Marking complete: {success}/{total} success, {failed} failed")
+        self.logger.info(
+            f"Marking complete: {success}/{total} marked, "
+            f"{skipped} already absent, {failed} failed"
+        )
 
-        # Submit the form
+        # Submit the form. Only fire the submit AJAX when we actually toggled a
+        # checkbox this run (success > 0). When every absent student was already
+        # absent on the portal (skipped) there is nothing new to write, so we
+        # skip the submit and report success below — the desired end state
+        # already holds.
+        #
+        # NOTE (pre-SCHEDULER_CONFIRM follow-up): this no-submit path means a day
+        # a teacher saved as a DRAFT but never confirmed is seen as "all already
+        # absent" and left unconfirmed. Harmless in DRAFT mode (confirm=False);
+        # revisit before enabling daily auto-confirm so such a day isn't silently
+        # left as a draft.
         status = ''
         if success > 0:
             status = await self._submit_form(confirm=confirm)
+        elif skipped > 0 and failed == 0:
+            self.logger.info(
+                f"All {skipped} absent student(s) already marked on portal — "
+                "nothing new to submit"
+            )
         else:
             self.logger.warning("No students marked, skipping submission")
 
@@ -365,6 +393,7 @@ class IDMEFormFiller:
             'total': total,
             'status': status,
             'success': success,
+            'skipped': skipped,
             'failed': failed,
             'submitted': submitted,
             'duration': duration,

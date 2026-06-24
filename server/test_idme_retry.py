@@ -117,6 +117,21 @@ class RetryableFlagTests(unittest.TestCase):
         self.assertEqual(result["status"], "completed")
         self.assertFalse(result["retryable"])
 
+    def test_all_already_absent_is_completed_not_failed(self):
+        """Every absent student already marked on the portal: no marks made, no
+        submit fired, but the desired state holds -> 'completed', counted as
+        recorded (not a false failure), and never retried."""
+        result = self._run_with_fill_result({
+            "total": 2, "success": 0, "skipped": 2, "failed": 0,
+            "submitted": False, "status": "", "duration": 1.0,
+            "write_attempted": False,
+        })
+        self.assertEqual(result["status"], "completed")
+        self.assertFalse(result["retryable"])
+        # already-absent students count toward recorded ('submitted'), not failed
+        self.assertEqual(result["submitted"], 2)
+        self.assertEqual(result["failed"], 0)
+
 
 class RetryPassTests(unittest.TestCase):
     """`submit_all_classes` — the run-level retry pass."""

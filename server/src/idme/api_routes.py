@@ -297,6 +297,13 @@ def _build_overview():
 
     roster_class_names = {c['class_name'] for c in classes}
 
+    # Today's submission outcome per class, for the per-card run-status chip.
+    # Rows come back id-ASC (oldest first), so the dict overwrite leaves the
+    # LATEST attempt per class — the one a run-level retry produced.
+    today = date.today().isoformat()
+    today_subs = _orchestrator.get_submissions_for_date(today) if _orchestrator else []
+    today_by_class = {s['class_name']: s for s in today_subs}
+
     # Per-class alignment + today preview. A class is "onboarded" (will be
     # submitted to MOEIS at cutoff) only when it has an *enabled* teacher.
     class_rows = []
@@ -311,6 +318,7 @@ def _build_overview():
         # `summary.unclassified`).
         form = IDMEConfig.form_of(cn)
         session = IDMEConfig.session_for_form(form)
+        sub = today_by_class.get(cn)
         class_rows.append({
             'class_name': cn,
             'roster': roster_n,
@@ -323,6 +331,13 @@ def _build_overview():
             'session': session['name'] if session else None,
             'session_label': session['label'] if session else None,
             'session_cutoff': session['cutoff'] if session else None,
+            # Today's run outcome (None until this class fires today). Drives the
+            # per-card run-status chip.
+            'today_status': sub['status'] if sub else None,
+            'today_absent': sub['total_absent'] if sub else None,
+            'today_recorded': sub['successful'] if sub else None,
+            'today_failed': sub['failed'] if sub else None,
+            'today_error': sub['error_message'] if sub else None,
         })
 
     # Teachers whose class_name matches no roster class — the silent-misfire
