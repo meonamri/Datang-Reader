@@ -30,6 +30,7 @@ _STUDENT_COLUMNS = {
 _TEACHER_COLUMNS = {
     "login_test_status": "TEXT",        # 'ok' | 'fail' | NULL (untested)
     "login_test_at": "TIMESTAMP",       # ISO timestamp of the last probe
+    "telegram_chat_id": "TEXT",         # Telegram chat id, set when the teacher links their chat
 }
 
 

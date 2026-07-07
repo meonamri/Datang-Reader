@@ -146,6 +146,8 @@ server/diag_idme_reasons.py
 server/diag_idme_pipeline.py
 server/idme-pipeline/
 server/idme_test_run.log
+server/test_telegram_bot.py
+server/.idme-test-data/
 
 # Spyder project settings
 .spyderproject

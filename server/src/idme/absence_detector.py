@@ -12,8 +12,12 @@ from datetime import date
 
 from .roster_manager import RosterManager
 from .scan_tracker import ScanTracker
+from .absence_reason_store import AbsenceReasonStore
 from .names import normalize_name
-from .moeis_codes import DEFAULT_CATEGORY, DEFAULT_SEBAB_ID, DEFAULT_CATEGORY_MALAY, DEFAULT_SEBAB_DESCRIPTION
+from .moeis_codes import (
+    DEFAULT_CATEGORY, DEFAULT_SEBAB_ID, DEFAULT_CATEGORY_MALAY,
+    DEFAULT_SEBAB_DESCRIPTION, MOEIS_CATEGORIES, SEBAB_DESCRIPTIONS,
+)
 
 
 class AbsenceDetectorError(Exception):
@@ -26,19 +30,29 @@ class AbsenceDetector:
     Detects absent students by comparing roster against scans.
 
     Logic: roster(all students) - scanned(present students) = absent students.
-    All detected absences are assigned the default reason (N0040027).
+    Each absence is assigned a per-student reason collected before the cutoff (via
+    the Telegram bot) when one exists, otherwise the default reason (N0040027).
     """
 
-    def __init__(self, roster_manager: RosterManager, scan_tracker: ScanTracker):
+    def __init__(
+        self,
+        roster_manager: RosterManager,
+        scan_tracker: ScanTracker,
+        reason_store: Optional[AbsenceReasonStore] = None,
+    ):
         """
         Initialize absence detector.
 
         Args:
             roster_manager: RosterManager for student lists.
             scan_tracker: ScanTracker for today's scans.
+            reason_store: AbsenceReasonStore for per-student reasons (optional;
+                when None, every absence gets the default reason — the original
+                behaviour).
         """
         self.roster = roster_manager
         self.scans = scan_tracker
+        self.reason_store = reason_store
         self.logger = logging.getLogger(__name__)
 
     def detect_absences(
@@ -114,21 +128,67 @@ class AbsenceDetector:
             f"absent={len(absent_rows)}"
         )
 
-        # Step 5: Assign default reason. `idpelajar` (when present) lets
-        # form_filler mark by the portal id instead of the name (Seam B).
+        # Step 5: Assign each absentee a reason. A per-student reason collected
+        # before the cutoff (via the Telegram bot) overrides the default; everyone
+        # else keeps the default (MALAS KE SEKOLAH) — the original behaviour.
+        # Match a stored reason by idpelajar first (exact, portal id), then by
+        # normalized name. `idpelajar` (when present) also lets form_filler mark by
+        # the portal id instead of the name (Seam B).
+        reasons = (
+            self.reason_store.get_reasons_for(class_name, scan_date)
+            if self.reason_store else {}
+        )
+
         absences = []
         for s in absent_rows:
+            reason = self._reason_for(s, reasons)
             absences.append({
                 'student_name': s['name'],
                 'class_name': class_name,
                 'idpelajar': s.get('idpelajar'),
+                **reason,
+            })
+
+        return absences
+
+    def _reason_for(
+        self,
+        student: Dict[str, Any],
+        reasons: Dict[str, Dict[str, str]],
+    ) -> Dict[str, str]:
+        """
+        Resolve the absence reason for one roster student.
+
+        Looks up a stored reason by idpelajar then normalized name; falls back to
+        the default reason when none is recorded. Returns the four reason fields
+        the form filler / UI expect (category, category_malay, sebab_id,
+        sebab_description).
+        """
+        entry = None
+        idpelajar = student.get('idpelajar')
+        if idpelajar:
+            entry = reasons.get(AbsenceReasonStore.id_key(idpelajar))
+        if entry is None:
+            entry = reasons.get(
+                AbsenceReasonStore.name_key(self._normalize_name(student['name']))
+            )
+
+        if entry is None:
+            return {
                 'category': DEFAULT_CATEGORY,
                 'category_malay': DEFAULT_CATEGORY_MALAY,
                 'sebab_id': DEFAULT_SEBAB_ID,
                 'sebab_description': DEFAULT_SEBAB_DESCRIPTION,
-            })
+            }
 
-        return absences
+        sebab_id = entry['sebab_id']
+        category = entry['category']
+        return {
+            'category': category,
+            'category_malay': MOEIS_CATEGORIES.get(category, DEFAULT_CATEGORY_MALAY),
+            'sebab_id': sebab_id,
+            'sebab_description': SEBAB_DESCRIPTIONS.get(sebab_id, ''),
+        }
 
     def get_attendance_summary(
         self,

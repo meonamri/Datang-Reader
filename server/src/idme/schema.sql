@@ -54,13 +54,26 @@ CREATE TABLE IF NOT EXISTS teachers (
     enabled BOOLEAN DEFAULT 1,
     login_test_status TEXT,                 -- last login probe: 'ok' | 'fail' | NULL (untested)
     login_test_at TIMESTAMP,                -- when the last login probe ran (ISO)
+    telegram_chat_id TEXT,                  -- Telegram chat id (set when the teacher links their chat)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
--- NOTE: login_test_* are also added to EXISTING databases by
--- migrations.apply_migrations() (CREATE TABLE IF NOT EXISTS is a no-op once the
--- table exists, so new columns never reach an already-created teachers table).
+-- NOTE: login_test_* and telegram_chat_id are also added to EXISTING databases
+-- by migrations.apply_migrations() (CREATE TABLE IF NOT EXISTS is a no-op once
+-- the table exists, so new columns never reach an already-created teachers table).
 CREATE INDEX IF NOT EXISTS idx_teachers_class ON teachers(class_name);
+
+-- Per-chat brute-force guard for the Telegram self-link passphrase. A teacher
+-- types the shared passphrase to the bot to link their chat; after too many
+-- wrong tries the chat is locked for a cooldown window. Persisted (not just
+-- in-memory) so a restart can't reset an attacker's counter; the lock auto-
+-- clears once `blocked_until` passes, and a successful link resets the row.
+CREATE TABLE IF NOT EXISTS telegram_auth_attempts (
+    chat_id         TEXT PRIMARY KEY,
+    failed_attempts INTEGER NOT NULL DEFAULT 0,
+    blocked_until   TIMESTAMP,        -- NULL = not locked; else locked until this ISO time
+    updated_at      TIMESTAMP
+);
 
 -- Daily scan records (populated as students tap RFID cards)
 CREATE TABLE IF NOT EXISTS daily_scans (
@@ -77,6 +90,27 @@ CREATE INDEX IF NOT EXISTS idx_scans_date ON daily_scans(scan_date);
 CREATE INDEX IF NOT EXISTS idx_scans_class_date ON daily_scans(class_name, scan_date);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_scans_unique
     ON daily_scans(student_name, class_name, scan_date);
+
+-- Per-student absence reasons collected before the cutoff (e.g. via the Telegram
+-- bot). detect_absences merges these over the default reason (MALAS KE SEKOLAH);
+-- a student with no row here keeps the default. Upserted on the unique index so a
+-- teacher can change a reason any time before the cutoff submits.
+CREATE TABLE IF NOT EXISTS absence_reasons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scan_date    DATE NOT NULL,
+    class_name   TEXT NOT NULL,
+    student_name TEXT NOT NULL,        -- uppercase roster name (name merge key)
+    idpelajar    TEXT,                 -- MOEIS portal student id (preferred match when known)
+    sebab_id     TEXT NOT NULL,        -- MOEIS sebab code, e.g. 'D0010075'
+    category     TEXT NOT NULL,        -- MOEIS category, derived from sebab_id
+    set_by       INTEGER,              -- teachers.id that recorded the reason
+    source       TEXT DEFAULT 'telegram',
+    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_absence_reasons_unique
+    ON absence_reasons(scan_date, class_name, student_name);
+CREATE INDEX IF NOT EXISTS idx_absence_reasons_date ON absence_reasons(scan_date);
 
 -- IDME submission log (tracks what was submitted when)
 CREATE TABLE IF NOT EXISTS idme_submissions (
