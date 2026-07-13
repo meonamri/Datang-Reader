@@ -42,6 +42,17 @@ services:
       - IDME_DEBUG=${IDME_DEBUG:-false}
       - IDME_DATABASE_PATH=/data/idme/idme_data.db
 
+      # === IDME Telegram bot (Optional — per-student absence reasons) ===
+      # Off unless ENABLED=true AND a bot token is set. PASSPHRASE is REQUIRED
+      # when enabled (teachers type it to link their chat) — enabling without it
+      # fails config validation and takes the whole IDME module down. Prompt
+      # times must be before their session cutoff. See server/IDME_DEPLOY.md.
+      - IDME_TELEGRAM_ENABLED=${IDME_TELEGRAM_ENABLED:-false}
+      - IDME_TELEGRAM_BOT_TOKEN=${IDME_TELEGRAM_BOT_TOKEN:-}
+      - IDME_TELEGRAM_PASSPHRASE=${IDME_TELEGRAM_PASSPHRASE:-}
+      - IDME_TELEGRAM_PROMPT_TIME_MORNING=${IDME_TELEGRAM_PROMPT_TIME_MORNING:-10:00}
+      - IDME_TELEGRAM_PROMPT_TIME_EVENING=${IDME_TELEGRAM_PROMPT_TIME_EVENING:-15:00}
+
     # Volume mounts for persistent data
     volumes:
       # Datang authentication token
