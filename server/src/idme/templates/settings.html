@@ -150,6 +150,13 @@
         .runcard.run-running { border-left-color: var(--ink); }
         .runcard.run-running .rc-dot { background: var(--ink); }
         /* run-pending / run-none keep the neutral grey default */
+        /* Inline failure reason on a failed/partial session card — tooltips
+           don't exist on touch devices, so the error must be readable inline. */
+        .rc-err {
+            font-family: var(--mono); font-size: 11.5px; color: var(--red);
+            margin-top: 5px; line-height: 1.45; word-break: break-word;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+        }
 
         /* ---- Misfire alert ---- */
         .misfire {
@@ -258,6 +265,13 @@
         .cov .track { flex: 1; height: 6px; background: var(--surface-2); border: 1px solid var(--line); overflow: hidden; }
         .cov .fill { height: 100%; }
         .cov .ct { font-size: 10.5px; font-family: var(--mono); color: var(--ink-3); white-space: nowrap; }
+        /* Inline failure reason on a class card whose run failed today. */
+        .ccard .cerr {
+            margin-top: 10px; padding: 6px 9px 6px 10px;
+            background: var(--red-bg); border-left: 3px solid var(--red);
+            font-family: var(--mono); font-size: 11.5px; color: var(--red);
+            line-height: 1.5; word-break: break-word;
+        }
 
         .empty { text-align: center; padding: 40px 20px; color: var(--ink-3); font-size: 13.5px; line-height: 1.6; }
         .firstrun { text-align: center; padding: 40px 24px; background: var(--surface); border: 1px solid var(--line-2); }
@@ -290,6 +304,17 @@
         }
         .pill.green { color: var(--green); border-color: var(--green); background: var(--green-bg); }
         .pill.grey  { color: var(--ink-3); }
+        .pill.red   { color: var(--red); border-color: var(--red); background: var(--red-bg); }
+        .pill.amber { color: var(--amber); border-color: var(--amber); background: var(--amber-bg); }
+        /* History table: note cell. Hazard-red only for a genuine failure;
+           a skip reason (e.g. non-school day) is informational, so muted. */
+        .hist-note {
+            font-family: var(--mono); font-size: 11.5px; color: var(--ink-3);
+            word-break: break-word; line-height: 1.45;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+        }
+        .hist-note.err { color: var(--red); }
+        .hist-class { white-space: nowrap; }
         .cred { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-3); }
         .classwarn { display: block; font-size: 10.5px; color: var(--red); font-weight: 700; margin-top: 2px; letter-spacing: 0.03em; }
 
@@ -460,6 +485,7 @@
                 <div class="rc-main">
                     <div class="rc-sess">{{ f.forms_label }} &middot; {{ f.label }}</div>
                     <div class="rc-line"><span class="rc-head">{{ f.headline }}</span><span class="rc-detail">{{ f.detail }}</span></div>
+                    {% if f.status in ('failed', 'partial') and f.message %}<div class="rc-err">{{ f.message }}</div>{% endif %}
                 </div>
                 <span class="rc-cut">{{ f.cutoff }}</span>
             </div>
@@ -661,6 +687,16 @@
             <p class="hint" style="margin-bottom:12px;">Cards are learned automatically as students tap. During warm-up, un-mapped students are still matched by name; tag-based (name-free) detection is fully trustworthy once a class reaches 100%. Only classes below 100% are listed.</p>
             <div id="coverage-content" style="color:var(--ink-3); font-size:13px;">Loading coverage&hellip;</div>
         </div>
+
+        <!-- ===== Submission history (durable log, newest first) ===== -->
+        <div class="sechead"><h2>Submission history</h2><span class="rule"></span>
+            <input type="text" id="hist-filter" class="mono" placeholder="Filter class&hellip;" style="width:150px; padding:5px 9px; font-size:12px;">
+            <button class="btn btn-sm" id="refresh-history" type="button" style="border-color:var(--line-2);">Refresh</button>
+        </div>
+        <div class="panel">
+            <p class="hint" style="margin-bottom:12px;">The last 50 runs from the durable submissions log, newest first - scheduled fires, manual submits and automatic retries all appear here (a retry writes its own row). Use it to review past fires without reading container logs.</p>
+            <div id="history-content" style="color:var(--ink-3); font-size:13px;">Loading history&hellip;</div>
+        </div>
     </div>
 
     <!-- ===== Live progress console (Test login / Initialise from portal) ===== -->
@@ -830,12 +866,15 @@
             strip.style.display = '';
             strip.innerHTML = fires.map(f => {
                 const title = f.message ? ` title="${escapeHtml(f.message)}"` : '';
+                const err = ((f.status === 'failed' || f.status === 'partial') && f.message)
+                    ? `<div class="rc-err">${escapeHtml(f.message)}</div>` : '';
                 return `<div class="runcard run-${escapeHtml(f.status)}"${title}>`
                     + `<span class="rc-dot"></span>`
                     + `<div class="rc-main">`
                     + `<div class="rc-sess">${escapeHtml(f.forms_label || '')} &middot; ${escapeHtml(f.label || '')}</div>`
                     + `<div class="rc-line"><span class="rc-head">${escapeHtml(f.headline || '')}</span>`
                     + `<span class="rc-detail">${escapeHtml(f.detail || '')}</span></div>`
+                    + err
                     + `</div>`
                     + `<span class="rc-cut">${escapeHtml(f.cutoff || '')}</span>`
                     + `</div>`;
@@ -976,6 +1015,15 @@
                 if (c.session_cutoff) sessChip = `<span class="sesschip" title="${escapeHtml(c.session_label || '')}">${escapeHtml(c.session_cutoff)}</span>`;
                 else if (c.onboarded) sessChip = `<span class="sesschip warn" title="form maps to no session">no session</span>`;
 
+                // Inline failure reason (tooltips are unreachable on touch).
+                // Same fallback text as the Failed chip's tooltip in runChip().
+                let errLine = '';
+                if (c.today_status === 'failed') {
+                    const msg = c.today_error
+                        || `${c.today_failed || 0} of ${c.today_absent || 0} absent student(s) could not be recorded`;
+                    errLine = `<div class="cerr" title="${escapeHtml(msg)}">&#10005; ${escapeHtml(msg)}</div>`;
+                }
+
                 return `<div class="ccard ${meta.cls}">
                     <div class="top">
                         <span class="sdot" style="background:${meta.dot};"></span>
@@ -996,6 +1044,7 @@
                         <div class="track"><div class="fill" style="width:${pct === null ? 0 : pct}%;background:${barColor};"></div></div>
                         <span class="ct">${covText}</span>
                     </div>
+                    ${errLine}
                 </div>`;
             }).join('');
         }
@@ -1042,6 +1091,72 @@
                 el.innerHTML = head + rows;
             } catch (err) { el.textContent = `Error loading coverage: ${err.message}`; }
         }
+        // ---- Submission history ----
+        // Fetched once (last 50 rows) and filtered client-side: the server's
+        // ?class= filter is exact-match, which is hostile to typing. 50 rows is
+        // the review window for the supervised-gating period, not an archive.
+        let HISTORY = null;
+        function histTime(r) {
+            const iso = r.completed_at || r.started_at || '';
+            return iso.length >= 16 ? iso.slice(11, 16) : '';
+        }
+        function histPill(r) {
+            if (r.status === 'failed')  return '<span class="pill red">Failed</span>';
+            if (r.status === 'skipped') return '<span class="pill grey">Skipped</span>';
+            if (r.status === 'running') return '<span class="pill amber">Running</span>';
+            if (r.status === 'completed') {
+                return (r.total_absent || 0) === 0
+                    ? '<span class="pill grey">Done</span>'
+                    : '<span class="pill green">Success</span>';
+            }
+            return `<span class="pill grey">${escapeHtml(r.status || '?')}</span>`;
+        }
+        function renderHistory() {
+            const el = document.getElementById('history-content');
+            if (!HISTORY) return;
+            if (!HISTORY.length) {
+                el.innerHTML = '<div class="empty">No submissions logged yet - this fills in after the first scheduled fire or manual submit.</div>';
+                return;
+            }
+            const q = document.getElementById('hist-filter').value.trim().toLowerCase();
+            const rows = q ? HISTORY.filter(r => (r.class_name || '').toLowerCase().includes(q)) : HISTORY;
+            if (!rows.length) { el.innerHTML = '<div class="empty">No runs match this filter.</div>'; return; }
+            const body = rows.map(r => {
+                const counted = r.status === 'completed' || r.status === 'failed';
+                const rec = counted ? `${r.successful || 0}/${r.total_absent || 0}` : '&mdash;';
+                const dur = r.duration_seconds ? `${Math.round(r.duration_seconds)}s` : '&mdash;';
+                const note = r.error_message
+                    ? `<span class="hist-note${r.status === 'failed' ? ' err' : ''}" title="${escapeHtml(r.error_message)}">${escapeHtml(r.error_message)}</span>`
+                    : '<span class="hist-note">&mdash;</span>';
+                return `<tr>
+                    <td data-th="Date" class="num">${escapeHtml(r.submission_date || '')}</td>
+                    <td data-th="Time" class="num">${escapeHtml(histTime(r)) || '&mdash;'}</td>
+                    <td data-th="Class" class="mono hist-class">${escapeHtml(r.class_name || '')}</td>
+                    <td data-th="Status">${histPill(r)}</td>
+                    <td data-th="Recorded / absent" class="num">${rec}</td>
+                    <td data-th="Duration" class="num">${dur}</td>
+                    <td data-th="Note">${note}</td>
+                </tr>`;
+            }).join('');
+            el.innerHTML = `<table>
+                <thead><tr><th>Date</th><th>Time</th><th>Class</th><th>Status</th><th>Recorded / absent</th><th>Duration</th><th>Note</th></tr></thead>
+                <tbody>${body}</tbody></table>`;
+        }
+        async function loadHistory(btn) {
+            const el = document.getElementById('history-content');
+            if (btn) busy(btn, true, ' Refreshing');
+            try {
+                const resp = await fetch('/idme/submissions?limit=50');
+                const data = await resp.json();
+                if (!resp.ok) { el.textContent = data.error || 'Failed to load history'; return; }
+                HISTORY = data.submissions || [];
+                renderHistory();
+            } catch (err) { el.textContent = `Error loading history: ${err.message}`; }
+            finally { if (btn) busy(btn, false); }
+        }
+        document.getElementById('refresh-history').addEventListener('click', (e) => loadHistory(e.currentTarget));
+        document.getElementById('hist-filter').addEventListener('input', renderHistory);
+
         async function refreshOverview(btn) {
             if (btn) busy(btn, true, ' Refreshing');
             try {
@@ -1298,6 +1413,7 @@
         renderLastFire(INITIAL_OVERVIEW);
         renderClasses();
         loadCoverage();
+        loadHistory();
     </script>
 </body>
 </html>
