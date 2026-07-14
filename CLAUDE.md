@@ -76,6 +76,15 @@ left untouched keeps MALAS KE SEKOLAH — the original behaviour, so this only
   routed to a prompt by the same leading-form-number rule as the cutoff scheduler.
   Implementation is `server/src/idme/telegram_bot.py` (requests-based long-polling
   daemon thread — same style as `scheduler.py`, no webhook/asyncio).
+- **Re-prompting one class** (a teacher who onboarded *after* the scheduled
+  session prompt already fired): the scheduler only fires per session. Two on-
+  demand paths cover the straggler — the teacher sends **`/kehadiran`** to pull
+  their own current list, or an admin clicks **Prompt teacher** on that class's
+  card in `/idme/settings` (`POST /idme/telegram/prompt {class_name}` →
+  `bot.prompt_class`). Both **must** run in the live bot instance (the web
+  process) — the prompt's button ids live in the bot's in-memory `_entries`, so a
+  separate one-off process would send the DM but the teacher's taps would answer
+  "session expired". Never start a second poller on the same token (Telegram 409).
 
 ### Deploying / turning it on
 

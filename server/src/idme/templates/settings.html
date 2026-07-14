@@ -244,6 +244,7 @@
         .cov .track { flex: 1; height: 6px; background: var(--surface-2); border: 1px solid var(--line); overflow: hidden; }
         .cov .fill { height: 100%; }
         .cov .ct { font-size: 10.5px; font-family: var(--mono); color: var(--ink-3); white-space: nowrap; }
+        .ccard-actions { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--line); }
 
         .empty { text-align: center; padding: 40px 20px; color: var(--ink-3); font-size: 13.5px; line-height: 1.6; }
         .firstrun { text-align: center; padding: 40px 24px; background: var(--surface); border: 1px solid var(--line-2); }
@@ -665,6 +666,7 @@
 
     <script>
         const INITIAL_OVERVIEW = {{ overview|tojson }};
+        const TELEGRAM_ENABLED = {{ 'true' if telegram_enabled else 'false' }};
         let COVERAGE = null;           // {class_name: {mapped, total, pct, unmapped[]}}
         let LAST_OVERVIEW = INITIAL_OVERVIEW;
         const viewState = { view: 'classes', form: 'all', issuesOnly: false };
@@ -953,6 +955,9 @@
                         <div class="track"><div class="fill" style="width:${pct === null ? 0 : pct}%;background:${barColor};"></div></div>
                         <span class="ct">${covText}</span>
                     </div>
+                    ${(TELEGRAM_ENABLED && c.onboarded && c.telegram_linked)
+                        ? `<div class="ccard-actions"><button class="btn btn-sm js-prompt-teacher" type="button" data-class="${escapeHtml(c.class_name)}" title="Send today's absentee list to this teacher on Telegram now">Prompt teacher</button></div>`
+                        : ''}
                 </div>`;
             }).join('');
         }
@@ -961,6 +966,31 @@
             viewState.issuesOnly = !viewState.issuesOnly;
             e.currentTarget.classList.toggle('on', viewState.issuesOnly);
             renderClasses();
+        });
+
+        // Prompt-teacher button on a class card (delegated: cards re-render on refresh).
+        document.getElementById('class-grid').addEventListener('click', async (e) => {
+            const btn = e.target.closest('.js-prompt-teacher'); if (!btn) return;
+            const cls = btn.dataset.class;
+            if (!confirm(`Send today's absentee list to the teacher of ${cls} on Telegram now?`)) return;
+            const orig = btn.textContent; btn.disabled = true; btn.textContent = 'Sending…';
+            try {
+                const resp = await fetch('/idme/telegram/prompt', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ class_name: cls }),
+                });
+                const data = await resp.json().catch(() => ({}));
+                if (resp.ok) {
+                    btn.textContent = 'Sent ✓';
+                    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2500);
+                } else {
+                    alert((data && data.error) || 'Failed to prompt.');
+                    btn.textContent = orig; btn.disabled = false;
+                }
+            } catch (err) {
+                alert('Request failed.');
+                btn.textContent = orig; btn.disabled = false;
+            }
         });
 
         // ---- Data loaders ----

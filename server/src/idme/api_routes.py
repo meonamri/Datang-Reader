@@ -343,6 +343,9 @@ def _build_overview():
             'teacher_name': teacher['name'] if teacher else None,
             'teacher_enabled': bool(teacher['enabled']) if teacher else False,
             'onboarded': bool(teacher and teacher['enabled']),
+            # Whether this class's teacher has linked their Telegram chat — the
+            # settings 'Prompt teacher' button only shows when this is true.
+            'telegram_linked': bool(teacher.get('telegram_chat_id')) if teacher else False,
             'form': form,
             'session': session['name'] if session else None,
             'session_label': session['label'] if session else None,
@@ -654,6 +657,31 @@ def unlink_teacher_telegram(teacher_id):
         return jsonify({'success': True}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@idme_bp.route('/telegram/prompt', methods=['POST'])
+def prompt_class_now():
+    """Manually (re-)send today's absentee prompt to one class's teacher.
+
+    Backs the settings 'Prompt teacher' button — e.g. a teacher who onboarded
+    after the scheduled session prompt already fired. Runs in the web process,
+    so the live bot's in-memory entry registry is used and the teacher's button
+    taps resolve correctly. JSON body: {"class_name": "5 UKM"}."""
+    if not _teacher_manager:
+        return jsonify({'error': 'IDME module not initialized'}), 503
+    if not _telegram_bot:
+        return jsonify({'error': 'Telegram bot is not enabled'}), 503
+
+    data = request.get_json(silent=True) or {}
+    class_name = (data.get('class_name') or '').strip()
+    if not class_name:
+        return jsonify({'error': 'class_name is required'}), 400
+
+    result = _telegram_bot.prompt_class(class_name)
+    if not result.get('ok'):
+        return jsonify({'error': result.get('error', 'Failed to prompt')}), 400
+    return jsonify({'success': True, 'sent': result.get('sent', 0),
+                    'teacher': result.get('teacher')}), 200
 
 
 @idme_bp.route('/teachers/<int:teacher_id>/test', methods=['POST'])

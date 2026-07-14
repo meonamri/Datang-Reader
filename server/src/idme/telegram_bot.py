@@ -174,6 +174,9 @@ class TelegramClient:
             params['text'] = text
         return self._call('answerCallbackQuery', **params)
 
+    def set_my_commands(self, commands) -> Optional[dict]:
+        return self._call('setMyCommands', commands=commands)
+
 
 def _truncate(label: str) -> str:
     return label if len(label) <= _MAX_BTN_LABEL else label[:_MAX_BTN_LABEL - 1] + '…'
@@ -214,6 +217,11 @@ class IDMETelegramBot:
             self.logger.error("Telegram bot disabled: getMe failed (bad token or no network)")
             return False
         self.bot_username = me.get('username')
+        # Advertise the slash commands so teachers see them in the bot's menu.
+        self.client.set_my_commands([
+            {'command': 'start', 'description': 'Hubungkan atau semak status akaun'},
+            {'command': 'kehadiran', 'description': 'Hantar senarai tidak hadir hari ini'},
+        ])
         self.running = True
         self._thread = threading.Thread(target=self._poll_loop, daemon=True)
         self._thread.start()
@@ -252,6 +260,12 @@ class IDMETelegramBot:
 
         if text.startswith('/start'):
             self._begin_link(chat_id)
+            return
+
+        # Self-serve: a linked teacher pulls their current absentee list on
+        # demand (e.g. they onboarded after the scheduled prompt already fired).
+        if text.startswith('/kehadiran') or text.startswith('/semak'):
+            self._handle_self_prompt(chat_id)
             return
 
         # Mid-conversation: a teacher typing their passphrase.
@@ -388,6 +402,23 @@ class IDMETelegramBot:
             self._link_state.pop(chat_id, None)
             self._class_choices.pop(chat_id, None)
 
+    def _handle_self_prompt(self, chat_id):
+        """A linked teacher asked for their current absentee list (/kehadiran)."""
+        teacher = self.teacher_manager.get_teacher_by_chat_id(chat_id)
+        if not teacher:
+            self.client.send_message(
+                chat_id,
+                "Akaun ini belum dihubungkan. Hantar /start untuk menghubungkan "
+                "akaun anda dahulu.",
+            )
+            return
+        try:
+            self._prompt_teacher(teacher, chat_id, date.today().isoformat())
+        except Exception as e:
+            self.logger.error(f"Self-serve prompt failed for chat {chat_id}: {e}")
+            self.client.send_message(
+                chat_id, "⚠️ Ralat memuat senarai. Sila cuba lagi kemudian.")
+
     @staticmethod
     def _locked_text(retry_seconds: int) -> str:
         minutes = max(1, (retry_seconds + 59) // 60)
@@ -508,6 +539,31 @@ class IDMETelegramBot:
             f"{sent} messages sent"
         )
         return sent
+
+    def prompt_class(self, class_name: str, scan_date: Optional[str] = None) -> dict:
+        """(Re-)send today's absentee prompt to one class's linked teacher.
+
+        Backs the settings 'Prompt teacher' button and covers a teacher who
+        onboarded after the scheduled session prompt already fired. Returns a
+        small status dict: {'ok', 'sent'/'error', 'teacher'}."""
+        if scan_date is None:
+            scan_date = date.today().isoformat()
+        teacher = self.teacher_manager.get_teacher_for_class(class_name)
+        if not teacher:
+            return {'ok': False, 'error': f'No enabled teacher configured for {class_name}'}
+        # get_teacher_for_class doesn't select telegram_chat_id; fetch the full row.
+        full = self.teacher_manager.get_teacher(teacher['id']) or teacher
+        chat_id = full.get('telegram_chat_id')
+        if not chat_id:
+            return {'ok': False,
+                    'error': f"{teacher['name']} has not linked their Telegram yet"}
+        try:
+            sent = self._prompt_teacher(full, chat_id, scan_date)
+        except Exception as e:
+            self.logger.error(f"Manual prompt for {class_name} failed: {e}")
+            return {'ok': False, 'error': str(e)}
+        self.logger.info(f"Manual Telegram prompt for {class_name}: {sent} message(s)")
+        return {'ok': True, 'sent': sent, 'teacher': teacher['name']}
 
     def _prompt_teacher(self, teacher, chat_id, scan_date) -> int:
         class_name = teacher['class_name']
