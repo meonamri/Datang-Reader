@@ -362,10 +362,13 @@ class AttendanceApp(QMainWindow):
         self.client = InputClient(container_url)
         self.container_url = container_url
 
-        # Statistics
-        self.total_scans = 0
-        self.successful_scans = 0
-        self.failed_scans = 0
+        # Statistics — counted per unique student (deduplicated by card ID),
+        # not per tap. `seen_cards` is every card that scanned today;
+        # `recorded_cards` is the subset the server successfully recorded. The
+        # three displayed numbers derive from these (see the properties below),
+        # so a student who taps twice — or fails then re-taps — counts once.
+        self.seen_cards = set()
+        self.recorded_cards = set()
         self.last_scan_time = None
         self.last_scan_ok = None
         self.container_online = False
@@ -909,8 +912,9 @@ class AttendanceApp(QMainWindow):
 
         is_valid, error = self.client.validate_card_id(card_id)
         if not is_valid:
-            self.failed_scans += 1
-            self.total_scans += 1
+            # Seen but never recorded → shows up under Failed via the derived
+            # properties. Deduplicated, so re-tapping the same bad card once.
+            self.seen_cards.add(card_id)
             self.last_scan_time = timestamp_short
             self.last_scan_ok = False
             self.set_hero_state('error', headline="Invalid card", subline=error)
@@ -927,11 +931,9 @@ class AttendanceApp(QMainWindow):
         name = (data or {}).get('name', '') or ''
         section = (data or {}).get('section', '') or ''
 
-        self.total_scans += 1
+        self.seen_cards.add(card_id)
         if success:
-            self.successful_scans += 1
-        else:
-            self.failed_scans += 1
+            self.recorded_cards.add(card_id)
 
         self.last_scan_time = timestamp_short
         self.last_scan_ok = success
@@ -959,6 +961,21 @@ class AttendanceApp(QMainWindow):
         self.set_hero_state('idle')
 
     # ---------------------------------------------------------------- stats
+    @property
+    def total_scans(self) -> int:
+        """Unique students who tapped today (valid or invalid card)."""
+        return len(self.seen_cards)
+
+    @property
+    def successful_scans(self) -> int:
+        """Unique students the server successfully recorded today."""
+        return len(self.recorded_cards)
+
+    @property
+    def failed_scans(self) -> int:
+        """Unique students seen but never recorded today (seen − recorded)."""
+        return len(self.seen_cards - self.recorded_cards)
+
     def _refresh_stats_labels(self):
         self.total_value.setText(str(self.total_scans))
         self.success_value.setText(str(self.successful_scans))
@@ -985,9 +1002,8 @@ class AttendanceApp(QMainWindow):
             with open(STATS_FILE, "r") as f:
                 data = json.load(f)
             if data.get("date") == today:
-                self.total_scans = data.get("total_scans", 0)
-                self.successful_scans = data.get("successful_scans", 0)
-                self.failed_scans = data.get("failed_scans", 0)
+                self.seen_cards = set(data.get("seen_cards", []))
+                self.recorded_cards = set(data.get("recorded_cards", []))
             else:
                 self._save_stats()
         except (FileNotFoundError, json.JSONDecodeError, KeyError):
@@ -996,6 +1012,10 @@ class AttendanceApp(QMainWindow):
     def _save_stats(self):
         data = {
             "date": datetime.now().strftime("%Y-%m-%d"),
+            # Source of truth is the card-ID sets; the counts below are derived
+            # and written only for human inspection of the file.
+            "seen_cards": sorted(self.seen_cards),
+            "recorded_cards": sorted(self.recorded_cards),
             "total_scans": self.total_scans,
             "successful_scans": self.successful_scans,
             "failed_scans": self.failed_scans,
@@ -1012,9 +1032,8 @@ class AttendanceApp(QMainWindow):
             with open(STATS_FILE, "r") as f:
                 data = json.load(f)
             if data.get("date") != today:
-                self.total_scans = 0
-                self.successful_scans = 0
-                self.failed_scans = 0
+                self.seen_cards = set()
+                self.recorded_cards = set()
                 self._refresh_stats_labels()
         except (FileNotFoundError, json.JSONDecodeError, KeyError):
             pass
