@@ -52,6 +52,13 @@ services:
       - IDME_TELEGRAM_PASSPHRASE=${IDME_TELEGRAM_PASSPHRASE:-}
       - IDME_TELEGRAM_PROMPT_TIME_MORNING=${IDME_TELEGRAM_PROMPT_TIME_MORNING:-10:00}
       - IDME_TELEGRAM_PROMPT_TIME_EVENING=${IDME_TELEGRAM_PROMPT_TIME_EVENING:-15:00}
+      # Admin chat id for the "Hadir (lupa kad)" over-limit alert, and the limit
+      # policy. Admin id empty -> the alert is skipped (the Hadir button still
+      # works). This block ENUMERATES env keys (no env_file), so a var set only in
+      # .env would never reach the container without being listed here.
+      - IDME_TELEGRAM_ADMIN_CHAT_ID=${IDME_TELEGRAM_ADMIN_CHAT_ID:-}
+      - IDME_HADIR_LIMIT=${IDME_HADIR_LIMIT:-3}
+      - IDME_HADIR_WINDOW_DAYS=${IDME_HADIR_WINDOW_DAYS:-14}
 
     # Volume mounts for persistent data
     volumes:
