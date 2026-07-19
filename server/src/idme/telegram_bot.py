@@ -185,11 +185,16 @@ def _truncate(label: str) -> str:
 class IDMETelegramBot:
     """Long-polling Telegram bot: teacher linking, reason prompts, reason capture."""
 
-    def __init__(self, token, teacher_manager, absence_detector, reason_store, db_path):
+    def __init__(self, token, teacher_manager, absence_detector, reason_store,
+                 db_path, present_store=None):
         self.client = TelegramClient(token)
         self.teacher_manager = teacher_manager
         self.absence_detector = absence_detector
         self.reason_store = reason_store
+        # PresentOverrideStore backing the "Hadir (lupa kad)" button. Optional so
+        # the bot still runs (reasons-only) if it isn't wired; when None, the Hadir
+        # button is omitted from the keyboard.
+        self.present_store = present_store
         self.guard = TelegramAuthGuard(db_path)
         self.logger = logging.getLogger(__name__)
 
@@ -456,6 +461,12 @@ class IDMETelegramBot:
             # Quick-pick or category-pick: parts = [action, entry_id, sebab_id]
             sebab_id = parts[2] if len(parts) > 2 else ''
             self._record_choice(entry, entry_id, sebab_id, chat_id, message_id, cq_id)
+        elif action == 'h':
+            # "Hadir (lupa kad)": mark the student present (drop from absent).
+            self._record_present(entry, entry_id, chat_id, message_id, cq_id)
+        elif action == 'u':
+            # Undo a "Hadir" mark: clear the override and restore the reason list.
+            self._undo_present(entry, entry_id, chat_id, message_id, cq_id)
         elif action == 'm':
             # Open the full category browser.
             self.client.edit_message_text(
@@ -501,6 +512,18 @@ class IDMETelegramBot:
             self.client.answer_callback_query(cq_id, "Gagal menyimpan. Cuba lagi.")
             return
 
+        # A reason and a "Hadir" present-override are mutually exclusive: choosing
+        # a reason means the student IS absent, so clear any earlier Hadir override
+        # for them (best-effort — a stale override left behind would otherwise
+        # wrongly drop the student from the absent list).
+        if self.present_store is not None:
+            try:
+                self.present_store.clear_override(
+                    entry['class_name'], entry['student_name'], entry['scan_date'])
+            except Exception as e:
+                self.logger.warning(
+                    f"Failed to clear present-override on reason pick: {e}")
+
         # Keep a "change reason" button on the confirmation so a mis-tap is
         # correctable: it reuses the 'b' (back-to-quick-pick) action on the same
         # still-live entry. A later re-pick upserts over this one. If the process
@@ -516,6 +539,134 @@ class IDMETelegramBot:
             reply_markup=change_kbd,
         )
         self.client.answer_callback_query(cq_id, "Disimpan ✅")
+
+    def _record_present(self, entry, entry_id, chat_id, message_id, cq_id):
+        """Handle a "Hadir (lupa kad)" tap: record the present-override (so the
+        student is dropped from today's absent list) and, when the student's Hadir
+        days in the rolling window exceed the limit, alert the admin. The override
+        is NEVER blocked — a genuinely-present student must not be marked absent;
+        the limit only triggers a notification."""
+        from .idme_config import IDMEConfig
+        if self.present_store is None:
+            self.client.answer_callback_query(cq_id, "Ciri tidak tersedia.")
+            return
+        try:
+            saved = self.present_store.mark_present(
+                class_name=entry['class_name'],
+                student_name=entry['student_name'],
+                scan_date=entry['scan_date'],
+                idpelajar=entry.get('idpelajar'),
+                set_by=entry.get('teacher_id'),
+                source='telegram',
+                window_days=IDMEConfig.HADIR_WINDOW_DAYS,
+            )
+        except Exception as e:
+            self.logger.error(f"Failed to store present-override from Telegram: {e}")
+            self.client.answer_callback_query(cq_id, "Gagal menyimpan. Cuba lagi.")
+            return
+
+        # Present and reason are mutually exclusive — drop any earlier reason so
+        # the student isn't both "present" and carrying an absence reason.
+        try:
+            self.reason_store.clear_reason(
+                entry['class_name'], entry['student_name'], entry['scan_date'])
+        except Exception as e:
+            self.logger.warning(f"Failed to clear reason on Hadir: {e}")
+
+        window_count = saved.get('window_count', 1)
+        limit = IDMEConfig.HADIR_LIMIT
+        over = window_count > limit
+
+        note = ''
+        if over:
+            note = (f"\n\n⚠️ Pelajar ini telah menandakan Hadir (lupa kad) "
+                    f"{window_count} kali dalam {IDMEConfig.HADIR_WINDOW_DAYS} hari "
+                    "— pentadbir telah dimaklumkan.")
+
+        # An "undo" button restores the reason keyboard on the same live entry, so
+        # a mis-tap is correctable exactly like the reason "change" button.
+        undo_kbd = json.dumps({'inline_keyboard': [[
+            {'text': '↺ Batal (tanda tidak hadir semula)',
+             'callback_data': f"u|{entry_id}"}
+        ]]})
+        self.client.edit_message_text(
+            chat_id, message_id,
+            f"🟢 {entry['student_name']} ({entry['class_name']})\n"
+            f"Ditanda HADIR (lupa kad) — dikeluarkan dari senarai tidak hadir "
+            f"dan direkod." + note,
+            reply_markup=undo_kbd,
+        )
+        self.client.answer_callback_query(cq_id, "Direkod Hadir ✅")
+
+        if over:
+            self._notify_admin_over_limit(
+                entry['student_name'], entry['class_name'], window_count)
+
+    def _undo_present(self, entry, entry_id, chat_id, message_id, cq_id):
+        """Undo a "Hadir" mark: clear the present-override (the student goes back to
+        being absent) and restore the reason keyboard so a reason can be picked."""
+        if self.present_store is not None:
+            try:
+                self.present_store.clear_override(
+                    entry['class_name'], entry['student_name'], entry['scan_date'])
+            except Exception as e:
+                self.logger.warning(f"Failed to clear present-override on undo: {e}")
+        self.client.edit_message_text(
+            chat_id, message_id, self._prompt_text(entry),
+            reply_markup=self._quickpick_keyboard(entry_id),
+        )
+        self.client.answer_callback_query(cq_id, "Dibatalkan")
+
+    def _notify_admin_over_limit(self, student_name, class_name, window_count):
+        """DM the configured admin that a student has exceeded the Hadir limit.
+        Best-effort and guarded: an unset admin id or a Telegram hiccup only logs —
+        it never breaks the teacher's flow that triggered it."""
+        from .idme_config import IDMEConfig
+        admin_id = IDMEConfig.TELEGRAM_ADMIN_CHAT_ID
+        if not admin_id:
+            self.logger.info(
+                f"Hadir over-limit for {student_name} ({class_name}) — "
+                "no IDME_TELEGRAM_ADMIN_CHAT_ID set, alert skipped")
+            return
+        try:
+            self.client.send_message(
+                admin_id,
+                f"⚠️ AMARAN HADIR (LUPA KAD)\n\n"
+                f"Pelajar: {student_name}\n"
+                f"Kelas: {class_name}\n"
+                f"Bilangan: {window_count} kali dalam "
+                f"{IDMEConfig.HADIR_WINDOW_DAYS} hari (had {IDMEConfig.HADIR_LIMIT}).\n\n"
+                "Sila ambil tindakan sewajarnya.",
+            )
+        except Exception as e:
+            self.logger.warning(f"Failed to send admin over-limit alert: {e}")
+
+    # ---- post-submission teacher notification ---------------------------
+
+    def notify_class_submitted(self, class_name: str, result=None) -> None:
+        """DM a class's linked teacher that their attendance reached IDME. Wired to
+        IDMEOrchestrator.submission_notifier (called after a successful class
+        submission). Best-effort and guarded end-to-end — a missing teacher, an
+        unlinked chat, or a Telegram error only logs, never breaks the submission
+        run that invoked it."""
+        try:
+            teacher = self.teacher_manager.get_teacher_for_class(class_name)
+            if not teacher:
+                return
+            # get_teacher_for_class doesn't select telegram_chat_id — fetch the full row.
+            full = self.teacher_manager.get_teacher(teacher['id']) or teacher
+            chat_id = full.get('telegram_chat_id')
+            if not chat_id:
+                self.logger.info(
+                    f"Submission notify skipped for {class_name}: teacher not linked")
+                return
+            self.client.send_message(
+                chat_id,
+                f"📤 Kehadiran Kelas {class_name} telah direkodkan ke dalam IDME.",
+            )
+        except Exception as e:
+            self.logger.warning(
+                f"Failed to notify teacher of submission for {class_name}: {e}")
 
     # ---- prompting -------------------------------------------------------
 
@@ -585,11 +736,16 @@ class IDMETelegramBot:
             )
             return 1
 
+        hadir_hint = (
+            " Jika pelajar sebenarnya hadir tetapi lupa kad, tekan "
+            "'✅ Hadir (lupa kad)'."
+            if self.present_store is not None else ""
+        )
         self.client.send_message(
             chat_id,
             f"📋 {class_name} — {len(absences)} pelajar belum hadir ({scan_date}).\n"
             "Pilih sebab bagi setiap pelajar di bawah. Yang tidak dipilih akan "
-            "direkod sebagai PONTENG (MALAS KE SEKOLAH).",
+            "direkod sebagai PONTENG (MALAS KE SEKOLAH)." + hadir_hint,
         )
         for s in absences:
             entry_id = self._register_entry(teacher, s, scan_date)
@@ -619,7 +775,14 @@ class IDMETelegramBot:
                 "Pilih sebab tidak hadir:")
 
     def _quickpick_keyboard(self, entry_id) -> str:
-        rows = [
+        rows = []
+        # "Hadir (lupa kad)" comes FIRST (before any absence reason): the student
+        # is actually present but forgot their card. Tapping it drops them from the
+        # absent list and records the tap. Only shown when a present_store is wired.
+        if self.present_store is not None:
+            rows.append([{'text': '✅ Hadir (lupa kad)',
+                          'callback_data': f"h|{entry_id}"}])
+        rows += [
             [{'text': _truncate(SEBAB_DESCRIPTIONS.get(sid, sid)),
               'callback_data': f"p|{entry_id}|{sid}"}]
             for sid in COMMON_SEBAB

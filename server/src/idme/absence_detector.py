@@ -13,6 +13,7 @@ from datetime import date
 from .roster_manager import RosterManager
 from .scan_tracker import ScanTracker
 from .absence_reason_store import AbsenceReasonStore
+from .present_override_store import PresentOverrideStore
 from .names import normalize_name
 from .moeis_codes import (
     DEFAULT_CATEGORY, DEFAULT_SEBAB_ID, DEFAULT_CATEGORY_MALAY,
@@ -39,6 +40,7 @@ class AbsenceDetector:
         roster_manager: RosterManager,
         scan_tracker: ScanTracker,
         reason_store: Optional[AbsenceReasonStore] = None,
+        present_store: Optional[PresentOverrideStore] = None,
     ):
         """
         Initialize absence detector.
@@ -49,10 +51,16 @@ class AbsenceDetector:
             reason_store: AbsenceReasonStore for per-student reasons (optional;
                 when None, every absence gets the default reason — the original
                 behaviour).
+            present_store: PresentOverrideStore for "Hadir (lupa kad)" overrides
+                (optional; when None, no student is dropped from the absent list on
+                a present-override — the original behaviour). An overridden student
+                is treated as PRESENT: removed from the absent list and counted as
+                present in the summary, so roster = present + absent still holds.
         """
         self.roster = roster_manager
         self.scans = scan_tracker
         self.reason_store = reason_store
+        self.present_store = present_store
         self.logger = logging.getLogger(__name__)
 
     def detect_absences(
@@ -116,16 +124,29 @@ class AbsenceDetector:
         # roster directly — never key a dict on the normalized name, or colliding
         # students would overwrite each other and silently vanish. Keep the full
         # row so we can carry idpelajar through to form_filler (Seam B).
+        #
+        # A "Hadir (lupa kad)" present-override (teacher asserts the student is
+        # present but forgot their card) drops the student from the absent list
+        # entirely — they are never submitted absent to MOEIS. Matched by
+        # idpelajar first, then normalized name (same key scheme as reasons).
+        overrides = self._override_index(class_name, scan_date)
         absent_rows = sorted(
             (s for s in roster
-             if not self._is_present(s, present_tags, scanned_normalized)),
+             if not self._is_present(s, present_tags, scanned_normalized)
+             and not self._is_overridden(s, overrides)),
             key=lambda s: s['name'],
         )
 
+        dropped = sum(
+            1 for s in roster
+            if not self._is_present(s, present_tags, scanned_normalized)
+            and self._is_overridden(s, overrides)
+        )
         self.logger.info(
             f"Class '{class_name}' on {scan_date}: "
             f"roster={len(roster)}, scanned={len(scanned_normalized)}, "
             f"absent={len(absent_rows)}"
+            + (f" (+{dropped} marked Hadir/lupa kad, dropped)" if dropped else "")
         )
 
         # Step 5: Assign each absentee a reason. A per-student reason collected
@@ -222,15 +243,24 @@ class AbsenceDetector:
         scanned_raw = self.scans.get_scanned_students(class_name, scan_date)
         scanned_normalized = {self._normalize_name(n) for n in scanned_raw}
 
+        # A "Hadir (lupa kad)" present-override counts the student as PRESENT (the
+        # teacher asserted it) — the same treatment detect_absences gives it — so
+        # the summary's present/absent buckets stay consistent with what is
+        # actually submitted, and roster = present + absent still holds.
+        overrides = self._override_index(class_name, scan_date)
+
         # Iterate the roster directly (see detect_absences): keying a dict on the
-        # normalized name would silently drop collision pairs. Tag-first presence.
+        # normalized name would silently drop collision pairs. Tag-first presence,
+        # then present-override.
         present_names = sorted(
             s['name'] for s in roster
             if self._is_present(s, present_tags, scanned_normalized)
+            or self._is_overridden(s, overrides)
         )
         absent_names = sorted(
             s['name'] for s in roster
             if not self._is_present(s, present_tags, scanned_normalized)
+            and not self._is_overridden(s, overrides)
         )
 
         return {
@@ -260,6 +290,33 @@ class AbsenceDetector:
         if tag and tag in present_tags:
             return True
         return self._normalize_name(student['name']) in scanned_normalized
+
+    def _override_index(
+        self, class_name: str, scan_date: str
+    ) -> Dict[str, bool]:
+        """Present-override lookup for a class/day (idpelajar- and name-keyed), or
+        an empty dict when no present_store is configured — the original
+        behaviour, so nothing is dropped."""
+        if not self.present_store:
+            return {}
+        return self.present_store.get_overrides_for(class_name, scan_date)
+
+    def _is_overridden(
+        self, student: Dict[str, Any], overrides: Dict[str, bool]
+    ) -> bool:
+        """Whether this roster student has a "Hadir (lupa kad)" present-override,
+        matched by idpelajar first (exact portal id) then normalized name — the
+        same key scheme AbsenceReasonStore uses for reasons."""
+        if not overrides:
+            return False
+        idpelajar = student.get('idpelajar')
+        if idpelajar and overrides.get(PresentOverrideStore.id_key(idpelajar)):
+            return True
+        return bool(
+            overrides.get(
+                PresentOverrideStore.name_key(self._normalize_name(student['name']))
+            )
+        )
 
     def _warn_on_collisions(self, class_name: str, roster: List[Dict[str, Any]]) -> List[str]:
         """

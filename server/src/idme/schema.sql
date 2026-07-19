@@ -112,6 +112,32 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_absence_reasons_unique
     ON absence_reasons(scan_date, class_name, student_name);
 CREATE INDEX IF NOT EXISTS idx_absence_reasons_date ON absence_reasons(scan_date);
 
+-- Per-student "Hadir (lupa kad)" present-overrides recorded via the Telegram
+-- bot: the teacher asserts an absentee is actually present but forgot their RFID
+-- card. detect_absences DROPS these students from the day's absent list (they are
+-- never submitted absent), and get_attendance_summary counts them as present, so
+-- roster = present + absent still holds. Each row is also the audit trail the
+-- 14-day over-limit admin alert counts. Upserted on the unique index so a repeat
+-- tap on the same day stays one row; a reason tap for the same student clears its
+-- row (present and reason are mutually exclusive).
+CREATE TABLE IF NOT EXISTS present_overrides (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scan_date    DATE NOT NULL,
+    class_name   TEXT NOT NULL,
+    student_name TEXT NOT NULL,        -- uppercase roster name (name merge key)
+    idpelajar    TEXT,                 -- MOEIS portal student id (preferred match when known)
+    set_by       INTEGER,              -- teachers.id that recorded the override
+    source       TEXT DEFAULT 'telegram',
+    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_present_overrides_unique
+    ON present_overrides(scan_date, class_name, student_name);
+CREATE INDEX IF NOT EXISTS idx_present_overrides_date ON present_overrides(scan_date);
+-- Window count (student's Hadir days over the trailing N days) scans by student.
+CREATE INDEX IF NOT EXISTS idx_present_overrides_student
+    ON present_overrides(class_name, student_name, scan_date);
+
 -- IDME submission log (tracks what was submitted when)
 CREATE TABLE IF NOT EXISTS idme_submissions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

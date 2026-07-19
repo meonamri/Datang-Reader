@@ -201,6 +201,23 @@ class IDMEConfig:
     # The bot is public (BotFather), so this single secret — not obscurity — is
     # the gate. Required when the bot is enabled, or no one could ever onboard.
     TELEGRAM_PASSPHRASE = os.getenv('IDME_TELEGRAM_PASSPHRASE', '')
+    # Admin's Telegram chat/user id (numeric, from @userinfobot). When set, the
+    # bot DMs this chat whenever a student is marked "Hadir (lupa kad)" more than
+    # HADIR_LIMIT times inside the rolling HADIR_WINDOW_DAYS window, so the admin
+    # can follow up. Unset -> the over-limit alert is silently skipped (the Hadir
+    # override itself still works); no other feature depends on it.
+    TELEGRAM_ADMIN_CHAT_ID = os.getenv('IDME_TELEGRAM_ADMIN_CHAT_ID', '').strip()
+
+    # "Hadir (lupa kad)" present-override policy. A teacher can tap Hadir on an
+    # absentee who is actually present but forgot their RFID card: the student is
+    # dropped from that day's absent list AND the tap is recorded. Too many such
+    # taps is a pattern worth flagging — when a student's distinct Hadir days in
+    # the trailing HADIR_WINDOW_DAYS exceed HADIR_LIMIT, the admin is notified.
+    # The override is never blocked (a genuinely-present student must not be
+    # marked absent); the limit only triggers a notification. The window is a
+    # ROLLING look-back, not fixed calendar cycles.
+    HADIR_LIMIT = _read_int('IDME_HADIR_LIMIT', 3)
+    HADIR_WINDOW_DAYS = _read_int('IDME_HADIR_WINDOW_DAYS', 14)
 
     # Database path
     DATABASE_PATH = os.getenv('IDME_DATABASE_PATH', '/data/idme/idme_data.db')
@@ -379,4 +396,7 @@ class IDMEConfig:
             'telegram_enabled': cls.TELEGRAM_ENABLED,
             'has_telegram_token': bool(cls.TELEGRAM_BOT_TOKEN),
             'has_telegram_passphrase': bool(cls.TELEGRAM_PASSPHRASE),
+            'has_telegram_admin': bool(cls.TELEGRAM_ADMIN_CHAT_ID),
+            'hadir_limit': cls.HADIR_LIMIT,
+            'hadir_window_days': cls.HADIR_WINDOW_DAYS,
         }

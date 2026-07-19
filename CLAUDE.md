@@ -64,6 +64,36 @@ left untouched keeps MALAS KE SEKOLAH — the original behaviour, so this only
   `IDME_TELEGRAM_PROMPT_TIME_EVENING` (default 15:00) — must be *before* that
   session's cutoff. Off and independent of `IDME_SCHEDULER_CONFIRM`; needs
   outbound HTTPS to `api.telegram.org`.
+
+### "Hadir (lupa kad)" present-override + notifications
+
+The reason prompt's per-student keyboard leads with a **✅ Hadir (lupa kad)**
+button (before any absence reason): the teacher asserts an absentee is actually
+present but forgot their RFID card. Tapping it writes a row to `present_overrides`
+(`PresentOverrideStore`); `AbsenceDetector` then **drops** that student from
+`detect_absences` (never submitted absent) and **counts them present** in
+`get_attendance_summary`, so `roster = present + absent` still holds. A present
+override and an absence reason are **mutually exclusive** — setting either clears
+the other. The confirmation carries an **undo** button (`u|` action) that clears
+the override and restores the reason keyboard.
+
+- **14-day limit / admin alert.** `mark_present` returns the student's distinct
+  Hadir days in the trailing `IDME_HADIR_WINDOW_DAYS` (default 14, **rolling**
+  look-back — assumption, not fixed cycles). When that exceeds `IDME_HADIR_LIMIT`
+  (default 3) the bot DMs `IDME_TELEGRAM_ADMIN_CHAT_ID` (numeric, from
+  @userinfobot) with the student name + class. **The override is never blocked** —
+  a genuinely-present student must not be marked absent; the limit only triggers a
+  notification. An unset admin id or a Telegram hiccup only logs (best-effort).
+- **Post-submission teacher DM.** After a class is successfully recorded to IDME,
+  the class teacher is DM'd *"Kehadiran Kelas [Class] telah direkodkan ke dalam
+  IDME."*. Wired via `IDMEOrchestrator.submission_notifier` (set in
+  `api_routes.init_idme_module`, so both the scheduled cutoff and manual
+  `/idme/submit` fire it), invoked in the **sync** `submit_class` wrapper *after*
+  the async workflow returns — so it can't run on an `OrchestratorError`. Fires
+  only when something actually reached the portal (`status=='completed'` and the
+  form was submitted or students were already-absent-recorded); **not** on
+  all-present days, skips, or failures. Best-effort/guarded — a Telegram failure
+  never breaks a submission.
 - **Non-school days (weekends + holidays):** the scheduled prompt is gated by
   **three layers, cheapest first**, all re-evaluated **live at prompt time**
   (`TelegramPromptScheduler._should_prompt`), because the bot — unlike the cutoff
@@ -154,3 +184,13 @@ diagnostics live in `server/` (`test_idme_login.py`, `diag_idme_*.py`) and are
 gitignored along with their PII-bearing dumps. Firefox with HTTP/2 disabled is
 **required** for the Malaysian gov portals — do not remove that from
 `login_engine._initialize_browser`.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

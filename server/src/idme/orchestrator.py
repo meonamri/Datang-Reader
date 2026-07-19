@@ -26,6 +26,7 @@ from .teacher_manager import TeacherManager, TeacherManagerError
 from .roster_manager import RosterManager
 from .scan_tracker import ScanTracker
 from .absence_reason_store import AbsenceReasonStore
+from .present_override_store import PresentOverrideStore
 from .absence_detector import AbsenceDetector
 from .session_cache import SessionCache
 from .login_engine import IDMELoginEngine, LoginEngineError, NonSchoolDayError
@@ -76,10 +77,18 @@ class IDMEOrchestrator:
         self.roster_manager = RosterManager(self.db_path)
         self.scan_tracker = ScanTracker(self.db_path)
         self.reason_store = AbsenceReasonStore(self.db_path)
+        self.present_store = PresentOverrideStore(self.db_path)
         self.absence_detector = AbsenceDetector(
-            self.roster_manager, self.scan_tracker, self.reason_store
+            self.roster_manager, self.scan_tracker, self.reason_store,
+            self.present_store,
         )
         self.session_cache = SessionCache(self.db_path)
+
+        # Optional best-effort hook, invoked with (class_name, result) after a
+        # class is successfully recorded to IDME. api_routes wires this to the
+        # Telegram bot's teacher notification; None (the default) is a no-op, so
+        # the submission path stays decoupled from the bot.
+        self.submission_notifier = None
 
         self.logger.info("IDME Orchestrator initialized")
 
@@ -117,9 +126,34 @@ class IDMEOrchestrator:
                 'status': 'completed',
             }
         """
-        return asyncio.run(
+        result = asyncio.run(
             self._submit_class_async(teacher_id, class_name, submission_date, confirm)
         )
+        self._notify_submission(class_name, result)
+        return result
+
+    def _notify_submission(self, class_name: str, result: Dict[str, Any]) -> None:
+        """Best-effort: tell the class teacher their attendance reached IDME.
+
+        Fires only when something was actually recorded to the portal — a
+        completed run that either submitted the form or found students already
+        marked absent (recorded_count > 0). Deliberately NOT on:
+          * all-present days (status completed but nothing was sent), and
+          * skipped (non-school day) / failed runs.
+        This runs in the SYNC wrapper AFTER the async workflow returns, so an
+        OrchestratorError (which propagates and never returns a result) can't
+        reach here, and it never sits in a finally that would fire on failure.
+        Guarded end-to-end — a Telegram hiccup must never fail a submission."""
+        if not self.submission_notifier:
+            return
+        try:
+            recorded = result.get('submitted', 0) or 0
+            sent = result.get('form_submitted', False)
+            if result.get('status') == 'completed' and (sent or recorded > 0):
+                self.submission_notifier(class_name, result)
+        except Exception as e:
+            self.logger.warning(
+                f"Post-submission teacher notification failed for {class_name}: {e}")
 
     async def _submit_class_async(
         self,

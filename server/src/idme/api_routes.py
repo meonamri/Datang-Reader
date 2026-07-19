@@ -147,8 +147,13 @@ def init_idme_module(service_manager=None):
             _absence_detector,
             _orchestrator.reason_store,
             IDMEConfig.DATABASE_PATH,
+            present_store=_orchestrator.present_store,
         )
         if _telegram_bot.start():
+            # Notify a class's teacher after their attendance is recorded to IDME.
+            # Set on the orchestrator (which stays decoupled from the bot) so both
+            # the scheduled cutoff and the manual /idme/submit paths trigger it.
+            _orchestrator.submission_notifier = _telegram_bot.notify_class_submitted
             # Inject the orchestrator's portal probe as a callable so the prompt
             # scheduler can run its daily school-day pre-check without importing
             # the orchestrator (keeps telegram_bot decoupled from the login stack).

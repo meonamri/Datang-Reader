@@ -141,6 +141,32 @@ class AbsenceReasonStore:
             'source': source,
         }
 
+    def clear_reason(
+        self,
+        class_name: str,
+        student_name: str,
+        scan_date: Optional[str] = None,
+    ) -> bool:
+        """Remove a student's stored reason for a day. Called when the teacher
+        instead marks the student "Hadir" (present-override), since a reason and a
+        present-override are mutually exclusive. Returns True if a row was deleted."""
+        if scan_date is None:
+            scan_date = date.today().isoformat()
+        name = student_name.strip().upper()
+        conn = self._get_conn()
+        try:
+            cur = conn.execute(
+                "DELETE FROM absence_reasons "
+                "WHERE scan_date = ? AND class_name = ? AND student_name = ?",
+                (scan_date, class_name, name),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+        except sqlite3.Error as e:
+            raise AbsenceReasonError(f"Failed to clear absence reason: {e}")
+        finally:
+            conn.close()
+
     def get_reasons_for(
         self,
         class_name: str,
