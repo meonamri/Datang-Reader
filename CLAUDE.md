@@ -64,6 +64,58 @@ left untouched keeps MALAS KE SEKOLAH — the original behaviour, so this only
   `IDME_TELEGRAM_PROMPT_TIME_EVENING` (default 15:00) — must be *before* that
   session's cutoff. Off and independent of `IDME_SCHEDULER_CONFIRM`; needs
   outbound HTTPS to `api.telegram.org`.
+- **Non-school days (weekends + holidays):** the scheduled prompt is gated by
+  **three layers, cheapest first**, all re-evaluated **live at prompt time**
+  (`TelegramPromptScheduler._should_prompt`), because the bot — unlike the cutoff
+  scheduler — never submits, so it has no `NonSchoolDayError` backstop of its own:
+  1. **Weekday guard** (`IDMEConfig.is_school_day`) skips the weekend with no
+     data or portal contact. Weekend days come from `IDME_WEEKEND_DAYS` (weekday
+     names or 0–6 indices, e.g. `sat,sun`), defaulting to **Fri/Sat** for this
+     school.
+  2. **Scan gate** (`orchestrator.enough_scans_today` → `ScanTracker.count_scans_on`):
+     skips when fewer than `IDME_MIN_SCANS_FOR_SCHOOL_DAY` (default **5**) distinct
+     students scanned today. On a real school day students tap in before any
+     cutoff, so a near-zero count means a holiday **or a down reader** (in which
+     case roster−scans marks the whole school absent — must NOT prompt/submit).
+     Cheap DB read, no portal; day-level and school-wide (morning scans ⇒ evening
+     is a school day too). **Evaluated live at the moment of action**, never
+     frozen — a slow-scan morning or a restart can't wrongly skip or spam.
+  3. **Daily portal pre-check** catches public holidays the cheaper gates can't:
+     a **single** Playwright login (`orchestrator.check_school_day`, school-wide,
+     one login serves both sessions) runs `IDME_TELEGRAM_PRECHECK_LEAD_HOURS`
+     (default **1**) before the earliest prompt; its verdict is stored per
+     prompt-date and read by both prompts. **A full ~30–60s Firefox login, not
+     lightweight** — but the pre-check **skips its own login** when the weekday or
+     scan gate already says non-school (storing `None`, never a stale `False`), so
+     on holidays it costs nothing. Default lead is **1h** (not 3h) precisely so
+     students have already scanned by pre-check time, making the scan gate
+     meaningful; a 3h lead would run before students arrive.
+  - The **cutoff submission** shares the scan gate: the scheduled fire passes
+    `submit_all_classes(..., enforce_scan_gate=True)`, which skips the whole run
+    as a non-school day **without any portal login** when scans are below
+    threshold (recording skip rows only for in-scope forms). The **manual**
+    submit-all path is left ungated (portal `NonSchoolDayError` still backstops a
+    deliberate human catch-up).
+  - **Failure policy (must stay airtight):** ONLY a *definite* non-school answer
+    suppresses — the weekday guard, a below-threshold scan count, or the portal's
+    stored `False`. Anything **inconclusive** (portal `None`, a scan-count read
+    that errors, or a decision lost to a container restart) falls through to the
+    next gate / prompts on a weekday. A flaky portal or DB must never silence a
+    real school day. The portal decision is in-memory; a restart loses only that
+    day's *portal-holiday* coverage — the weekday and (live) scan gates still hold.
+  - **Unverified assumption:** the portal is assumed to report the same
+    school-day status at pre-check time as at prompt time (1h later). Confirm
+    live against a known holiday before trusting portal holiday coverage; the
+    weekend + scan gates do not depend on it. (The probe `check_school_day` has
+    unit coverage only for how the scheduler consumes True/False/None — not the
+    live portal→verdict mapping. Run it once via `test_idme_login.py` on a real
+    holiday.)
+  - **Timezone:** all timers use naive container-local `datetime.now()`. Current
+    fire times (09:00 pre-check / 10:00 / 15:00) are far from local midnight, so
+    the date the guards read is unambiguous whether the container clock is MYT or
+    UTC. Keep prompt/pre-check times clear of local midnight if they ever move.
+  - On-demand paths (`/kehadiran`, admin "Prompt teacher") are **not** gated —
+    explicit human requests work any day.
 - **Linking (self-service):** the bot is public (BotFather), so the gate is the
   shared passphrase. A teacher searches the bot, sends `/start`, types
   `IDME_TELEGRAM_PASSPHRASE` (constant-time compared), then taps their class — the

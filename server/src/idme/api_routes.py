@@ -149,7 +149,15 @@ def init_idme_module(service_manager=None):
             IDMEConfig.DATABASE_PATH,
         )
         if _telegram_bot.start():
-            _prompt_scheduler = TelegramPromptScheduler(_telegram_bot, IDMEConfig.SESSIONS)
+            # Inject the orchestrator's portal probe as a callable so the prompt
+            # scheduler can run its daily school-day pre-check without importing
+            # the orchestrator (keeps telegram_bot decoupled from the login stack).
+            _prompt_scheduler = TelegramPromptScheduler(
+                _telegram_bot, IDMEConfig.SESSIONS,
+                school_day_check=_orchestrator.check_school_day,
+                enough_scans_today=_orchestrator.enough_scans_today,
+                precheck_lead_hours=IDMEConfig.TELEGRAM_PRECHECK_LEAD_HOURS,
+            )
             _prompt_scheduler.start()
         else:
             _telegram_bot = None

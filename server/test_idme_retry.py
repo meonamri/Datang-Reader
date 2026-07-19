@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from src.idme.orchestrator import IDMEOrchestrator, OrchestratorError  # noqa: E402
 from src.idme.login_engine import LoginEngineError  # noqa: E402
+from src.idme.idme_config import IDMEConfig  # noqa: E402
 
 
 # Component classes patched out so IDMEOrchestrator() builds without a real DB,
@@ -233,6 +234,77 @@ class RetryPassTests(unittest.TestCase):
                 results = orch.submit_all_classes("2026-06-22", confirm=False)
             self.assertEqual(orch.submit_class.call_count, 2)
             self.assertEqual(results[0]["status"], "completed")
+        finally:
+            _stop(orch)
+
+
+class ScanGateTests(unittest.TestCase):
+    """`submit_all_classes(enforce_scan_gate=...)` — the cheap holiday gate that
+    skips the whole run WITHOUT a portal login when too few students scanned."""
+
+    def _orch(self, classes, scan_count):
+        orch = _make_orchestrator()
+        orch.teacher_manager.get_all_teachers.return_value = [
+            {"id": tid, "name": f"T{tid}", "class_name": cn} for tid, cn in classes
+        ]
+        orch.scan_tracker.count_scans_on = MagicMock(return_value=scan_count)
+        orch.submit_class = MagicMock()  # must NEVER be called when gated out
+        return orch
+
+    def test_low_scans_skips_all_in_scope_without_login(self):
+        orch = self._orch([(1, "5 UM"), (2, "3 UM")], scan_count=1)
+        try:
+            with patch.object(IDMEConfig, "MIN_SCANS_FOR_SCHOOL_DAY", 5):
+                results = orch.submit_all_classes(
+                    "2026-06-22", confirm=False, forms={3, 4, 5, 6},
+                    enforce_scan_gate=True)
+            orch.submit_class.assert_not_called()  # no portal login at all
+            self.assertEqual([r["status"] for r in results], ["skipped", "skipped"])
+            # A skip row is recorded for each in-scope class (durable log parity).
+            self.assertEqual(orch._record_skip.call_count, 2)
+        finally:
+            _stop(orch)
+
+    def test_low_scans_records_only_in_scope_forms(self):
+        # Morning fire (forms 3-6): a lower-form class must not get a skip row.
+        orch = self._orch([(1, "5 UM"), (2, "1 UM")], scan_count=0)
+        try:
+            with patch.object(IDMEConfig, "MIN_SCANS_FOR_SCHOOL_DAY", 5):
+                results = orch.submit_all_classes(
+                    "2026-06-22", confirm=False, forms={3, 4, 5, 6},
+                    enforce_scan_gate=True)
+            self.assertEqual([r["class_name"] for r in results], ["5 UM"])
+            self.assertEqual(orch._record_skip.call_count, 1)
+        finally:
+            _stop(orch)
+
+    def test_enough_scans_proceeds_to_normal_submission(self):
+        orch = self._orch([(1, "5 UM")], scan_count=20)
+        try:
+            orch.submit_class.return_value = {
+                "class_name": "5 UM", "status": "completed", "retryable": False}
+            with patch.object(IDMEConfig, "MIN_SCANS_FOR_SCHOOL_DAY", 5), \
+                    patch("src.idme.orchestrator.time.sleep"):
+                results = orch.submit_all_classes(
+                    "2026-06-22", confirm=False, forms={3, 4, 5, 6},
+                    enforce_scan_gate=True)
+            orch.submit_class.assert_called_once()
+            self.assertEqual(results[0]["status"], "completed")
+        finally:
+            _stop(orch)
+
+    def test_manual_path_is_not_gated(self):
+        # enforce_scan_gate defaults False: a manual submit-all runs even with
+        # zero scans (portal NonSchoolDayError still backstops it).
+        orch = self._orch([(1, "5 UM")], scan_count=0)
+        try:
+            orch.submit_class.return_value = {
+                "class_name": "5 UM", "status": "skipped", "message": "Non-school day"}
+            with patch.object(IDMEConfig, "MIN_SCANS_FOR_SCHOOL_DAY", 5), \
+                    patch("src.idme.orchestrator.time.sleep"):
+                orch.submit_all_classes("2026-06-22", confirm=False)
+            orch.submit_class.assert_called_once()  # not short-circuited
+            orch.scan_tracker.count_scans_on.assert_not_called()  # gate not consulted
         finally:
             _stop(orch)
 

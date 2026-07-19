@@ -114,7 +114,8 @@ class IDMEScheduler:
         session.last_run = datetime.now()
 
         try:
-            results = self.orchestrator.submit_all_classes(forms=set(session.forms))
+            results = self.orchestrator.submit_all_classes(
+                forms=set(session.forms), enforce_scan_gate=True)
             session.last_result = {
                 'timestamp': session.last_run.isoformat(),
                 'results': results,

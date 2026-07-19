@@ -381,11 +381,106 @@ class IDMEOrchestrator:
         diff['status'] = 'completed'
         return diff
 
+    def enough_scans_today(self, scan_date: Optional[str] = None) -> bool:
+        """Cheap holiday gate: whether at least MIN_SCANS_FOR_SCHOOL_DAY distinct
+        students scanned on ``scan_date`` (default today).
+
+        On a real school day students tap in well before any cutoff or prompt, so
+        a near-zero count means a non-school day — or a down reader/integration,
+        in which case roster−scans marks the whole school absent and we must NOT
+        submit. Day-level and school-wide (if the morning has scans, so does the
+        evening session), so one reading gates both sessions. No portal contact,
+        so it runs everywhere the expensive check would be wasteful."""
+        count = self.scan_tracker.count_scans_on(scan_date)
+        threshold = IDMEConfig.MIN_SCANS_FOR_SCHOOL_DAY
+        ok = count >= threshold
+        self.logger.info(
+            f"Scan gate ({scan_date or 'today'}): {count} student(s) scanned "
+            f"(threshold {threshold}) → {'school day' if ok else 'NON-school day'}")
+        return ok
+
+    def check_school_day(self) -> Optional[bool]:
+        """Probe the portal for today's school-day status (school-wide).
+
+        Read-only: one login + navigate to the attendance page, then close — no
+        form fill, no submission record. Used by the Telegram prompt scheduler's
+        daily pre-check to catch public holidays the local weekday guard can't.
+
+        Returns:
+            True  — the portal loaded the attendance form: today IS a school day.
+            False — the portal reported a non-school day (NonSchoolDayError):
+                    weekend or public holiday.
+            None  — INCONCLUSIVE: no teacher with usable credentials, or every
+                    attempt hit a login/network error. The caller MUST treat None
+                    as 'unknown' (fall back to the weekday guard), never as a
+                    reason to skip — a flaky portal must not silence a school day.
+        """
+        return asyncio.run(self._check_school_day_async())
+
+    async def _check_school_day_async(self, max_attempts: int = 2) -> Optional[bool]:
+        """Async impl of check_school_day. Tries teachers in turn until one gives
+        a DEFINITIVE answer (school day / non-school day); a per-teacher
+        credential or login error is inconclusive and moves to the next, up to
+        ``max_attempts`` real login attempts so a single transient SSO bounce
+        doesn't sink the whole check."""
+        teachers = self.teacher_manager.get_all_teachers()
+        attempts = 0
+        for teacher in teachers:
+            if attempts >= max_attempts:
+                break
+            try:
+                creds = self.teacher_manager.get_teacher_credentials(teacher['id'])
+            except (TeacherManagerError, DecryptionError) as e:
+                self.logger.warning(
+                    f"School-day check: credential error for {teacher['name']} — "
+                    f"trying next: {e}")
+                continue
+
+            engine = IDMELoginEngine(
+                ic_number=creds['ic_number'],
+                password=creds['password'],
+                headless=IDMEConfig.HEADLESS,
+                debug=IDMEConfig.DEBUG,
+            )
+            attempts += 1
+            try:
+                result = await engine.login_and_navigate()
+                if result.get('success'):
+                    self.logger.info(
+                        "School-day check: attendance form loaded — today IS a "
+                        "school day")
+                    return True
+                self.logger.warning(
+                    "School-day check: login returned non-success — inconclusive, "
+                    "trying next")
+            except NonSchoolDayError as e:
+                self.logger.info(
+                    f"School-day check: portal reports NON-school day (weekend/"
+                    f"holiday): {e}")
+                return False
+            except Exception as e:
+                self.logger.warning(
+                    f"School-day check: login failed for {teacher['name']} — "
+                    f"trying next: {e}")
+            finally:
+                await engine.close()
+
+        if attempts == 0:
+            self.logger.warning(
+                "School-day check: no teacher with usable credentials — "
+                "inconclusive (prompting will fall back to the weekday guard)")
+        else:
+            self.logger.warning(
+                "School-day check: all attempts inconclusive — prompting will "
+                "fall back to the weekday guard")
+        return None
+
     def submit_all_classes(
         self,
         submission_date: Optional[str] = None,
         confirm: Optional[bool] = None,
-        forms: Optional[set] = None
+        forms: Optional[set] = None,
+        enforce_scan_gate: bool = False
     ) -> List[Dict[str, Any]]:
         """
         Submit absences for ALL configured teacher-class pairs.
@@ -403,6 +498,12 @@ class IDMEOrchestrator:
                 submitted (the manual "submit all" path). The school runs two
                 sessions at different cutoffs, so the scheduler passes only the
                 forms due at the cutoff that just fired.
+            enforce_scan_gate: When True (the scheduled fire), skip the whole run
+                as a non-school day — with NO portal login — if fewer than
+                MIN_SCANS_FOR_SCHOOL_DAY students scanned today (a holiday, or a
+                down reader that would otherwise mass-submit the school absent).
+                Left False for the manual "submit all" path: that's a deliberate
+                human action and the portal's NonSchoolDayError still backstops it.
 
         Returns:
             List of per-class results.
@@ -423,6 +524,30 @@ class IDMEOrchestrator:
         if not teachers:
             self.logger.warning("No teachers configured — nothing to submit")
             return []
+
+        # Cheap scan gate (scheduled fire only): if almost no one scanned today,
+        # treat it as a non-school day and skip WITHOUT any portal login. Records
+        # a skip row for every in-scope class (respecting the forms filter),
+        # mirroring the non_school_day short-circuit below so the durable log and
+        # the settings UI reflect the full count.
+        if enforce_scan_gate and not self.enough_scans_today(submission_date):
+            self.logger.info(
+                "Scan gate: too few scans today — skipping submission as a "
+                "non-school day without a portal login")
+            results = []
+            for teacher in teachers:
+                class_name = teacher['class_name']
+                if forms is not None and IDMEConfig.form_of(class_name) not in forms:
+                    continue
+                self._record_skip(teacher['id'], class_name, submission_date,
+                                  'Non-school day (no scans)')
+                results.append({
+                    'class_name': class_name,
+                    'date': submission_date,
+                    'status': 'skipped',
+                    'message': 'Non-school day (no scans)',
+                })
+            return results
 
         results = []
         non_school_day = False

@@ -18,6 +18,39 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Weekend (non-school) weekdays, as Python weekday() indices (Mon=0 … Sun=6).
+# Malaysia's school week is state-dependent: most states rest Sat/Sun, but
+# Kelantan, Terengganu, Kedah and Johor rest Fri/Sat. This school is Fri/Sat, so
+# that's the default; `IDME_WEEKEND_DAYS` (e.g. "sat,sun") overrides it per
+# deployment. Names/numbers both accepted so multi-school configs stay readable.
+_WEEKDAY_NAMES = {
+    'mon': 0, 'monday': 0, 'tue': 1, 'tuesday': 1, 'wed': 2, 'wednesday': 2,
+    'thu': 3, 'thursday': 3, 'fri': 4, 'friday': 4, 'sat': 5, 'saturday': 5,
+    'sun': 6, 'sunday': 6,
+}
+
+
+def _parse_weekend_days(raw, default):
+    """Parse `IDME_WEEKEND_DAYS` (comma/space-separated weekday names or 0-6
+    indices) into a set of weekday() indices. Falls back to ``default`` when
+    unset; ignores unrecognised tokens (logged) so a typo can't silently make
+    every day a weekend."""
+    raw = (raw or '').strip()
+    if not raw:
+        return set(default)
+    days = set()
+    for tok in re.split(r'[\s,]+', raw):
+        if not tok:
+            continue
+        key = tok.lower()
+        if key in _WEEKDAY_NAMES:
+            days.add(_WEEKDAY_NAMES[key])
+        elif key.isdigit() and 0 <= int(key) <= 6:
+            days.add(int(key))
+        else:
+            logger.warning("Ignoring unrecognised IDME_WEEKEND_DAYS token: %r", tok)
+    return days or set(default)
+
 # Values that explicitly DISABLE a session's cutoff (vs. leaving it unset, which
 # falls through to the default). Lets a single-session school turn a session off
 # from config — e.g. IDME_CUTOFF_TIME_EVENING=off — without a code change.
@@ -37,6 +70,23 @@ def _read_cutoff(env_name, default):
     if raw.lower() in _CUTOFF_DISABLE:
         return None
     return raw
+
+
+def _read_int(env_name, default):
+    """Resolve a non-negative integer env var, falling back to ``default`` when
+    unset or malformed (a bad value must not crash module import)."""
+    raw = (os.getenv(env_name) or '').strip()
+    if not raw:
+        return default
+    try:
+        val = int(raw)
+    except ValueError:
+        logger.warning("Ignoring non-integer %s=%r; using %s", env_name, raw, default)
+        return default
+    if val < 0:
+        logger.warning("Ignoring negative %s=%r; using %s", env_name, raw, default)
+        return default
+    return val
 
 
 def _forms_label(forms):
@@ -80,6 +130,26 @@ class IDMEConfig:
     PROMPT_TIME_MORNING = _read_cutoff('IDME_TELEGRAM_PROMPT_TIME_MORNING', '10:00')
     PROMPT_TIME_EVENING = _read_cutoff('IDME_TELEGRAM_PROMPT_TIME_EVENING', '15:00')
 
+    # Lead time for the daily portal school-day pre-check: a single Playwright
+    # login this many hours BEFORE the earliest prompt asks the portal whether
+    # today is a school day (catching public holidays the weekday check can't).
+    # One check per day, school-wide; both sessions' prompts read its result. If
+    # the check is unavailable/inconclusive, prompting falls back to the weekday
+    # guard (is_school_day). Default 1h: students scan in well before that, so the
+    # cheap scan gate below is already meaningful by pre-check time (a 3h lead
+    # would run before students arrive). See TelegramPromptScheduler.
+    TELEGRAM_PRECHECK_LEAD_HOURS = _read_int('IDME_TELEGRAM_PRECHECK_LEAD_HOURS', 1)
+
+    # Cheap holiday signal: the fewest distinct students who must have scanned on
+    # a day for the system to treat it as a school day. Below this, both the
+    # Telegram prompt and the cutoff submission treat the day as a non-school day
+    # WITHOUT a portal login — on a real school day students tap in before any
+    # cutoff, so a near-zero count means a holiday (or a down reader, in which
+    # case roster−0=everyone and we must NOT mass-submit). Evaluated live at the
+    # moment of action, not frozen ahead of time. Day-level and school-wide: if
+    # the morning has scans, the evening session is a school day too.
+    MIN_SCANS_FOR_SCHOOL_DAY = _read_int('IDME_MIN_SCANS_FOR_SCHOOL_DAY', 5)
+
     # Only sessions with a resolved cutoff are scheduled; a disabled one (cutoff
     # None) is dropped here so the scheduler never arms it and the UI never lists
     # it. `forms_label` is precomputed so display labels track the form lists.
@@ -105,6 +175,12 @@ class IDMEConfig:
         )
         if spec['cutoff'] is not None
     ]
+
+    # Weekend (non-school) days as weekday() indices — defaults to Fri/Sat for
+    # this school. The Telegram prompt scheduler skips these; without it the bot
+    # would DM teachers on the weekend (and, with no scans that day, mark the
+    # whole roster absent). Override per deployment with IDME_WEEKEND_DAYS.
+    WEEKEND_DAYS = _parse_weekend_days(os.getenv('IDME_WEEKEND_DAYS'), default={4, 5})
 
     # Scheduler auto-confirm. When False (default), the scheduled bulk submission
     # saves re-editable DRAFTS (MENUNGGU PENGESAHAN) so a human confirms each
@@ -191,6 +267,15 @@ class IDMEConfig:
         belongs to, by its form number, or None if its form maps to no session.
         """
         return cls.session_for_form(cls.form_of(class_name))
+
+    @classmethod
+    def is_school_day(cls, d):
+        """Whether ``d`` (a date/datetime) is a school day, i.e. not a configured
+        weekend day. Note: this is a weekday check only — it does NOT know about
+        public holidays. The MOEIS portal backstops the actual submission on
+        holidays, but the Telegram prompt has no such check, so on a public
+        holiday the bot will still fire."""
+        return d.weekday() not in cls.WEEKEND_DAYS
 
     @classmethod
     def all_session_forms(cls):

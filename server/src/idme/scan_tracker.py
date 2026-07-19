@@ -286,6 +286,25 @@ class ScanTracker:
         finally:
             conn.close()
 
+    def count_scans_on(self, scan_date: Optional[str] = None) -> int:
+        """Total distinct students who scanned across ALL classes on a date
+        (default today). daily_scans is deduped one-row-per-student-per-day (the
+        idx_scans_unique index), so COUNT(*) is already the distinct-student
+        count. Holds only MATCHED scans — unknown-card taps go to unmatched_scans
+        — which for an onboarded school is the normal school-day set. Used as a
+        cheap holiday signal (see IDMEConfig.MIN_SCANS_FOR_SCHOOL_DAY)."""
+        if scan_date is None:
+            scan_date = date.today().isoformat()
+        conn = self._get_conn()
+        try:
+            row = conn.execute(
+                "SELECT COUNT(*) as cnt FROM daily_scans WHERE scan_date = ?",
+                (scan_date,)
+            ).fetchone()
+            return row['cnt']
+        finally:
+            conn.close()
+
     def get_all_scans_today(self) -> Dict[str, int]:
         """
         Get scan counts per class for today.

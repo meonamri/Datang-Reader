@@ -663,24 +663,78 @@ class _PromptSession:
 
 
 class TelegramPromptScheduler:
-    """Fires bot.prompt_session at each session's prompt_time, daily.
+    """Fires bot.prompt_session at each session's prompt_time, daily — but only
+    on school days.
 
-    Mirrors IDMEScheduler: one daemon Timer per session, rescheduled after it
-    fires. Only sessions with a prompt_time are armed."""
+    Three gates decide whether to prompt, cheapest first, all evaluated LIVE at
+    prompt time so a slow-scan morning or a container restart can't wrongly skip
+    or spam:
 
-    def __init__(self, bot: IDMETelegramBot, sessions: List[dict]):
+      * Weekday guard (IDMEConfig.is_school_day) — skips the Fri/Sat weekend with
+        no data or portal contact. Always available.
+      * Scan gate (enough_scans_today) — skips when fewer than the minimum
+        students have scanned today: a holiday, or a down reader that would
+        otherwise make the prompt a full-roster false-absent list. Cheap DB read,
+        no portal. This is the primary "did anyone actually come" gate.
+      * Portal pre-check (school_day_check) — a single Playwright login run
+        `precheck_lead_hours` before the earliest prompt catches public holidays
+        the weekday guard can't see. Its verdict (True/False/None) is stored per
+        prompt-date and read by BOTH sessions (the signal is school-wide, so one
+        login serves the day and never collides with the cutoff submission). The
+        pre-check also skips its own login when the scan gate already says
+        non-school — that's the cost saving.
+
+    Failure policy: ONLY a definite non-school-day answer suppresses prompting —
+    the weekend guard, a below-threshold scan count, or the portal's stored
+    False. Anything inconclusive (portal None, a scan-count read that errors, or
+    a decision lost to a restart) falls through to the next gate / prompts on a
+    weekday — a flaky portal or DB must never silence a real school day.
+
+    Mirrors IDMEScheduler's one-daemon-Timer-per-session style; every timer,
+    prompt and pre-check alike, ALWAYS reschedules itself."""
+
+    def __init__(self, bot: IDMETelegramBot, sessions: List[dict],
+                 school_day_check=None, enough_scans_today=None,
+                 precheck_lead_hours: int = 1):
         self.bot = bot
         self.sessions = [_PromptSession(s) for s in sessions if s.get('prompt_time')]
+        # Zero-arg callable -> Optional[bool] (True school day / False non-school
+        # / None inconclusive). When None, no portal pre-check is armed and the
+        # weekday guard is the sole gate (backward-compatible behaviour).
+        self.school_day_check = school_day_check
+        # Zero-arg callable -> bool: are there enough scans today to call it a
+        # school day? Evaluated LIVE at prompt time (not frozen at pre-check), so
+        # a slow-scan morning or a restart can't wrongly skip or spam. When None,
+        # the scan gate is disabled.
+        self.enough_scans = enough_scans_today
+        self.precheck_lead = timedelta(hours=max(0, precheck_lead_hours))
         self.running = False
         self.logger = logging.getLogger(__name__)
+
+        # Latest portal decision, kept as {prompt_date_iso: Optional[bool]} and
+        # replaced wholesale each pre-check so it never grows. A prompt reads
+        # today's entry; a missing/None entry means "unknown" -> weekday guard.
+        self._decision: Dict[str, Optional[bool]] = {}
+        self._decision_lock = threading.Lock()
+        self._precheck_timer: Optional[threading.Timer] = None
+        # Earliest prompt time across sessions — the pre-check runs before it.
+        self._earliest_hm: Optional[Tuple[int, int]] = (
+            min((p.hour, p.minute) for p in self.sessions) if self.sessions else None
+        )
 
     def start(self):
         self.running = True
         for ps in self.sessions:
             self._schedule_next(ps)
+        if self.school_day_check and self.sessions:
+            self._schedule_precheck()
         if self.sessions:
             times = ', '.join(f"{p.name} {p.hour:02d}:{p.minute:02d}" for p in self.sessions)
-            self.logger.info(f"Telegram prompt scheduler started. Daily prompts at — {times}")
+            check = (" + daily portal school-day pre-check "
+                     f"{self.precheck_lead.total_seconds() / 3600:.0f}h earlier"
+                     if self.school_day_check else "")
+            self.logger.info(
+                f"Telegram prompt scheduler started. Daily prompts at — {times}{check}")
         else:
             self.logger.info("Telegram prompt scheduler: no sessions have a prompt time")
 
@@ -690,6 +744,9 @@ class TelegramPromptScheduler:
             if ps.timer:
                 ps.timer.cancel()
                 ps.timer = None
+        if self._precheck_timer:
+            self._precheck_timer.cancel()
+            self._precheck_timer = None
 
     def _schedule_next(self, ps: _PromptSession):
         now = datetime.now()
@@ -703,10 +760,108 @@ class TelegramPromptScheduler:
             f"({seconds_until / 3600:.1f}h from now)"
         )
 
-    def _execute(self, ps: _PromptSession):
+    def _enough_scans_now(self) -> bool:
+        """Live scan gate, failing OPEN (True) when unavailable or on any error,
+        so a missing callable or a transient DB hiccup never suppresses a real
+        school day. Returns False only on a genuine below-threshold count."""
+        if self.enough_scans is None:
+            return True
         try:
-            self.bot.prompt_session(ps.session)
+            return bool(self.enough_scans())
         except Exception as e:
-            self.logger.error(f"Telegram prompt ({ps.name}) failed: {e}")
+            self.logger.warning(f"Scan gate check failed — treating as enough: {e}")
+            return True
+
+    def _should_prompt(self, today) -> Tuple[bool, str]:
+        """The three gates, cheapest first. Returns (prompt?, basis-for-log).
+        Only a definite non-school answer returns False; anything inconclusive
+        falls through to the next gate."""
+        from .idme_config import IDMEConfig
+        if not IDMEConfig.is_school_day(today):
+            return (False, "weekend")
+        if not self._enough_scans_now():
+            return (False, "too few scans today (holiday or reader down)")
+        with self._decision_lock:
+            decision = self._decision.get(today.isoformat())
+        if decision is False:
+            return (False, "portal pre-check reports non-school day")
+        return (True, "portal pre-check" if decision is True else "weekday+scan gates")
+
+    def _execute(self, ps: _PromptSession):
+        # The reschedule below must ALWAYS run, or the timer never re-arms after
+        # the first skip — so decide, act, then reschedule unconditionally.
+        should, basis = self._should_prompt(date.today())
+        if should:
+            try:
+                self.bot.prompt_session(ps.session)
+            except Exception as e:
+                self.logger.error(f"Telegram prompt ({ps.name}) failed: {e}")
+        else:
+            self.logger.info(
+                f"Telegram prompt ({ps.name}) skipped: non-school day ({basis})")
         if self.running:
             self._schedule_next(ps)
+
+    # ---- daily portal school-day pre-check -------------------------------
+
+    def _next_precheck_target(self, now: datetime) -> datetime:
+        """The next time to run the pre-check: `precheck_lead` before the
+        earliest prompt. Rolls forward whole days until it's in the future, so a
+        lead that reaches back across midnight is handled naturally."""
+        hour, minute = self._earliest_hm
+        prompt_today = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        check = prompt_today - self.precheck_lead
+        while now >= check:
+            check += timedelta(days=1)
+        return check
+
+    def _schedule_precheck(self):
+        now = datetime.now()
+        check_at = self._next_precheck_target(now)
+        # The decision this run produces is for the prompt it precedes, i.e.
+        # `precheck_lead` later — key it by THAT date, not necessarily today's.
+        prompt_date = (check_at + self.precheck_lead).date()
+        seconds_until = (check_at - now).total_seconds()
+        self._precheck_timer = threading.Timer(
+            seconds_until, self._execute_precheck, args=(prompt_date,))
+        self._precheck_timer.daemon = True
+        self._precheck_timer.start()
+        self.logger.info(
+            f"Next Telegram school-day pre-check: {check_at.strftime('%Y-%m-%d %H:%M')} "
+            f"(for prompts on {prompt_date.isoformat()}, {seconds_until / 3600:.1f}h from now)"
+        )
+
+    def _execute_precheck(self, prompt_date):
+        from .idme_config import IDMEConfig
+        iso = prompt_date.isoformat()
+        # The pre-check only produces the PORTAL verdict; the weekday and scan
+        # gates are re-evaluated live at prompt time, so here they only decide
+        # whether the expensive portal login is worth doing. Skip it — storing
+        # None, never a stale False — when the day is already clearly non-school
+        # (weekend, or too few scans so far): the live gates at prompt time will
+        # skip regardless, and a scan count that recovers by prompt time must
+        # still be allowed to prompt.
+        result: Optional[bool] = None
+        if not IDMEConfig.is_school_day(prompt_date):
+            self.logger.info(
+                f"School-day pre-check ({iso}): weekend — no portal login "
+                "(weekday guard settles it live at prompt time)")
+        elif not self._enough_scans_now():
+            self.logger.info(
+                f"School-day pre-check ({iso}): too few scans so far — no portal "
+                "login (the live scan gate decides at prompt time)")
+        else:
+            try:
+                result = self.school_day_check()
+            except Exception as e:
+                # Inconclusive, NOT a non-school-day signal: leave it None so the
+                # prompt falls back to the weekday/scan gates (which will prompt).
+                self.logger.error(f"School-day pre-check ({iso}) errored: {e}")
+                result = None
+            verdict = ({True: 'school day', False: 'NON-school day', None: 'inconclusive'}
+                       [result])
+            self.logger.info(f"School-day pre-check ({iso}): portal says {verdict}")
+        with self._decision_lock:
+            self._decision = {iso: result}
+        if self.running:
+            self._schedule_precheck()
