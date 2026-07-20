@@ -7,6 +7,7 @@ Endpoints:
   GET  /idme/status              - Module status
   GET  /idme/settings            - Teacher management Web UI
   POST /idme/teachers            - Add a teacher
+  POST /idme/teachers/bulk       - Bulk-add teachers from the Google Form .xlsx
   DELETE /idme/teachers/<id>     - Delete a teacher
   POST /idme/teachers/<id>/test  - Test IDME login credentials
   GET  /idme/scans               - Today's scan summary
@@ -633,6 +634,153 @@ def delete_teacher(teacher_id):
             return jsonify({'error': 'Teacher not found'}), 404
     except Exception as e:
         return jsonify({'error': str(e)}), 400
+
+
+# Google Form ("Password & Username IDME (Responses)") header -> teacher field.
+# Matched case-insensitively on the stripped header; English fallbacks accepted
+# so a re-titled sheet still imports. Timestamp / Email Address / extras ignored.
+BULK_TEACHER_COLUMN_ALIASES = {
+    'name': ('nama penuh', 'nama', 'full name', 'name'),
+    'class_name': ('kelas', 'class', 'class name'),
+    'ic_number': ('nombor ic', 'no ic', 'ic', 'ic number', 'no kad pengenalan'),
+    'password': ('password idme', 'password', 'kata laluan', 'kata laluan idme'),
+}
+
+
+def _cell_to_str(value):
+    """Coerce an openpyxl cell to a clean string. All-digit cells come back as
+    int/float (a leading-zero IC loses its zero) — str() preserves the digits we
+    have and add_teacher's len==12 check surfaces a short IC as a per-row error."""
+    if value is None:
+        return ''
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+@idme_bp.route('/teachers/bulk', methods=['POST'])
+def bulk_add_teachers():
+    """Bulk-onboard teachers from the Google Form responses .xlsx.
+
+    Multipart form field ``file`` is the downloaded responses sheet. Columns are
+    matched by header name (see BULK_TEACHER_COLUMN_ALIASES), not position. Each
+    data row is added via the same single-add path (Fernet encryption + IC
+    validation stay in one place); duplicates and bad rows never abort the batch.
+
+    Returns a per-row report: added / skipped (IC already in DB) / error, plus a
+    per-row ``class_known`` flag so the admin can catch a mistyped free-text
+    "Kelas" before it silently misfires at cutoff.
+    """
+    if not _teacher_manager:
+        return jsonify({'error': 'IDME module not initialized'}), 503
+
+    if request.content_length and request.content_length > MAX_ROSTER_UPLOAD_BYTES:
+        return jsonify({'error': 'File too large (max 10 MB)'}), 413
+
+    file = request.files.get('file')
+    if file is None or not file.filename:
+        return jsonify({'error': 'No file uploaded (field name must be "file")'}), 400
+
+    if not file.filename.lower().endswith(('.xlsx', '.xls')):
+        return jsonify({'error': 'File must be an Excel .xlsx or .xls'}), 400
+
+    try:
+        from openpyxl import load_workbook
+        wb = load_workbook(file, data_only=True, read_only=True)
+    except Exception as e:
+        return jsonify({'error': f'Could not read Excel file: {e}'}), 400
+
+    ws = wb.active
+    rows = ws.iter_rows(values_only=True)
+    try:
+        header = next(rows)
+    except StopIteration:
+        return jsonify({'error': 'Spreadsheet is empty'}), 400
+
+    # Resolve each teacher field to a column index via its header aliases.
+    norm_header = [(_cell_to_str(h)).lower() for h in header]
+    col_index = {}
+    for field, aliases in BULK_TEACHER_COLUMN_ALIASES.items():
+        for i, h in enumerate(norm_header):
+            if h in aliases:
+                col_index[field] = i
+                break
+
+    missing_cols = [f for f in BULK_TEACHER_COLUMN_ALIASES if f not in col_index]
+    if missing_cols:
+        pretty = {'name': 'Nama Penuh', 'class_name': 'Kelas',
+                  'ic_number': 'Nombor IC', 'password': 'Password IDME'}
+        return jsonify({
+            'error': 'Missing required column(s): '
+                     + ', '.join(pretty[f] for f in missing_cols)
+                     + f'. Found headers: {", ".join(h for h in norm_header if h) or "(none)"}'
+        }), 400
+
+    # Parse rows -> records. Skip fully-blank rows (form sheets carry trailing
+    # empties). Within-file duplicate IC = a corrected resubmission; sheet order
+    # is chronological, so last occurrence wins.
+    records = {}          # ic_clean -> record (last-wins)
+    ordered_ics = []      # preserve first-seen order for a stable report
+    for raw in rows:
+        rec = {f: _cell_to_str(raw[idx]) if idx < len(raw) else ''
+               for f, idx in col_index.items()}
+        if not any(rec.values()):
+            continue
+        ic_clean = rec['ic_number'].replace('-', '').replace(' ', '')
+        rec['ic_number'] = ic_clean
+        key = ic_clean or f"__row_{len(ordered_ics)}"  # blank-IC rows stay distinct
+        if key not in records:
+            ordered_ics.append(key)
+        records[key] = rec
+
+    # Known class strings (roster + already-configured teachers), exact-match, so
+    # the report can flag a free-text "Kelas" typo/case mismatch up front.
+    known_classes = set()
+    try:
+        if _roster_manager:
+            known_classes.update(c['class_name'] for c in _roster_manager.get_all_classes())
+        known_classes.update(_teacher_manager.get_configured_classes())
+    except Exception:
+        known_classes = set()
+
+    existing_ics = set()
+    try:
+        for t in _teacher_manager.get_all_teachers(include_disabled=True):
+            existing_ics.add(str(t.get('ic_number', '')))
+    except Exception:
+        pass
+
+    added, skipped, errors = [], [], []
+    for key in ordered_ics:
+        rec = records[key]
+        label = rec['name'] or rec['ic_number'] or '(blank)'
+        entry = {
+            'name': rec['name'],
+            'class_name': rec['class_name'],
+            'ic_number': rec['ic_number'],
+            'class_known': rec['class_name'] in known_classes,
+        }
+        if rec['ic_number'] and rec['ic_number'] in existing_ics:
+            skipped.append({**entry, 'reason': 'IC already exists'})
+            continue
+        try:
+            _teacher_manager.add_teacher(
+                name=rec['name'],
+                ic_number=rec['ic_number'],
+                password=rec['password'],
+                class_name=rec['class_name'],
+            )
+            existing_ics.add(rec['ic_number'])
+            added.append(entry)
+        except Exception as e:
+            errors.append({**entry, 'reason': str(e)})
+
+    return jsonify({
+        'total': len(ordered_ics),
+        'added': added,
+        'skipped': skipped,
+        'errors': errors,
+    }), 200
 
 
 def _run_login_test(creds):

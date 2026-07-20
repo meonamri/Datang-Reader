@@ -656,6 +656,13 @@
                     <button type="submit" class="btn btn-primary" id="add-teacher-btn">Add teacher</button>
                     <div class="lock-note"><span style="color:var(--red);">&#128274;</span> Stored Fernet-encrypted &middot; used only to log in to MOEIS at cutoff.</div>
                 </form>
+
+                <form id="bulk-teacher-form" style="margin-top:4px; border-top:1px solid var(--line); padding-top:14px;">
+                    <div class="field"><label>Or import the Google Form responses (.xlsx)</label><input type="file" id="bulk-teacher-file" accept=".xlsx,.xls" required></div>
+                    <p class="hint" style="margin-top:8px;">Upload the downloaded <span class="mono">Password &amp; Username IDME (Responses)</span> sheet. Columns are matched by header (<span class="mono">Nama Penuh</span>, <span class="mono">Kelas</span>, <span class="mono">Nombor IC</span>, <span class="mono">Password IDME</span>). Rows with an IC already on file are skipped, so re-uploading a growing form only adds new teachers.</p>
+                    <button type="submit" class="btn" id="bulk-teacher-btn" style="margin-top:12px;">Upload &amp; add all</button>
+                    <div id="bulk-teacher-result" style="margin-top:14px;"></div>
+                </form>
             </div>
 
             <!-- Roster source -->
@@ -1414,6 +1421,49 @@
                 else { showAlert('error', result.error || 'Failed to add teacher'); busy(btn, false); }
             } catch (err) { showAlert('error', `Error: ${err.message}`); busy(btn, false); }
         });
+        // ---- Bulk add teachers (Google Form responses .xlsx) ----
+        document.getElementById('bulk-teacher-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('bulk-teacher-btn');
+            const fileInput = document.getElementById('bulk-teacher-file');
+            const out = document.getElementById('bulk-teacher-result');
+            if (!fileInput.files.length) { showAlert('error', 'Please choose the responses .xlsx'); return; }
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            busy(btn, true, ' Importing');
+            out.innerHTML = '';
+            try {
+                const resp = await fetch('/idme/teachers/bulk', { method: 'POST', body: formData });
+                const r = await resp.json();
+                if (!resp.ok) { showAlert('error', r.error || 'Import failed'); busy(btn, false); return; }
+                out.innerHTML = renderBulkResult(r);
+                const parts = [`${r.added.length} added`];
+                if (r.skipped.length) parts.push(`${r.skipped.length} skipped`);
+                if (r.errors.length) parts.push(`${r.errors.length} error(s)`);
+                showAlert(r.errors.length ? 'info' : 'success', `Bulk import: ${parts.join(', ')}.`);
+                busy(btn, false);
+                if (r.added.length) setTimeout(() => location.reload(), 4000);
+            } catch (err) { showAlert('error', `Error: ${err.message}`); busy(btn, false); }
+        });
+        function renderBulkResult(r) {
+            const rows = [];
+            const line = (rec, badge) => {
+                const clsWarn = rec.class_known === false
+                    ? ` <span class="fhint bad" style="display:inline;">class not in roster/config</span>` : '';
+                const reason = rec.reason ? ` &middot; ${escapeHtml(rec.reason)}` : '';
+                return `<div style="padding:4px 0; border-top:1px solid var(--line); font-size:12px;">`
+                    + `${badge} <span class="mono">${escapeHtml(rec.class_name || '?')}</span> `
+                    + `${escapeHtml(rec.name || '(no name)')}<span style="color:var(--ink-3);">${reason}</span>${clsWarn}</div>`;
+            };
+            const chip = (txt, color) => `<span class="mono" style="color:${color};">${txt}</span>`;
+            r.added.forEach(x => rows.push(line(x, chip('&#10003; added', 'var(--green,#0a0)'))));
+            r.skipped.forEach(x => rows.push(line(x, chip('&#8901; skipped', 'var(--ink-3)'))));
+            r.errors.forEach(x => rows.push(line(x, chip('&#10007; error', 'var(--red)'))));
+            const head = `<div style="font-size:12px; color:var(--ink-2); margin-bottom:2px;">`
+                + `${r.added.length} added &middot; ${r.skipped.length} skipped &middot; ${r.errors.length} error(s) `
+                + `(of ${r.total} row${r.total === 1 ? '' : 's'})</div>`;
+            return head + rows.join('');
+        }
         // Live IC + class hints
         const icInput = document.getElementById('teacher-ic');
         icInput.addEventListener('input', () => {
