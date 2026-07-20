@@ -17,7 +17,13 @@ session's forms; a class is routed to a session purely by the **leading form
 number in its class string** (`5 UKM` → Form 5 → morning). A class whose form
 maps to no session is never submitted — the settings UI flags these (`no
 session`) so they don't silently misfire, the same way it flags class-string
-misfires. It is **off by default** (`IDME_ENABLED=false`)
+misfires. A class whose string has **no leading form number** (e.g. `MENTARI 1`)
+can be pinned to a session with `IDME_CLASS_SESSION_OVERRIDE`
+(`"MENTARI 1=morning, MENTARI 2=morning"`, matched verbatim); it resolves
+through the single `form_of` chokepoint (to that session's lowest form) so every
+consumer — cutoff, scan gate, Telegram routing, settings UI — routes it with no
+other change. An explicit override wins over any leading number the string also
+has. It is **off by default** (`IDME_ENABLED=false`)
 and runs inside the same `datang-reader` container — it is not a separate
 service. Datang scanning for every student is unchanged; the only added
 behaviour is MOEIS submission for *onboarded* classes (those with a configured

@@ -34,6 +34,10 @@ services:
       - IDME_CUTOFF_TIME=${IDME_CUTOFF_TIME:-12:00}
       - IDME_CUTOFF_TIME_MORNING=${IDME_CUTOFF_TIME_MORNING:-}
       - IDME_CUTOFF_TIME_EVENING=${IDME_CUTOFF_TIME_EVENING:-16:00}
+      # Route classes with no leading form number (e.g. 'MENTARI 1') to a named
+      # session: comma-separated "Class=session" pairs, e.g.
+      # "MENTARI 1=morning, MENTARI 2=morning". Empty = form-number routing only.
+      - IDME_CLASS_SESSION_OVERRIDE=${IDME_CLASS_SESSION_OVERRIDE:-}
       # Scheduler auto-confirm. Default false = scheduled submits save re-editable
       # DRAFTS (MENUNGGU PENGESAHAN). Set true ONLY after a supervised period —
       # true auto-confirms LOCKED (TELAH DISAHKAN) records daily, unattended.

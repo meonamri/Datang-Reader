@@ -9,6 +9,9 @@ Core env vars:
     (3-6) in the morning, lower forms (1-2) in the afternoon — each with its own
     cutoff. IDME_CUTOFF_TIME (legacy, single cutoff) is still honoured as the
     fallback for the morning session.
+  - IDME_CLASS_SESSION_OVERRIDE: pin a class with no leading form number
+    (e.g. 'MENTARI 1') to a named session — "Class=session" pairs, comma
+    separated, e.g. "MENTARI 1=morning, MENTARI 2=morning".
   - IDME_ENCRYPTION_KEY: Fernet key for teacher password encryption
 """
 
@@ -99,6 +102,56 @@ def _forms_label(forms):
     return "F" + ",".join(str(f) for f in fs)
 
 
+def _parse_class_session_override(raw):
+    """Parse ``IDME_CLASS_SESSION_OVERRIDE`` into {class_name: session_name}.
+
+    Routing is normally by the leading form number of the class string, so a
+    class with no leading number (e.g. 'MENTARI 1') maps to no session and is
+    never submitted. This override pins such classes to a named session anyway.
+    Format is a comma-separated list of ``Class Name=session`` pairs, where
+    session is a SESSIONS name ('morning'/'evening'), e.g.
+    ``MENTARI 1=morning, MENTARI 2=morning``. The class name is matched
+    VERBATIM (it must equal the roster/teacher class string, the same exact-match
+    contract as everywhere else); only the session name is lower-cased. Malformed
+    pairs are logged and skipped so one typo can't break module import."""
+    raw = (raw or '').strip()
+    if not raw:
+        return {}
+    mapping = {}
+    for pair in raw.split(','):
+        pair = pair.strip()
+        if not pair:
+            continue
+        name, sep, sess = pair.partition('=')
+        name, sess = name.strip(), sess.strip().lower()
+        if not sep or not name or not sess:
+            logger.warning(
+                "Ignoring malformed IDME_CLASS_SESSION_OVERRIDE entry: %r", pair)
+            continue
+        mapping[name] = sess
+    return mapping
+
+
+def _resolve_form_overrides(class_session_override, sessions):
+    """Resolve {class_name: session_name} to {class_name: form}, where the form
+    is the target session's LOWEST form — a representative that lands the class
+    in that session via the single ``form_of`` chokepoint (so every form-keyed
+    consumer routes it without further changes). A class pointed at a session
+    that isn't scheduled (disabled cutoff) or doesn't exist is dropped (logged)
+    so it stays unrouted and UI-flagged, never silently misrouted."""
+    by_name = {s['name']: s for s in sessions}
+    out = {}
+    for name, sess_name in class_session_override.items():
+        sess = by_name.get(sess_name)
+        if sess is None:
+            logger.warning(
+                "IDME_CLASS_SESSION_OVERRIDE routes %r to unknown or disabled "
+                "session %r; leaving it unrouted", name, sess_name)
+            continue
+        out[name] = min(sess['forms'])
+    return out
+
+
 class IDMEConfig:
     """Configuration for IDME module. All values from environment."""
 
@@ -175,6 +228,15 @@ class IDMEConfig:
         )
         if spec['cutoff'] is not None
     ]
+
+    # Explicit class -> session routing for classes whose string has no leading
+    # form number (e.g. 'MENTARI 1'), which form_of alone can't place. Parsed to
+    # {class_name: session_name}, then resolved to a representative form so the
+    # single form_of chokepoint routes them — the cutoff filter, scan gate,
+    # Telegram routing and settings UI all follow with no further changes.
+    CLASS_SESSION_OVERRIDE = _parse_class_session_override(
+        os.getenv('IDME_CLASS_SESSION_OVERRIDE'))
+    _CLASS_FORM_OVERRIDE = _resolve_form_overrides(CLASS_SESSION_OVERRIDE, SESSIONS)
 
     # Weekend (non-school) days as weekday() indices — defaults to Fri/Sat for
     # this school. The Telegram prompt scheduler skips these; without it the bot
@@ -253,15 +315,25 @@ class IDMEConfig:
             return None
         return hour * 60 + minute
 
-    @staticmethod
-    def form_of(class_name):
+    @classmethod
+    def form_of(cls, class_name):
         """
         Parse the form number (1-6) from a class string. The form is the leading
         integer of the roster's Class column ('5 UKM' -> 5, '6 ATAS' -> 6,
         '2 UM' -> 2). Returns None when no leading number can be read (e.g.
         'PERALIHAN') — such a class belongs to no session and is flagged, not
         submitted.
+
+        A class listed in IDME_CLASS_SESSION_OVERRIDE (e.g. 'MENTARI 1') has no
+        leading number to parse; it resolves to a representative form of its
+        assigned session instead, so this single chokepoint routes it — and
+        therefore every form-keyed consumer (cutoff filter, scan gate, Telegram
+        routing, settings UI) does too. The explicit override wins over any
+        leading number the string might also have.
         """
+        override = cls._CLASS_FORM_OVERRIDE.get(class_name)
+        if override is not None:
+            return override
         m = re.match(r'\s*(\d+)', class_name or '')
         return int(m.group(1)) if m else None
 
