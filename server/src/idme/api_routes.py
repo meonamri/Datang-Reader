@@ -823,6 +823,73 @@ def submit_to_idme():
             return jsonify({'error': str(e)}), 500
 
 
+@idme_bp.route('/submit/remaining/stream', methods=['POST'])
+def submit_remaining_stream():
+    """Streaming manual catch-up: submit every onboarded, in-session class that
+    is NOT already recorded (or currently running) today, in one run.
+
+    Backs the settings "Submit remaining" button. Because each class is a full
+    Playwright login (~30-60s), the operation streams live portal progress into
+    the log console rather than blocking a plain fetch — same pattern as the
+    login test. Confirm mode mirrors the scheduler (confirm=None →
+    IDMEConfig.SCHEDULER_CONFIRM): on a CONFIRM-mode school this LOCKS records,
+    finishing the day the way the cutoff fire would have.
+
+    It cannot override the portal's own non-school-day verdict: on a stuck-date
+    day it does one login, hits the same banner and skips all — a catch-up tool
+    for *failed* classes on a normal school day, not a portal-date bypass.
+    """
+    if not _orchestrator:
+        return jsonify({'error': 'IDME module not initialized'}), 503
+
+    today = date.today().isoformat()
+
+    # Classes already settled today are excluded so the run writes no row over
+    # their result. Rows are id-ASC (latest wins), so this reflects the newest
+    # attempt per class. 'running' is excluded too, so a click during the live
+    # scheduled fire can't double-login a class mid-submit.
+    prior = _orchestrator.get_submissions_for_date(today)
+    latest = {}
+    for r in prior:
+        latest[r['class_name']] = r
+    exclude = {cn for cn, r in latest.items()
+               if r.get('status') in ('completed', 'running')}
+
+    def run():
+        results = _orchestrator.submit_all_classes(
+            today, confirm=None,
+            forms=IDMEConfig.all_session_forms(),
+            exclude_classes=exclude,
+        )
+        completed = sum(1 for r in results if r.get('status') == 'completed')
+        failed = sum(1 for r in results if r.get('status') == 'failed')
+        skipped = sum(1 for r in results if r.get('status') == 'skipped')
+        attempted = len(results)
+        if attempted == 0:
+            status, ok, msg = 'nothing', True, 'All classes already recorded today — nothing to submit.'
+        elif failed == 0 and skipped == 0:
+            status, ok, msg = 'completed', True, f'{completed} class(es) recorded.'
+        elif skipped and not completed and not failed:
+            status, ok, msg = 'skipped', True, 'Non-school day — the portal rejected the date; nothing submitted.'
+        elif completed and (failed or skipped):
+            bits = [f'{completed} recorded']
+            if failed:
+                bits.append(f'{failed} failed')
+            if skipped:
+                bits.append(f'{skipped} skipped')
+            status, ok, msg = 'partial', failed == 0, ' · '.join(bits) + '.'
+        else:
+            status, ok, msg = 'failed', False, f'{failed} class(es) failed.'
+        return {
+            'ok': ok, 'status': status, 'message': msg,
+            'attempted': attempted, 'completed': completed,
+            'failed': failed, 'skipped': skipped,
+            'excluded': len(exclude), 'results': results,
+        }
+
+    return _stream_operation(run)
+
+
 # ============================================================
 # Roster
 # ============================================================

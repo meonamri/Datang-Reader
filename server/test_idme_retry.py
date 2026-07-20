@@ -238,6 +238,69 @@ class RetryPassTests(unittest.TestCase):
             _stop(orch)
 
 
+class ExcludeClassesTests(unittest.TestCase):
+    """`submit_all_classes(exclude_classes=...)` — the manual "Submit remaining"
+    catch-up. Excluded classes must be dropped writing NO row, so a prior
+    'completed' result stays the latest per class in the durable log."""
+
+    def _orchestrator_with_classes(self, classes):
+        orch = _make_orchestrator()
+        orch.teacher_manager.get_all_teachers.return_value = [
+            {"id": tid, "name": f"T{tid}", "class_name": cn} for tid, cn in classes
+        ]
+        return orch
+
+    def test_excluded_class_is_not_submitted_and_writes_no_row(self):
+        orch = self._orchestrator_with_classes([(1, "5 UM"), (2, "3 UM")])
+        try:
+            orch.submit_class = MagicMock(return_value={
+                "class_name": "3 UM", "status": "completed", "retryable": False})
+            with patch("src.idme.orchestrator.time.sleep"):
+                results = orch.submit_all_classes(
+                    "2026-06-22", confirm=False, exclude_classes={"5 UM"})
+            # Only the non-excluded class is submitted...
+            orch.submit_class.assert_called_once()
+            self.assertEqual([r["class_name"] for r in results], ["3 UM"])
+            # ...and the excluded class gets NO skip/submission row (its prior
+            # 'completed' row must remain the latest in the log).
+            orch._record_skip.assert_not_called()
+            orch._create_submission_record.assert_not_called()
+        finally:
+            _stop(orch)
+
+    def test_excluded_class_not_skipped_on_non_school_day(self):
+        # The critical invariant: a non-school-day short-circuit must NOT stamp a
+        # 'skipped' row over a class the caller excluded (already completed today).
+        orch = self._orchestrator_with_classes([(1, "3 UM"), (2, "5 UM")])
+        try:
+            # First (non-excluded) class hits the portal holiday banner ->
+            # non_school_day short-circuit for the rest.
+            orch.submit_class = MagicMock(return_value={
+                "class_name": "3 UM", "status": "skipped",
+                "message": "Non-school day"})
+            with patch("src.idme.orchestrator.time.sleep"):
+                results = orch.submit_all_classes(
+                    "2026-06-22", confirm=False, exclude_classes={"5 UM"})
+            # 5 UM is excluded: never submitted, never recorded as skipped.
+            self.assertEqual([r["class_name"] for r in results], ["3 UM"])
+            orch._record_skip.assert_not_called()
+        finally:
+            _stop(orch)
+
+    def test_all_excluded_submits_nothing(self):
+        orch = self._orchestrator_with_classes([(1, "5 UM"), (2, "3 UM")])
+        try:
+            orch.submit_class = MagicMock()
+            with patch("src.idme.orchestrator.time.sleep"):
+                results = orch.submit_all_classes(
+                    "2026-06-22", confirm=False,
+                    exclude_classes={"5 UM", "3 UM"})
+            orch.submit_class.assert_not_called()
+            self.assertEqual(results, [])
+        finally:
+            _stop(orch)
+
+
 class ScanGateTests(unittest.TestCase):
     """`submit_all_classes(enforce_scan_gate=...)` — the cheap holiday gate that
     skips the whole run WITHOUT a portal login when too few students scanned."""

@@ -514,7 +514,8 @@ class IDMEOrchestrator:
         submission_date: Optional[str] = None,
         confirm: Optional[bool] = None,
         forms: Optional[set] = None,
-        enforce_scan_gate: bool = False
+        enforce_scan_gate: bool = False,
+        exclude_classes: Optional[set] = None
     ) -> List[Dict[str, Any]]:
         """
         Submit absences for ALL configured teacher-class pairs.
@@ -538,12 +539,21 @@ class IDMEOrchestrator:
                 down reader that would otherwise mass-submit the school absent).
                 Left False for the manual "submit all" path: that's a deliberate
                 human action and the portal's NonSchoolDayError still backstops it.
+            exclude_classes: Optional set of class names to skip entirely —
+                NO submission row is written for them, so a prior 'completed' row
+                stays the latest and the settings UI keeps showing it as done.
+                Backs the manual "Submit remaining" button, which passes the
+                classes already recorded (or currently running) today so a
+                catch-up run never re-touches — or worse, stamps 'skipped' over —
+                a class that already succeeded this morning.
 
         Returns:
             List of per-class results.
         """
         if submission_date is None:
             submission_date = date.today().isoformat()
+
+        exclude = exclude_classes or set()
 
         if confirm is None:
             confirm = IDMEConfig.SCHEDULER_CONFIRM
@@ -571,6 +581,8 @@ class IDMEOrchestrator:
             results = []
             for teacher in teachers:
                 class_name = teacher['class_name']
+                if class_name in exclude:
+                    continue
                 if forms is not None and IDMEConfig.form_of(class_name) not in forms:
                     continue
                 self._record_skip(teacher['id'], class_name, submission_date,
@@ -588,6 +600,13 @@ class IDMEOrchestrator:
         for teacher in teachers:
             class_name = teacher['class_name']
             teacher_id = teacher['id']
+
+            # Excluded classes are dropped before any other branch (including the
+            # non_school_day skip below), writing NO row, so their latest stored
+            # status is preserved. This is the "already done today" set for the
+            # manual "Submit remaining" catch-up.
+            if class_name in exclude:
+                continue
 
             # Skip classes outside this session's forms. A class whose form can't
             # be parsed (form_of -> None) belongs to no session and is skipped by

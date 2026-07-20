@@ -478,7 +478,11 @@
              Server-rendered so it survives a JS failure; renderLastFire()
              rebuilds the same markup on refresh. -->
         {% if overview.last_fire %}
-        <div class="label runcap">Daily run &middot; today</div>
+        <div class="runcap-row" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+            <div class="label runcap" style="margin:0;">Daily run &middot; today</div>
+            <button class="btn btn-sm" id="submit-remaining" type="button" style="border-color:var(--line-2);"
+                    title="Log in to MOEIS now and submit every onboarded class not already recorded today. Cannot override the portal's own non-school-day verdict.">Submit remaining</button>
+        </div>
         <div class="runstrip" id="run-strip">
             {% for f in overview.last_fire %}
             <div class="runcard run-{{ f.status }}"{% if f.message %} title="{{ f.message }}"{% endif %}>
@@ -881,7 +885,45 @@
                     + `<span class="rc-cut">${escapeHtml(f.cutoff || '')}</span>`
                     + `</div>`;
             }).join('');
+            updateSubmitRemaining(ov);
         }
+
+        // "Submit remaining" — count of onboarded, in-session classes not yet
+        // recorded today (anything but 'completed'/'running'). Drives the button
+        // label + disabled state so the operator sees at a glance whether there's
+        // a catch-up to run. Hidden entirely while IDME is disabled.
+        function submitRemaining(ov) {
+            return (ov.classes || []).filter(c =>
+                c.onboarded && c.session &&
+                c.today_status !== 'completed' && c.today_status !== 'running');
+        }
+        function updateSubmitRemaining(ov) {
+            const btn = document.getElementById('submit-remaining');
+            if (!btn) return;
+            if (!(ov.config && ov.config.enabled)) { btn.style.display = 'none'; return; }
+            btn.style.display = '';
+            const n = submitRemaining(ov).length;
+            btn.disabled = n === 0;
+            btn.textContent = n === 0 ? 'All recorded ✓' : `Submit remaining (${n})`;
+        }
+        document.getElementById('submit-remaining').addEventListener('click', async () => {
+            const rem = submitRemaining(LAST_OVERVIEW);
+            if (!rem.length) return;
+            const locks = LAST_OVERVIEW.config && LAST_OVERVIEW.config.scheduler_confirm;
+            const mode = locks
+                ? 'This will LOCK records (TELAH DISAHKAN) — hard to reverse.'
+                : 'This saves re-editable DRAFTS (MENUNGGU PENGESAHAN).';
+            const names = rem.map(c => c.class_name).join(', ');
+            if (!confirm(`Log in to MOEIS now and submit ${rem.length} class(es) not yet recorded today?\n\n${names}\n\n${mode}\n\nNote: this cannot override the portal's own non-school-day verdict.`)) return;
+            const result = await streamOperation(
+                '/idme/submit/remaining/stream', null,
+                'Submitting remaining classes…',
+                r => r
+                    ? { ok: r.ok, text: r.message || (r.ok ? 'Done.' : 'Failed.') }
+                    : { ok: false, text: 'No result returned.' }
+            );
+            if (result) { refreshOverview(); loadHistory(); }
+        });
 
         // ---- Operational summary (refresh) ----
         function renderOpSummary(ov) {
