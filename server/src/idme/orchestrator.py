@@ -363,7 +363,8 @@ class IDMEOrchestrator:
 
         Returns:
             The diff dict from RosterManager.upsert_from_portal
-            ({'added', 'updated', 'renamed', 'removed', ...}).
+            ({'added', 'updated', 'renamed', 'removed', ...}). 'removed' names
+            are RETIRED (enabled = 0) by that call, not just reported.
         """
         return asyncio.run(
             self._init_roster_from_portal_async(teacher_id, class_name)

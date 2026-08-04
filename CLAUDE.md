@@ -51,6 +51,17 @@ teacher). Classes without a teacher are never submitted to MOEIS.
   replacement; the **RFID tag is the daily key once learned** (tag-first,
   name-fallback). IC is unavailable on both sides. See
   `server/src/idme/IDENTITY_RESOLUTION_DESIGN.md`.
+- **Dropped students (transfer/withdrawal) are retired by "Read portal".**
+  `RosterManager.upsert_from_portal` sets `enabled = 0` on any registry student
+  the portal no longer lists — a **soft** delete, so the row and its learned tag
+  survive and a student the portal lists again is re-enabled by the next read
+  (matched by `idpelajar` even while disabled). This is load-bearing, not
+  cosmetic: a dropped student left enabled is submitted absent daily and has no
+  portal checkbox to mark, and a single such `Student checkbox not found` fails
+  the **whole class** (`failed_count > 0` ⇒ `status='failed'` in
+  `orchestrator._submit_class_async`) every day until someone re-reads the
+  portal. An **empty** portal list retires nobody — a bad read is never
+  authority to wipe a class. Tests: `server/test_idme_roster_retire.py`.
 
 ### Telegram reason collection (optional, off by default)
 

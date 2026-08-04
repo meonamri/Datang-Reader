@@ -1493,7 +1493,7 @@
                     if (r && !r.error && r.class_name) {
                         let t = `${r.class_name}: +${r.added} added, ${r.updated} updated`;
                         if (r.renamed && r.renamed.length) t += `, ${r.renamed.length} renamed`;
-                        if (r.removed && r.removed.length) t += `, ${r.removed.length} no longer listed`;
+                        if (r.removed && r.removed.length) t += `, ${r.removed.length} retired (no longer on portal)`;
                         return { ok: true, text: t };
                     }
                     return { ok: false, text: (r && r.error) || 'Roster init failed' };

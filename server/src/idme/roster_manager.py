@@ -198,6 +198,13 @@ class RosterManager:
         normalized (name, class). Learned RFID tags are PRESERVED across re-init
         (integration_tag / tag_source are never touched here).
 
+        A registry student the portal no longer lists (transfer / withdrawal) is
+        RETIRED: `enabled = 0`. The row and its learned tag survive, so a student
+        who reappears on the portal is re-enabled by the next read. Retiring is
+        what keeps them out of `detect_absences` — a dropped student left enabled
+        is submitted absent every day and can never be marked on the portal
+        ("Student checkbox not found"), which fails the whole class.
+
         Args:
             class_name: the teacher's class (e.g. '5 UKM').
             portal_students: [{'id': idpelajar, 'name': name}, ...] as returned
@@ -205,7 +212,7 @@ class RosterManager:
 
         Returns:
             {'class_name', 'total', 'added', 'updated', 'renamed': [...],
-             'removed': [...]}  (removed students are REPORTED, not deleted).
+             'removed': [...]}  ('removed' = the names retired this run).
         """
         from .names import normalize_name
 
@@ -261,18 +268,35 @@ class RosterManager:
                     seen_ids.add(idp)
                 seen_namekeys.add(namekey)
 
-            # Report (do not delete) registry students in this class the portal
-            # no longer lists — likely transfers/withdrawals for an admin to check.
+            # Retire registry students in this class the portal no longer lists —
+            # transfers/withdrawals. Soft delete (enabled = 0): the row and its
+            # learned tag stay, and a student the portal lists again is re-enabled
+            # by the matched-update branch above (which sets enabled = 1 and
+            # matches against ALL rows, disabled ones included).
+            #
+            # Guard: an empty portal list is never authority to retire a class.
+            # get_student_list() already raises on an empty table, so this only
+            # fires if a caller hands us nothing.
             current = conn.execute(
-                "SELECT name, idpelajar FROM students "
+                "SELECT id, name, idpelajar FROM students "
                 "WHERE class_name = ? AND enabled = 1",
                 (class_name,)
             ).fetchall()
-            removed = [
-                r['name'] for r in current
+            stale = [
+                r for r in current
                 if not ((r['idpelajar'] and r['idpelajar'] in seen_ids)
                         or (normalize_name(r['name']), class_name) in seen_namekeys)
-            ]
+            ] if portal_students else []
+            removed = [r['name'] for r in stale]
+            for r in stale:
+                conn.execute(
+                    "UPDATE students SET enabled = 0 WHERE id = ?", (r['id'],)
+                )
+            if removed:
+                self.logger.info(
+                    f"Retired from '{class_name}' (no longer on portal): "
+                    + ", ".join(removed)
+                )
 
             conn.commit()
             result = {
@@ -285,7 +309,7 @@ class RosterManager:
             }
             self.logger.info(
                 f"Portal init for '{class_name}': +{added} added, {updated} updated, "
-                f"{len(renamed)} renamed, {len(removed)} no longer listed"
+                f"{len(renamed)} renamed, {len(removed)} retired (no longer on portal)"
             )
             return result
         finally:
