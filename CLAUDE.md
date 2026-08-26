@@ -43,6 +43,16 @@ teacher). Classes without a teacher are never submitted to MOEIS.
   **auto-confirms LOCKED records** (TELAH DISAHKAN) daily and unattended, which
   is hard to reverse. Manual `/idme/submit` defaults to a draft; pass
   `{"confirm": true}` to confirm.
+- **A full-attendance class is still submitted.** Zero absences is not a
+  no-op: an unsubmitted day reads on MOEIS as "attendance never taken", not
+  "everyone present", so `_submit_class_async` logs in and submits the untouched
+  form (every student is default-checked hadir) with an empty absence list.
+  Guarded by the roster: `roster_count == 0` means "we know nothing about this
+  class" (roster never initialised, or everyone retired by a portal read), never
+  "all present" — that returns `failed` (non-retryable) without a login, and
+  deliberately **not** `skipped`, which `submit_all_classes` reads as the
+  school-wide non-school-day signal and would abandon every remaining class.
+  Tests: `server/test_idme_full_attendance.py`.
 - **A class is identified by a string that must match in three places** or it
   silently misfires: the roster `Class`, the Datang scan `section`, and the
   teacher `class_name`. A student name mismatch = that student marked absent
@@ -108,9 +118,9 @@ the override and restores the reason keyboard.
   `/idme/submit` fire it), invoked in the **sync** `submit_class` wrapper *after*
   the async workflow returns — so it can't run on an `OrchestratorError`. Fires
   only when something actually reached the portal (`status=='completed'` and the
-  form was submitted or students were already-absent-recorded); **not** on
-  all-present days, skips, or failures. Best-effort/guarded — a Telegram failure
-  never breaks a submission.
+  form was submitted or students were already-absent-recorded) — an all-present
+  day does submit, so it notifies too; **not** on skips or failures.
+  Best-effort/guarded — a Telegram failure never breaks a submission.
 - **Non-school days (weekends + holidays):** the scheduled prompt is gated by
   **three layers, cheapest first**, all re-evaluated **live at prompt time**
   (`TelegramPromptScheduler._should_prompt`), because the bot — unlike the cutoff

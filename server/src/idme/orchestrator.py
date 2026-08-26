@@ -136,10 +136,12 @@ class IDMEOrchestrator:
         """Best-effort: tell the class teacher their attendance reached IDME.
 
         Fires only when something was actually recorded to the portal — a
-        completed run that either submitted the form or found students already
+        completed run that either submitted the form (including an all-present
+        day, whose untouched form is still submitted) or found students already
         marked absent (recorded_count > 0). Deliberately NOT on:
-          * all-present days (status completed but nothing was sent), and
-          * skipped (non-school day) / failed runs.
+          * skipped (non-school day) / failed runs, and
+          * any completed run that reached the portal with nothing to show for
+            it (neither a submitted form nor a recorded absentee).
         This runs in the SYNC wrapper AFTER the async workflow returns, so an
         OrchestratorError (which propagates and never returns a result) can't
         reach here, and it never sits in a finally that would fire on failure.
@@ -186,27 +188,54 @@ class IDMEOrchestrator:
                                    total_scanned=scanned_count,
                                    total_absent=absent_count)
 
-            if not absences:
-                self.logger.info(f"No absences for {class_name} — all {roster_count} present!")
+            # An EMPTY local roster is not "everyone present" — it is "we know
+            # nothing about this class" (roster never initialised, or every
+            # student retired by a portal read). detect_absences returns [] for
+            # both, so guard here: submitting an untouched form off an empty
+            # roster would silently record a full-attendance day for a class we
+            # have no data on. Fail loudly instead so the settings UI shows it
+            # and someone runs "Initialise Roster" / "Read portal".
+            #
+            # NOT 'skipped': submit_all_classes reads a skipped class as the
+            # school-wide non-school-day signal and would abandon every
+            # remaining class. Not retryable either — a re-login can't conjure
+            # a roster.
+            if roster_count == 0:
+                msg = (f"No roster for {class_name} — initialise the roster "
+                       f"before it can be submitted")
+                self.logger.error(msg)
                 duration = (datetime.now() - start).total_seconds()
-                self._update_submission(submission_id, status='completed',
+                self._update_submission(submission_id, status='failed',
                                        successful=0, failed=0,
-                                       duration=duration)
+                                       duration=duration, error=msg)
                 return {
                     'class_name': class_name,
                     'date': submission_date,
-                    'roster_count': roster_count,
+                    'roster_count': 0,
                     'scanned_count': scanned_count,
                     'absent_count': 0,
                     'submitted': 0,
                     'failed': 0,
                     'form_submitted': False,
                     'duration': duration,
-                    'status': 'completed',
-                    'message': 'All students present',
+                    'status': 'failed',
+                    'retryable': False,
+                    'error': msg,
+                    'message': msg,
                 }
 
-            self.logger.info(f"Found {absent_count} absent students")
+            # A full-attendance class is NOT a no-op: MOEIS still needs the day
+            # recorded, and an unsubmitted day reads as "attendance never taken",
+            # not "everyone present". So we fall through to the normal
+            # login + submit path with an empty absence list — form_filler marks
+            # nobody and submits the untouched form (every student default hadir).
+            if not absences:
+                self.logger.info(
+                    f"No absences for {class_name} — all {roster_count} present. "
+                    f"Submitting the untouched form so the day is recorded."
+                )
+            else:
+                self.logger.info(f"Found {absent_count} absent students")
 
             # Step 2: Get teacher credentials
             self.logger.info(f"Step 2: Getting credentials for teacher ID={teacher_id}")
@@ -269,9 +298,13 @@ class IDMEOrchestrator:
                 # submit must have landed) or they were already absent (nothing
                 # to submit). It's 'failed' only when a student could not be
                 # marked, or we made marks but the submit step broke.
+                # An all-present class (absent_count == 0) has nothing to mark
+                # but MUST still submit — treat a missing submit there as a
+                # failure exactly like a lost submit after marking.
+                must_submit = success_count > 0 or absent_count == 0
                 if failed_count > 0:
                     status = 'failed'
-                elif success_count > 0 and not form_submitted:
+                elif must_submit and not form_submitted:
                     status = 'failed'
                 else:
                     status = 'completed'
@@ -308,11 +341,19 @@ class IDMEOrchestrator:
                     'status': status,
                     'retryable': retryable,
                 }
-
-                self.logger.info(
-                    f"Submission {'completed' if status == 'completed' else 'FAILED'}: "
-                    f"{recorded_count}/{absent_count} recorded absent in {duration:.1f}s"
-                )
+                if absent_count == 0:
+                    result['message'] = 'All students present'
+                    self.logger.info(
+                        f"Submission {'completed' if status == 'completed' else 'FAILED'}: "
+                        f"all {roster_count} present, day "
+                        f"{'recorded' if form_submitted else 'NOT recorded'} "
+                        f"in {duration:.1f}s"
+                    )
+                else:
+                    self.logger.info(
+                        f"Submission {'completed' if status == 'completed' else 'FAILED'}: "
+                        f"{recorded_count}/{absent_count} recorded absent in {duration:.1f}s"
+                    )
 
                 return result
 

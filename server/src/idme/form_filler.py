@@ -298,6 +298,9 @@ class IDMEFormFiller:
 
         Args:
             absent_students: List of dicts with 'student_name', 'category', 'sebab_id'.
+                An EMPTY list is the full-attendance case: no checkbox is
+                touched and the untouched form is submitted as-is, so the day
+                is still recorded on MOEIS.
             delay_between: Delay between students in seconds (default: 0.6).
             confirm: If True (default, production), click "Sahkan" (.simpansah) to
                 CONFIRM the day (status TELAH DISAHKAN — hard to reverse). If False,
@@ -378,6 +381,15 @@ class IDMEFormFiller:
         # left as a draft.
         status = ''
         if success > 0:
+            status = await self._submit_form(confirm=confirm)
+        elif total == 0:
+            # Full attendance. Nothing to mark, but the day still has to be
+            # RECORDED on the portal: an unsubmitted day is not "everyone
+            # present", it is "attendance never taken". Every student is already
+            # checked hadir by default, so submitting the untouched form is
+            # exactly the full-attendance record.
+            self.logger.info(
+                "No absences — submitting the untouched form (all present)")
             status = await self._submit_form(confirm=confirm)
         elif skipped > 0 and failed == 0:
             self.logger.info(
