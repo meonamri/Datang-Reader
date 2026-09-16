@@ -149,7 +149,9 @@ CREATE TABLE IF NOT EXISTS idme_submissions (
     total_absent INTEGER NOT NULL DEFAULT 0,
     successful INTEGER DEFAULT 0,
     failed INTEGER DEFAULT 0,
-    status TEXT DEFAULT 'pending',          -- pending, running, completed, failed
+    unanswered_count INTEGER NOT NULL DEFAULT 0,
+    requested_confirm INTEGER,
+    status TEXT DEFAULT 'pending',          -- pending, running, completed, failed, blocked
     error_message TEXT,
     duration_seconds REAL,
     started_at TIMESTAMP,

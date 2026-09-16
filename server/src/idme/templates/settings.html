@@ -921,7 +921,7 @@
                 ? 'This will LOCK records (TELAH DISAHKAN) — hard to reverse.'
                 : 'This saves re-editable DRAFTS (MENUNGGU PENGESAHAN).';
             const names = rem.map(c => c.class_name).join(', ');
-            if (!confirm(`Log in to MOEIS now and submit ${rem.length} class(es) not yet recorded today?\n\n${names}\n\n${mode}\n\nNote: this cannot override the portal's own non-school-day verdict.`)) return;
+            if (!confirm(`Log in to MOEIS now and submit ${rem.length} class(es) not yet recorded today?\n\n${names}\n\n${mode}\n\nClasses with unanswered absent students will remain blocked and MOEIS will not be opened. This also cannot override the portal's own non-school-day verdict.`)) return;
             const result = await streamOperation(
                 '/idme/submit/remaining/stream', null,
                 'Submitting remaining classes…',
@@ -984,6 +984,7 @@
         //   Success - absences recorded on the portal this run
         //   Done    - ran with nothing to mark (full attendance)
         //   Failed  - a student couldn't be marked / submit broke
+        //   Blocked - waiting for explicit teacher responses
         //   Skipped - not submitted (non-school day)
         //   Running - in progress
         function runChip(c) {
@@ -996,6 +997,10 @@
             } else if (s === 'skipped') {
                 cls = 'skip'; label = 'Skipped';
                 title = c.today_error || 'Not submitted today (non-school day)';
+            } else if (s === 'blocked') {
+                cls = 'skip';
+                label = 'Awaiting teacher (' + (c.today_unanswered || 0) + ')';
+                title = c.today_error || 'Not submitted: teacher responses incomplete';
             } else if (s === 'failed') {
                 cls = 'bad'; label = 'Failed';
                 title = c.today_error || `${fail || 0} of ${absent || 0} absent student(s) could not be recorded`;
@@ -1066,13 +1071,17 @@
                 if (c.session_cutoff) sessChip = `<span class="sesschip" title="${escapeHtml(c.session_label || '')}">${escapeHtml(c.session_cutoff)}</span>`;
                 else if (c.onboarded) sessChip = `<span class="sesschip warn" title="form maps to no session">no session</span>`;
 
-                // Inline failure reason (tooltips are unreachable on touch).
-                // Same fallback text as the Failed chip's tooltip in runChip().
+                // Inline failure/block reason (tooltips are unreachable on touch).
                 let errLine = '';
-                if (c.today_status === 'failed') {
+                if (c.today_status === 'failed' || c.today_status === 'blocked') {
                     const msg = c.today_error
-                        || `${c.today_failed || 0} of ${c.today_absent || 0} absent student(s) could not be recorded`;
-                    errLine = `<div class="cerr" title="${escapeHtml(msg)}">&#10005; ${escapeHtml(msg)}</div>`;
+                        || (c.today_status === 'blocked'
+                            ? (c.today_unanswered || 0) + ' teacher response(s) still required'
+                            : (c.today_failed || 0) + ' of ' + (c.today_absent || 0)
+                              + ' absent student(s) could not be recorded');
+                    const mark = c.today_status === 'blocked' ? '&#9888;' : '&#10005;';
+                    errLine = '<div class="cerr" title="' + escapeHtml(msg) + '">'
+                        + mark + ' ' + escapeHtml(msg) + '</div>';
                 }
 
                 return `<div class="ccard ${meta.cls}">
@@ -1181,6 +1190,7 @@
         }
         function histPill(r) {
             if (r.status === 'failed')  return '<span class="pill red">Failed</span>';
+            if (r.status === 'blocked') return '<span class="pill amber">Awaiting teacher</span>';
             if (r.status === 'skipped') return '<span class="pill grey">Skipped</span>';
             if (r.status === 'running') return '<span class="pill amber">Running</span>';
             if (r.status === 'completed') {
@@ -1201,7 +1211,7 @@
             const rows = q ? HISTORY.filter(r => (r.class_name || '').toLowerCase().includes(q)) : HISTORY;
             if (!rows.length) { el.innerHTML = '<div class="empty">No runs match this filter.</div>'; return; }
             const body = rows.map(r => {
-                const counted = r.status === 'completed' || r.status === 'failed';
+                const counted = r.status === 'completed' || r.status === 'failed' || r.status === 'blocked';
                 const rec = counted ? `${r.successful || 0}/${r.total_absent || 0}` : '&mdash;';
                 const dur = r.duration_seconds ? `${Math.round(r.duration_seconds)}s` : '&mdash;';
                 const note = r.error_message

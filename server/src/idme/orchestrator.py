@@ -16,6 +16,7 @@ import logging
 import asyncio
 import time
 import sqlite3
+import threading
 from typing import Dict, List, Optional, Any
 from datetime import datetime, date
 from pathlib import Path
@@ -28,6 +29,7 @@ from .scan_tracker import ScanTracker
 from .absence_reason_store import AbsenceReasonStore
 from .present_override_store import PresentOverrideStore
 from .absence_detector import AbsenceDetector
+from .names import normalize_name
 from .session_cache import SessionCache
 from .login_engine import IDMELoginEngine, LoginEngineError, NonSchoolDayError
 from .form_filler import IDMEFormFiller, FormFillerError
@@ -89,6 +91,15 @@ class IDMEOrchestrator:
         # Telegram bot's teacher notification; None (the default) is a no-op, so
         # the submission path stays decoupled from the bot.
         self.submission_notifier = None
+        self.blocked_notifier = None
+
+        # Every entry point shares the same per-class/day lock, so a Telegram
+        # answer, scheduled fire and manual click cannot open two MOEIS sessions
+        # for the same class/day.
+        self._submission_locks = {}
+        self._submission_locks_guard = threading.Lock()
+        self._auto_retry_inflight = set()
+        self._auto_retry_guard = threading.Lock()
 
         self.logger.info("IDME Orchestrator initialized")
 
@@ -126,11 +137,29 @@ class IDMEOrchestrator:
                 'status': 'completed',
             }
         """
-        result = asyncio.run(
-            self._submit_class_async(teacher_id, class_name, submission_date, confirm)
-        )
-        self._notify_submission(class_name, result)
-        return result
+        if submission_date is None:
+            submission_date = date.today().isoformat()
+        key = (submission_date, class_name)
+        with self._submission_locks_guard:
+            lock = self._submission_locks.setdefault(key, threading.Lock())
+        if not lock.acquire(blocking=False):
+            self.logger.info(
+                f"Submission already running for {class_name} on {submission_date}"
+            )
+            return {
+                'class_name': class_name, 'date': submission_date,
+                'status': 'running', 'retryable': False,
+                'message': 'Submission already in progress',
+            }
+        try:
+            result = asyncio.run(
+                self._submit_class_async(
+                    teacher_id, class_name, submission_date, confirm)
+            )
+            self._notify_submission(class_name, result)
+            return result
+        finally:
+            lock.release()
 
     def _notify_submission(self, class_name: str, result: Dict[str, Any]) -> None:
         """Best-effort: tell the class teacher their attendance reached IDME.
@@ -146,9 +175,13 @@ class IDMEOrchestrator:
         OrchestratorError (which propagates and never returns a result) can't
         reach here, and it never sits in a finally that would fire on failure.
         Guarded end-to-end — a Telegram hiccup must never fail a submission."""
-        if not self.submission_notifier:
-            return
         try:
+            if result.get('status') == 'blocked':
+                if self.blocked_notifier:
+                    self.blocked_notifier(class_name, result)
+                return
+            if not self.submission_notifier:
+                return
             recorded = result.get('submitted', 0) or 0
             sent = result.get('form_submitted', False)
             if result.get('status') == 'completed' and (sent or recorded > 0):
@@ -170,7 +203,7 @@ class IDMEOrchestrator:
 
         start = datetime.now()
         submission_id = self._create_submission_record(
-            teacher_id, class_name, submission_date
+            teacher_id, class_name, submission_date, confirm=confirm
         )
 
         try:
@@ -222,6 +255,33 @@ class IDMEOrchestrator:
                     'retryable': False,
                     'error': msg,
                     'message': msg,
+                }
+
+            # Integrity gate: every student still absent at submission time
+            # needs an explicit teacher response. A reason row counts even when
+            # the selected reason is the default PONTENG code. Late scans and
+            # Hadir/lupa-kad overrides are already absent from the current list.
+            unanswered = self._unanswered_absences(
+                class_name, submission_date, absences)
+            if unanswered:
+                count = len(unanswered)
+                msg = (f"Awaiting teacher response for {count} absent "
+                       f"student{'s' if count != 1 else ''}")
+                duration = (datetime.now() - start).total_seconds()
+                self.logger.warning(
+                    f"Submission blocked for {class_name}: {msg}; MOEIS not opened")
+                self._update_submission(
+                    submission_id, status='blocked', successful=0, failed=0,
+                    unanswered_count=count, duration=duration, error=msg)
+                return {
+                    'class_name': class_name, 'date': submission_date,
+                    'roster_count': roster_count, 'scanned_count': scanned_count,
+                    'absent_count': absent_count, 'submitted': 0, 'failed': 0,
+                    'form_submitted': False, 'duration': duration,
+                    'status': 'blocked', 'retryable': False,
+                    'unanswered_count': count,
+                    'unanswered_students': [a['student_name'] for a in unanswered],
+                    'error': msg, 'message': msg,
                 }
 
             # A full-attendance class is NOT a no-op: MOEIS still needs the day
@@ -762,26 +822,124 @@ class IDMEOrchestrator:
         total = len(results)
         completed = sum(1 for r in results if r.get('status') == 'completed')
         skipped = sum(1 for r in results if r.get('status') == 'skipped')
-        failed = total - completed - skipped
+        blocked = sum(1 for r in results if r.get('status') == 'blocked')
+        running = sum(1 for r in results if r.get('status') == 'running')
+        failed = total - completed - skipped - blocked - running
 
         self.logger.info(
             f"Bulk submission done: {completed}/{total} succeeded, "
-            f"{skipped} skipped (non-school day), {failed} failed"
+            f"{skipped} skipped (non-school day), {blocked} blocked "
+            f"(awaiting teacher), {running} already running, {failed} failed"
         )
 
         return results
 
+    def _unanswered_absences(
+        self, class_name: str, submission_date: str,
+        absences: Optional[List[Dict[str, Any]]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return current absentees lacking an explicit teacher reason."""
+        if absences is None:
+            absences = self.absence_detector.detect_absences(
+                class_name, submission_date)
+        if not absences:
+            return []
+        reasons = self.reason_store.get_reasons_for(class_name, submission_date)
+        unanswered = []
+        for student in absences:
+            answered = False
+            idpelajar = student.get('idpelajar')
+            if idpelajar:
+                answered = AbsenceReasonStore.id_key(idpelajar) in reasons
+            if not answered:
+                key = AbsenceReasonStore.name_key(
+                    normalize_name(student['student_name']))
+                answered = key in reasons
+            if not answered:
+                unanswered.append(student)
+        return unanswered
+
+    def handle_teacher_response(self, class_name: str, submission_date: str) -> None:
+        """Queue same-day catch-up when a response completes a blocked class."""
+        if submission_date != date.today().isoformat():
+            return
+        latest = self._latest_submission(class_name, submission_date)
+        if not latest or latest.get('status') != 'blocked':
+            return
+        key = (submission_date, class_name)
+        with self._auto_retry_guard:
+            if key in self._auto_retry_inflight:
+                return
+            self._auto_retry_inflight.add(key)
+        threading.Thread(
+            target=self._auto_submit_if_ready,
+            args=(class_name, submission_date), daemon=True).start()
+
+    def _auto_submit_if_ready(self, class_name: str, submission_date: str) -> None:
+        key = (submission_date, class_name)
+        try:
+            latest = self._latest_submission(class_name, submission_date)
+            if not latest or latest.get('status') != 'blocked':
+                return
+            if self._unanswered_absences(class_name, submission_date):
+                return
+            teacher = self.teacher_manager.get_teacher_for_class(class_name)
+            if not teacher:
+                self.logger.warning(
+                    f"Auto-submit not queued for {class_name}: teacher missing")
+                return
+            confirm = bool(latest.get('requested_confirm'))
+            self.logger.info(
+                f"All teacher responses complete for {class_name}; "
+                "starting same-day automatic submission")
+            self.submit_class(
+                teacher['id'], class_name, submission_date, confirm=confirm)
+        except Exception as e:
+            self.logger.error(f"Automatic blocked-class submission failed: {e}")
+        finally:
+            with self._auto_retry_guard:
+                self._auto_retry_inflight.discard(key)
+
+    def resume_ready_blocked_submissions(self) -> None:
+        """Recover ready blocked classes after a same-day process restart."""
+        today = date.today().isoformat()
+        latest = {}
+        for row in self.get_submissions_for_date(today):
+            latest[row['class_name']] = row
+        for class_name, row in latest.items():
+            if row.get('status') == 'blocked':
+                self.handle_teacher_response(class_name, today)
+
+    def _latest_submission(
+        self, class_name: str, submission_date: str
+    ) -> Optional[Dict[str, Any]]:
+        conn = sqlite3.connect(str(self.db_path))
+        conn.row_factory = sqlite3.Row
+        try:
+            row = conn.execute(
+                "SELECT * FROM idme_submissions "
+                "WHERE class_name = ? AND submission_date = ? "
+                "ORDER BY id DESC LIMIT 1",
+                (class_name, submission_date),
+            ).fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+
     def _create_submission_record(
-        self, teacher_id: int, class_name: str, submission_date: str
+        self, teacher_id: int, class_name: str, submission_date: str,
+        confirm: Optional[bool] = None,
     ) -> int:
         """Create an initial submission record in the database."""
         conn = sqlite3.connect(str(self.db_path))
         try:
             cursor = conn.execute(
                 """INSERT INTO idme_submissions
-                   (teacher_id, class_name, submission_date, status, started_at)
-                   VALUES (?, ?, ?, 'running', ?)""",
-                (teacher_id, class_name, submission_date, datetime.now().isoformat())
+                   (teacher_id, class_name, submission_date, status, started_at,
+                    requested_confirm)
+                   VALUES (?, ?, ?, 'running', ?, ?)""",
+                (teacher_id, class_name, submission_date, datetime.now().isoformat(),
+                 None if confirm is None else int(bool(confirm)))
             )
             conn.commit()
             return cursor.lastrowid
@@ -795,7 +953,8 @@ class IDMEOrchestrator:
         self, submission_id: int, status: str = None,
         total_roster: int = None, total_scanned: int = None,
         total_absent: int = None, successful: int = None,
-        failed: int = None, duration: float = None, error: str = None
+        failed: int = None, unanswered_count: int = None,
+        duration: float = None, error: str = None
     ):
         """Update a submission record."""
         if not submission_id:
@@ -822,13 +981,16 @@ class IDMEOrchestrator:
         if failed is not None:
             updates.append("failed = ?")
             params.append(failed)
+        if unanswered_count is not None:
+            updates.append("unanswered_count = ?")
+            params.append(unanswered_count)
         if duration is not None:
             updates.append("duration_seconds = ?")
             params.append(duration)
         if error:
             updates.append("error_message = ?")
             params.append(error)
-        if status in ('completed', 'failed', 'skipped'):
+        if status in ('completed', 'failed', 'skipped', 'blocked'):
             updates.append("completed_at = ?")
             params.append(datetime.now().isoformat())
 

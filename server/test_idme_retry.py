@@ -68,6 +68,10 @@ class RetryableFlagTests(unittest.TestCase):
             orch.absence_detector.get_attendance_summary.return_value = {
                 "roster_count": 1, "scanned_count": 0,
             }
+            # These tests isolate portal retry semantics; the mocked absentee is
+            # treated as already answered so the teacher-integrity gate permits
+            # the workflow to reach the mocked form filler.
+            orch._unanswered_absences = MagicMock(return_value=[])
             orch.teacher_manager.get_teacher_credentials.return_value = {
                 "ic_number": "x", "password": "y",
             }

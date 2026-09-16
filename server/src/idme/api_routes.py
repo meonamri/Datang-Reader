@@ -149,12 +149,17 @@ def init_idme_module(service_manager=None):
             _orchestrator.reason_store,
             IDMEConfig.DATABASE_PATH,
             present_store=_orchestrator.present_store,
+            response_callback=_orchestrator.handle_teacher_response,
         )
         if _telegram_bot.start():
             # Notify a class's teacher after their attendance is recorded to IDME.
             # Set on the orchestrator (which stays decoupled from the bot) so both
             # the scheduled cutoff and the manual /idme/submit paths trigger it.
             _orchestrator.submission_notifier = _telegram_bot.notify_class_submitted
+            _orchestrator.blocked_notifier = _telegram_bot.notify_submission_blocked
+            # Recover a class whose final answer was saved just before a process
+            # restart but whose same-day catch-up had not started yet.
+            _orchestrator.resume_ready_blocked_submissions()
             # Inject the orchestrator's portal probe as a callable so the prompt
             # scheduler can run its daily school-day pre-check without importing
             # the orchestrator (keeps telegram_bot decoupled from the login stack).
@@ -230,6 +235,7 @@ def _fire_card(session, rows, onboarded):
     statuses = [r['status'] for r in rows]
     completed = statuses.count('completed')
     skipped = statuses.count('skipped')
+    blocked = statuses.count('blocked')
     failed = statuses.count('failed')
     running = statuses.count('running')
     total = len(rows)
@@ -254,7 +260,8 @@ def _fire_card(session, rows, onboarded):
         'message': '',
         'counts': {
             'total': total, 'completed': completed,
-            'skipped': skipped, 'failed': failed, 'onboarded': onboarded,
+            'skipped': skipped, 'blocked': blocked, 'failed': failed,
+            'onboarded': onboarded,
         },
     }
 
@@ -268,14 +275,18 @@ def _fire_card(session, rows, onboarded):
         else:
             card.update(status='none', headline='No classes',
                         detail='nothing onboarded for this session')
-    elif skipped and not completed and not failed:
+    elif skipped and not completed and not failed and not blocked:
         card.update(status='skipped', headline='Skipped',
                     detail='non-school day', message=_msg('skipped'))
+    elif blocked and not completed and not failed:
+        card.update(status='blocked', headline='Awaiting teacher',
+                    detail=f"{blocked} class{_pl(blocked)} blocked",
+                    message=_msg('blocked'))
     elif failed and not completed:
         card.update(status='failed', headline='Failed',
                     detail=f"{failed} class{_pl(failed)} failed",
                     message=_msg('failed'))
-    elif completed and not failed and not skipped:
+    elif completed and not failed and not skipped and not blocked:
         card.update(status='success', headline='Submitted',
                     detail=f"{completed} class{_pl(completed)}"
                            + (f" · {at_text}" if at_text else ''))
@@ -285,10 +296,13 @@ def _fire_card(session, rows, onboarded):
             bits.append(f"{completed} sent")
         if failed:
             bits.append(f"{failed} failed")
+        if blocked:
+            bits.append(f"{blocked} awaiting teacher")
         if skipped:
             bits.append(f"{skipped} skipped")
         card.update(status='partial', headline='Partial',
-                    detail=' · '.join(bits), message=_msg('failed'))
+                    detail=' · '.join(bits),
+                    message=_msg('failed') or _msg('blocked'))
     return card
 
 
@@ -378,6 +392,7 @@ def _build_overview():
             'today_absent': sub['total_absent'] if sub else None,
             'today_recorded': sub['successful'] if sub else None,
             'today_failed': sub['failed'] if sub else None,
+            'today_unanswered': sub['unanswered_count'] if sub else None,
             'today_error': sub['error_message'] if sub else None,
         })
 
@@ -1012,27 +1027,37 @@ def submit_remaining_stream():
         completed = sum(1 for r in results if r.get('status') == 'completed')
         failed = sum(1 for r in results if r.get('status') == 'failed')
         skipped = sum(1 for r in results if r.get('status') == 'skipped')
+        blocked = sum(1 for r in results if r.get('status') == 'blocked')
+        running = sum(1 for r in results if r.get('status') == 'running')
         attempted = len(results)
         if attempted == 0:
             status, ok, msg = 'nothing', True, 'All classes already recorded today — nothing to submit.'
-        elif failed == 0 and skipped == 0:
+        elif failed == 0 and skipped == 0 and blocked == 0 and running == 0:
             status, ok, msg = 'completed', True, f'{completed} class(es) recorded.'
-        elif skipped and not completed and not failed:
+        elif blocked and not completed and not failed and not skipped:
+            status, ok, msg = (
+                'blocked', False,
+                f'{blocked} class(es) awaiting complete teacher responses.')
+        elif skipped and not completed and not failed and not blocked:
             status, ok, msg = 'skipped', True, 'Non-school day — the portal rejected the date; nothing submitted.'
-        elif completed and (failed or skipped):
+        elif completed and (failed or skipped or blocked or running):
             bits = [f'{completed} recorded']
             if failed:
                 bits.append(f'{failed} failed')
+            if blocked:
+                bits.append(f'{blocked} awaiting teacher')
+            if running:
+                bits.append(f'{running} already running')
             if skipped:
                 bits.append(f'{skipped} skipped')
-            status, ok, msg = 'partial', failed == 0, ' · '.join(bits) + '.'
+            status, ok, msg = 'partial', not (failed or blocked), ' · '.join(bits) + '.'
         else:
             status, ok, msg = 'failed', False, f'{failed} class(es) failed.'
         return {
             'ok': ok, 'status': status, 'message': msg,
             'attempted': attempted, 'completed': completed,
-            'failed': failed, 'skipped': skipped,
-            'excluded': len(exclude), 'results': results,
+            'failed': failed, 'skipped': skipped, 'blocked': blocked,
+            'running': running, 'excluded': len(exclude), 'results': results,
         }
 
     return _stream_operation(run)

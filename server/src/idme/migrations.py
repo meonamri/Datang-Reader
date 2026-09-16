@@ -33,6 +33,12 @@ _TEACHER_COLUMNS = {
     "telegram_chat_id": "TEXT",         # Telegram chat id, set when the teacher links their chat
 }
 
+# Teacher-response integrity metadata for durable blocked submissions.
+_SUBMISSION_COLUMNS = {
+    "unanswered_count": "INTEGER NOT NULL DEFAULT 0",
+    "requested_confirm": "INTEGER",
+}
+
 
 def _add_missing_columns(conn: sqlite3.Connection, table: str, columns: dict) -> None:
     """ALTER TABLE ... ADD COLUMN for any column in `columns` not already present.
@@ -47,6 +53,7 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
     """Add any missing additive columns to existing databases."""
     _add_missing_columns(conn, "students", _STUDENT_COLUMNS)
     _add_missing_columns(conn, "teachers", _TEACHER_COLUMNS)
+    _add_missing_columns(conn, "idme_submissions", _SUBMISSION_COLUMNS)
     # Create the idpelajar index here (not in schema.sql): on an existing DB the
     # column doesn't exist until the ALTER above, so the index must be created
     # only once the column is guaranteed present. Idempotent.

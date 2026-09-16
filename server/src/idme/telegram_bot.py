@@ -186,7 +186,7 @@ class IDMETelegramBot:
     """Long-polling Telegram bot: teacher linking, reason prompts, reason capture."""
 
     def __init__(self, token, teacher_manager, absence_detector, reason_store,
-                 db_path, present_store=None):
+                 db_path, present_store=None, response_callback=None):
         self.client = TelegramClient(token)
         self.teacher_manager = teacher_manager
         self.absence_detector = absence_detector
@@ -195,6 +195,10 @@ class IDMETelegramBot:
         # the bot still runs (reasons-only) if it isn't wired; when None, the Hadir
         # button is omitted from the keyboard.
         self.present_store = present_store
+        # Best-effort callback invoked after a durable teacher answer. The
+        # orchestrator uses it to resume a same-day class previously blocked at
+        # cutoff; the bot remains usable when no callback is supplied.
+        self.response_callback = response_callback
         self.guard = TelegramAuthGuard(db_path)
         self.logger = logging.getLogger(__name__)
 
@@ -539,6 +543,7 @@ class IDMETelegramBot:
             reply_markup=change_kbd,
         )
         self.client.answer_callback_query(cq_id, "Disimpan ✅")
+        self._notify_response_recorded(entry)
 
     def _record_present(self, entry, entry_id, chat_id, message_id, cq_id):
         """Handle a "Hadir (lupa kad)" tap: record the present-override (so the
@@ -598,6 +603,7 @@ class IDMETelegramBot:
         )
         self.client.answer_callback_query(cq_id, "Direkod Hadir ✅")
 
+        self._notify_response_recorded(entry)
         if over:
             self._notify_admin_over_limit(
                 entry['student_name'], entry['class_name'], window_count)
@@ -641,7 +647,43 @@ class IDMETelegramBot:
         except Exception as e:
             self.logger.warning(f"Failed to send admin over-limit alert: {e}")
 
+    def _notify_response_recorded(self, entry) -> None:
+        """Best-effort signal after a teacher answer is durably stored."""
+        if not self.response_callback:
+            return
+        try:
+            self.response_callback(entry['class_name'], entry['scan_date'])
+        except Exception as e:
+            self.logger.warning(f"Teacher-response callback failed: {e}")
+
     # ---- post-submission teacher notification ---------------------------
+
+    def notify_submission_blocked(self, class_name: str, result=None) -> None:
+        """Tell the linked teacher that IDME was withheld pending answers."""
+        try:
+            teacher = self.teacher_manager.get_teacher_for_class(class_name)
+            if not teacher:
+                return
+            full = self.teacher_manager.get_teacher(teacher['id']) or teacher
+            chat_id = full.get('telegram_chat_id')
+            if not chat_id:
+                self.logger.info(
+                    f"Blocked-submission notify skipped for {class_name}: "
+                    "teacher not linked")
+                return
+            count = int((result or {}).get('unanswered_count') or 0)
+            self.client.send_message(
+                chat_id,
+                f"⛔ Kehadiran Kelas {class_name} belum dihantar ke IDME. "
+                f"Masih ada {count} pelajar belum dijawab. "
+                "Lengkapkan semua pilihan pada mesej terdahulu atau hantar "
+                "/kehadiran. Sistem akan menghantar secara automatik selepas "
+                "semua jawapan lengkap hari ini.",
+            )
+        except Exception as e:
+            self.logger.warning(
+                f"Failed to notify teacher of blocked submission for "
+                f"{class_name}: {e}")
 
     def notify_class_submitted(self, class_name: str, result=None) -> None:
         """DM a class's linked teacher that their attendance reached IDME. Wired to
