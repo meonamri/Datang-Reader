@@ -504,6 +504,7 @@
             <div class="stat"><div class="label">Students</div><div class="v" id="stat-students">{{ total_students }}</div></div>
             <div class="stat"><div class="label">Classes</div><div class="v" id="stat-classes">{{ total_classes }}</div></div>
             <div class="stat"><div class="label">Onboarded</div><div class="v green" id="stat-onboarded">{{ overview.summary.onboarded }}</div></div>
+            <div class="stat"><div class="label">Roster current</div><div class="v green" id="stat-roster-current">{{ overview.summary.roster_sync_current }}</div></div>
         </div>
 
         <!-- ===== Operational summary ===== -->
@@ -943,6 +944,7 @@
             setNum('stat-students', s.students);
             setNum('stat-classes', s.classes);
             setNum('stat-onboarded', s.onboarded);
+            setNum('stat-roster-current', s.roster_sync_current || 0);
             const chip = document.getElementById('op-issue'), txt = document.getElementById('op-issue-text');
             if (chip && txt) {
                 if (s.misfires) { chip.className = 'opchip bad'; txt.textContent = `${s.misfires} misfire${s.no_teacher ? ' · ' + s.no_teacher + ' no teacher' : ''}`; }
@@ -1071,6 +1073,16 @@
                 if (c.session_cutoff) sessChip = `<span class="sesschip" title="${escapeHtml(c.session_label || '')}">${escapeHtml(c.session_cutoff)}</span>`;
                 else if (c.onboarded) sessChip = `<span class="sesschip warn" title="form maps to no session">no session</span>`;
 
+                const syncState = c.roster_sync_status || 'stale';
+                const syncLabel = syncState === 'current' ? 'roster current'
+                    : (syncState === 'changed' ? 'roster changed'
+                    : (syncState === 'failed' ? 'roster failed' : 'roster stale'));
+                const syncTitle = c.roster_sync_error
+                    || (c.roster_sync_at
+                        ? `Last portal read ${c.roster_sync_at} (${c.roster_sync_trigger || 'unknown'})`
+                        : 'No successful portal roster read today');
+                const syncChip = `<span class="sesschip ${syncState === 'current' ? '' : 'warn'}" title="${escapeHtml(syncTitle)}">${syncLabel}</span>`;
+
                 // Inline failure/block reason (tooltips are unreachable on touch).
                 let errLine = '';
                 if (c.today_status === 'failed' || c.today_status === 'blocked') {
@@ -1089,6 +1101,7 @@
                         <span class="sdot" style="background:${meta.dot};"></span>
                         <span class="code">${escapeHtml(c.class_name)}</span>
                         ${sessChip}
+                        ${syncChip}
                         <span class="trgroup">${runChip(c)}<span class="badge" style="color:${meta.dot === 'var(--green)' ? green : (st === 'noteacher' ? amber : off)};border-color:${meta.dot === 'var(--green)' ? green : (st === 'noteacher' ? amber : line)};">${meta.badge}</span></span>
                     </div>
                     <div class="teacher">${c.teacher_name ? escapeHtml(c.teacher_name) : 'No teacher assigned'}</div>

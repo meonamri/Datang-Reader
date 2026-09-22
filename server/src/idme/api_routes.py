@@ -157,6 +157,7 @@ def init_idme_module(service_manager=None):
             # the scheduled cutoff and the manual /idme/submit paths trigger it.
             _orchestrator.submission_notifier = _telegram_bot.notify_class_submitted
             _orchestrator.blocked_notifier = _telegram_bot.notify_submission_blocked
+            _orchestrator.roster_sync_notifier = _telegram_bot.notify_roster_sync
             # Recover a class whose final answer was saved just before a process
             # restart but whose same-day catch-up had not started yet.
             _orchestrator.resume_ready_blocked_submissions()
@@ -168,6 +169,8 @@ def init_idme_module(service_manager=None):
                 school_day_check=_orchestrator.check_school_day,
                 enough_scans_today=_orchestrator.enough_scans_today,
                 precheck_lead_hours=IDMEConfig.TELEGRAM_PRECHECK_LEAD_HOURS,
+                roster_refresh=_orchestrator.refresh_session_rosters,
+                refresh_lead_minutes=IDMEConfig.ROSTER_REFRESH_LEAD_MINUTES,
             )
             _prompt_scheduler.start()
         else:
@@ -203,6 +206,8 @@ def idme_status():
         },
         'scans_today': scans_today,
         'scheduler': _scheduler.get_status() if _scheduler else None,
+        'roster_sync': (
+            _orchestrator.get_roster_sync_status() if _orchestrator else {}),
     }
 
     return jsonify(status), 200
@@ -355,6 +360,8 @@ def _build_overview():
     today = date.today().isoformat()
     today_subs = _orchestrator.get_submissions_for_date(today) if _orchestrator else []
     today_by_class = {s['class_name']: s for s in today_subs}
+    roster_sync = (
+        _orchestrator.get_roster_sync_status(today) if _orchestrator else {})
 
     # Per-class alignment + today preview. A class is "onboarded" (will be
     # submitted to MOEIS at cutoff) only when it has an *enabled* teacher.
@@ -371,6 +378,7 @@ def _build_overview():
         form = IDMEConfig.form_of(cn)
         session = IDMEConfig.session_for_form(form)
         sub = today_by_class.get(cn)
+        sync = roster_sync.get(cn)
         class_rows.append({
             'class_name': cn,
             'roster': roster_n,
@@ -394,6 +402,13 @@ def _build_overview():
             'today_failed': sub['failed'] if sub else None,
             'today_unanswered': sub['unanswered_count'] if sub else None,
             'today_error': sub['error_message'] if sub else None,
+            'roster_sync_status': sync['status'] if sync else 'stale',
+            'roster_sync_trigger': sync['trigger'] if sync else None,
+            'roster_sync_at': sync['completed_at'] if sync else None,
+            'roster_sync_error': sync['error_message'] if sync else None,
+            'roster_sync_added': sync['added_count'] if sync else 0,
+            'roster_sync_renamed': sync['renamed_count'] if sync else 0,
+            'roster_sync_retired': sync['retired_count'] if sync else 0,
         })
 
     # Teachers whose class_name matches no roster class — the silent-misfire
@@ -440,6 +455,13 @@ def _build_overview():
         'coverage_mapped': cov_mapped,
         'coverage_total': cov_total,
         'coverage_pct': round(cov_mapped / cov_total * 100) if cov_total else 0,
+        'roster_sync_current': sum(
+            1 for s in roster_sync.values()
+            if s.get('status') in ('current', 'changed')),
+        'roster_sync_changed': sum(
+            1 for s in roster_sync.values() if s.get('status') == 'changed'),
+        'roster_sync_failed': sum(
+            1 for s in roster_sync.values() if s.get('status') == 'failed'),
     }
 
     return {
@@ -450,6 +472,7 @@ def _build_overview():
         'orphan_sections': orphan_sections,
         'unclassified_classes': unclassified_classes,
         'last_fire': _build_last_fire(class_rows),
+        'roster_sync': roster_sync,
         'summary': summary,
     }
 

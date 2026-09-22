@@ -287,6 +287,49 @@ class IDMEFormFiller:
             self.logger.error(f"Exception for '{student_name}': {e}")
             return 'failed'
 
+    async def validate_student_matches(
+        self, absent_students: List[Dict[str, str]]
+    ) -> List[str]:
+        """Return absentee names that have no matching portal checkbox.
+
+        This is deliberately a separate, read-only DOM pass before any checkbox
+        is toggled.  A stale local roster must therefore fail closed: either the
+        whole absentee set can be represented on the current MOEIS form, or no
+        client-side attendance state is changed and no submit AJAX can fire.
+        """
+        if not absent_students:
+            return []
+        expected = [
+            {
+                'name': row['student_name'],
+                'idpelajar': row.get('idpelajar'),
+            }
+            for row in absent_students
+        ]
+        return await self.page.evaluate(
+            """
+            (expected) => {
+                const byId = new Set();
+                const byName = new Set();
+                document.querySelectorAll(
+                    'input.case-hadir[type="checkbox"]'
+                ).forEach(cb => {
+                    const id = cb.getAttribute('data-idpelajar');
+                    const name = cb.getAttribute('data-namapelajar');
+                    if (id) byId.add(id);
+                    if (name) byName.add(name);
+                });
+                return expected
+                    .filter(s => !(
+                        (s.idpelajar && byId.has(s.idpelajar)) ||
+                        byName.has(s.name)
+                    ))
+                    .map(s => s.name);
+            }
+            """,
+            expected,
+        )
+
     async def mark_absences_and_submit(
         self,
         absent_students: List[Dict[str, str]],
@@ -341,6 +384,38 @@ class IDMEFormFiller:
 
         await self._take_screenshot("before_marking")
 
+        # Fail closed before touching the form.  Previously a mixed result (one
+        # matching absentee plus one stale/missing pupil) could submit the
+        # matching subset.  That is worse than a failed run because it writes an
+        # incomplete attendance record.  The caller can now refresh the roster
+        # and retry safely: write_attempted is guaranteed False here.
+        try:
+            missing = await self.validate_student_matches(absent_students)
+        except Exception as e:
+            self.logger.error(f"Roster preflight failed: {e}")
+            return {
+                'total': total, 'success': 0, 'skipped': 0,
+                'failed': total, 'submitted': False,
+                'duration': time.time() - start,
+                'error': f"Roster preflight failed: {e}",
+                'error_code': 'roster_preflight_failed',
+                'write_attempted': self.write_attempted,
+            }
+        if missing:
+            self.logger.error(
+                f"Roster mismatch: {len(missing)} absentee(s) not on portal")
+            return {
+                'total': total, 'success': 0, 'skipped': 0,
+                'failed': len(missing), 'submitted': False,
+                'duration': time.time() - start,
+                'error': (
+                    f"Roster mismatch: {len(missing)} absentee(s) not on portal"
+                ),
+                'error_code': 'roster_mismatch',
+                'missing_students': missing,
+                'write_attempted': self.write_attempted,
+            }
+
         # Mark each absent student
         self.logger.info(f"Marking {total} students as absent...")
         for i, absence in enumerate(absent_students, 1):
@@ -380,7 +455,12 @@ class IDMEFormFiller:
         # revisit before enabling daily auto-confirm so such a day isn't silently
         # left as a draft.
         status = ''
-        if success > 0:
+        if failed > 0:
+            # Some DOM manipulation may have happened client-side, but the
+            # submit action has not.  Closing the browser discards those changes.
+            self.logger.error(
+                f"Refusing partial submission: {failed} absentee(s) failed")
+        elif success > 0:
             status = await self._submit_form(confirm=confirm)
         elif total == 0:
             # Full attendance. Nothing to mark, but the day still has to be

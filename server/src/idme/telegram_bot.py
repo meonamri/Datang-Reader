@@ -647,6 +647,38 @@ class IDMETelegramBot:
         except Exception as e:
             self.logger.warning(f"Failed to send admin over-limit alert: {e}")
 
+    def notify_roster_sync(self, summary: dict) -> None:
+        """Send one counts-only admin summary for changed or failed rosters."""
+        from .idme_config import IDMEConfig
+        admin_id = IDMEConfig.TELEGRAM_ADMIN_CHAT_ID
+        if not admin_id:
+            self.logger.info("Roster-sync alert skipped: no admin chat configured")
+            return
+        changed = [
+            r for r in summary.get('results', []) if r.get('status') == 'changed']
+        failed = [
+            r for r in summary.get('results', []) if r.get('status') == 'failed']
+        if not changed and not failed:
+            return
+        lines = [
+            "🔄 SEMAKAN ROSTER IDME",
+            f"Punca: {summary.get('trigger', 'automatik')}",
+        ]
+        if changed:
+            lines.append("Berubah: " + ", ".join(
+                f"{r['class_name']} (+{r.get('added', 0)} / "
+                f"-{r.get('retired', 0)} / nama {r.get('renamed', 0)})"
+                for r in changed))
+        if failed:
+            lines.append("Gagal: " + ", ".join(r['class_name'] for r in failed))
+            lines.append(
+                "Prompt menggunakan roster tempatan terakhir; sistem akan "
+                "mencuba semula sekali sebelum waktu penghantaran.")
+        try:
+            self.client.send_message(admin_id, "\n".join(lines))
+        except Exception as e:
+            self.logger.warning(f"Failed to send roster-sync admin alert: {e}")
+
     def _notify_response_recorded(self, entry) -> None:
         """Best-effort signal after a teacher answer is durably stored."""
         if not self.response_callback:
@@ -859,6 +891,7 @@ class _PromptSession:
         self.name = session['name']
         self.hour, self.minute = map(int, session['prompt_time'].split(':'))
         self.timer: Optional[threading.Timer] = None
+        self.refresh_timer: Optional[threading.Timer] = None
 
     def next_target(self, now: datetime) -> datetime:
         target = now.replace(hour=self.hour, minute=self.minute, second=0, microsecond=0)
@@ -900,7 +933,8 @@ class TelegramPromptScheduler:
 
     def __init__(self, bot: IDMETelegramBot, sessions: List[dict],
                  school_day_check=None, enough_scans_today=None,
-                 precheck_lead_hours: int = 1):
+                 precheck_lead_hours: int = 1, roster_refresh=None,
+                 refresh_lead_minutes: int = 15):
         self.bot = bot
         self.sessions = [_PromptSession(s) for s in sessions if s.get('prompt_time')]
         # Zero-arg callable -> Optional[bool] (True school day / False non-school
@@ -912,6 +946,10 @@ class TelegramPromptScheduler:
         # a slow-scan morning or a restart can't wrongly skip or spam. When None,
         # the scan gate is disabled.
         self.enough_scans = enough_scans_today
+        # Callable(session, sync_date=..., trigger=..., only_missing=...).
+        # It performs serial, read-only portal roster reads and local upserts.
+        self.roster_refresh = roster_refresh
+        self.refresh_lead = timedelta(minutes=max(1, refresh_lead_minutes))
         self.precheck_lead = timedelta(hours=max(0, precheck_lead_hours))
         self.running = False
         self.logger = logging.getLogger(__name__)
@@ -931,6 +969,8 @@ class TelegramPromptScheduler:
         self.running = True
         for ps in self.sessions:
             self._schedule_next(ps)
+            if self.roster_refresh:
+                self._schedule_roster_refresh(ps)
         if self.school_day_check and self.sessions:
             self._schedule_precheck()
         if self.sessions:
@@ -949,6 +989,9 @@ class TelegramPromptScheduler:
             if ps.timer:
                 ps.timer.cancel()
                 ps.timer = None
+            if ps.refresh_timer:
+                ps.refresh_timer.cancel()
+                ps.refresh_timer = None
         if self._precheck_timer:
             self._precheck_timer.cancel()
             self._precheck_timer = None
@@ -997,6 +1040,21 @@ class TelegramPromptScheduler:
         # the first skip — so decide, act, then reschedule unconditionally.
         should, basis = self._should_prompt(date.today())
         if should:
+            if self.roster_refresh:
+                try:
+                    # Restart recovery: if the 15-minute timer was missed,
+                    # refresh classes with no attempt today before constructing
+                    # prompts. A failed timer attempt is deliberately not
+                    # retried here; cutoff owns that one retry.
+                    self.roster_refresh(
+                        ps.session, sync_date=date.today().isoformat(),
+                        trigger='prompt_recovery', only_missing=True)
+                except Exception as e:
+                    # Explicit fail-open policy: a refresh fault must never
+                    # swallow the teacher prompt.
+                    self.logger.error(
+                        f"Prompt-time roster recovery ({ps.name}) failed; "
+                        f"using last local roster: {e}")
             try:
                 self.bot.prompt_session(ps.session)
             except Exception as e:
@@ -1006,6 +1064,50 @@ class TelegramPromptScheduler:
                 f"Telegram prompt ({ps.name}) skipped: non-school day ({basis})")
         if self.running:
             self._schedule_next(ps)
+
+    # ---- per-session roster refresh ------------------------------------
+
+    def _next_roster_refresh_target(self, ps: _PromptSession, now: datetime) -> datetime:
+        prompt = ps.next_target(now)
+        target = prompt - self.refresh_lead
+        # A process started inside the lead window should refresh immediately
+        # through prompt recovery rather than schedule a timer in the past.
+        while target <= now:
+            prompt += timedelta(days=1)
+            target = prompt - self.refresh_lead
+        return target
+
+    def _schedule_roster_refresh(self, ps: _PromptSession):
+        now = datetime.now()
+        target = self._next_roster_refresh_target(ps, now)
+        seconds_until = (target - now).total_seconds()
+        ps.refresh_timer = threading.Timer(
+            seconds_until, self._execute_roster_refresh, args=(ps,))
+        ps.refresh_timer.daemon = True
+        ps.refresh_timer.start()
+        self.logger.info(
+            f"Next roster refresh ({ps.name}): "
+            f"{target.strftime('%Y-%m-%d %H:%M')} "
+            f"({seconds_until / 3600:.1f}h from now)")
+
+    def _execute_roster_refresh(self, ps: _PromptSession):
+        today = date.today()
+        should, basis = self._should_prompt(today)
+        if should:
+            try:
+                self.roster_refresh(
+                    ps.session, sync_date=today.isoformat(),
+                    trigger='pre_prompt')
+            except Exception as e:
+                # Fail open for prompting: the last local roster remains usable.
+                self.logger.error(
+                    f"Roster refresh ({ps.name}) failed; prompts will use the "
+                    f"last local roster: {e}")
+        else:
+            self.logger.info(
+                f"Roster refresh ({ps.name}) skipped: non-school day ({basis})")
+        if self.running:
+            self._schedule_roster_refresh(ps)
 
     # ---- daily portal school-day pre-check -------------------------------
 

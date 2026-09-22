@@ -79,7 +79,14 @@ def _run_all_present(orch, roster_count, fill_result):
     engine.close = AsyncMock()
 
     filler = MagicMock()
+    filler.get_student_list = AsyncMock(
+        return_value=[{"id": str(i), "name": f"STUDENT {i}"}
+                      for i in range(roster_count)])
     filler.mark_absences_and_submit = AsyncMock(return_value=fill_result)
+    orch.roster_manager.upsert_from_portal.return_value = {
+        "class_name": "5 UM", "total": roster_count, "added": 0,
+        "updated": roster_count, "renamed": [], "removed": [],
+    }
 
     with patch("src.idme.orchestrator.IDMELoginEngine", return_value=engine), \
          patch("src.idme.orchestrator.IDMEFormFiller", return_value=filler):

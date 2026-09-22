@@ -84,7 +84,13 @@ class RetryableFlagTests(unittest.TestCase):
             engine.close = AsyncMock()
 
             filler = MagicMock()
+            filler.get_student_list = AsyncMock(
+                return_value=[{"id": "1", "name": "A"}])
             filler.mark_absences_and_submit = AsyncMock(return_value=fill_result)
+            orch.roster_manager.upsert_from_portal.return_value = {
+                "class_name": "5 UM", "total": 1, "added": 0,
+                "updated": 1, "renamed": [], "removed": [],
+            }
 
             with patch("src.idme.orchestrator.IDMELoginEngine", return_value=engine), \
                  patch("src.idme.orchestrator.IDMEFormFiller", return_value=filler):
@@ -147,6 +153,8 @@ class RetryPassTests(unittest.TestCase):
             {"id": tid, "name": f"T{tid}", "class_name": cn}
             for tid, cn in classes
         ]
+        orch.init_roster_from_portal = MagicMock(return_value={
+            "status": "completed", "roster_state": "current"})
         return orch
 
     def test_retryable_failure_is_retried_and_can_succeed(self):
@@ -316,6 +324,8 @@ class ScanGateTests(unittest.TestCase):
         ]
         orch.scan_tracker.count_scans_on = MagicMock(return_value=scan_count)
         orch.submit_class = MagicMock()  # must NEVER be called when gated out
+        orch.refresh_session_rosters = MagicMock(return_value={
+            "status": "completed", "attempted": 0, "results": []})
         return orch
 
     def test_low_scans_skips_all_in_scope_without_login(self):

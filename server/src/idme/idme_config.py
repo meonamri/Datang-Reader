@@ -193,6 +193,12 @@ class IDMEConfig:
     # would run before students arrive). See TelegramPromptScheduler.
     TELEGRAM_PRECHECK_LEAD_HOURS = _read_int('IDME_TELEGRAM_PRECHECK_LEAD_HOURS', 1)
 
+    # Each session's portal roster is refreshed shortly before its teacher
+    # prompt.  Fifteen minutes comfortably covers the observed serial login
+    # time while keeping the roster close to the attendance workflow.
+    ROSTER_REFRESH_LEAD_MINUTES = _read_int(
+        'IDME_ROSTER_REFRESH_LEAD_MINUTES', 15)
+
     # Cheap holiday signal: the fewest distinct students who must have scanned on
     # a day for the system to treat it as a school day. Below this, both the
     # Telegram prompt and the cutoff submission treat the day as a non-school day
@@ -469,6 +475,7 @@ class IDMEConfig:
             'has_telegram_token': bool(cls.TELEGRAM_BOT_TOKEN),
             'has_telegram_passphrase': bool(cls.TELEGRAM_PASSPHRASE),
             'has_telegram_admin': bool(cls.TELEGRAM_ADMIN_CHAT_ID),
+            'roster_refresh_lead_minutes': cls.ROSTER_REFRESH_LEAD_MINUTES,
             'hadir_limit': cls.HADIR_LIMIT,
             'hadir_window_days': cls.HADIR_WINDOW_DAYS,
         }

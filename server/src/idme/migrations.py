@@ -60,4 +60,25 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_students_idpelajar ON students(idpelajar)"
     )
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS roster_sync_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sync_date DATE NOT NULL,
+            class_name TEXT NOT NULL,
+            teacher_id INTEGER,
+            trigger TEXT NOT NULL,
+            status TEXT NOT NULL,
+            portal_total INTEGER,
+            added_count INTEGER NOT NULL DEFAULT 0,
+            renamed_count INTEGER NOT NULL DEFAULT 0,
+            retired_count INTEGER NOT NULL DEFAULT 0,
+            error_message TEXT,
+            started_at TIMESTAMP NOT NULL,
+            completed_at TIMESTAMP NOT NULL,
+            duration_seconds REAL NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_roster_sync_date_class
+            ON roster_sync_runs(sync_date, class_name, id);
+    """)
     conn.commit()

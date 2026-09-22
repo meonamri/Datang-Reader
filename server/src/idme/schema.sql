@@ -161,6 +161,30 @@ CREATE TABLE IF NOT EXISTS idme_submissions (
 CREATE INDEX IF NOT EXISTS idx_submissions_date ON idme_submissions(submission_date);
 CREATE INDEX IF NOT EXISTS idx_submissions_class ON idme_submissions(class_name);
 
+-- Durable roster-refresh audit.  The latest row per class/day determines
+-- whether prompts and submissions used a current or stale local roster.
+-- Counts only are stored here; student names remain in the normal roster and
+-- application log rather than being duplicated into operational status data.
+CREATE TABLE IF NOT EXISTS roster_sync_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sync_date DATE NOT NULL,
+    class_name TEXT NOT NULL,
+    teacher_id INTEGER,
+    trigger TEXT NOT NULL,              -- pre_prompt, prompt_recovery, cutoff_retry, submission_preflight, manual, retry
+    status TEXT NOT NULL,               -- current, changed, failed
+    portal_total INTEGER,
+    added_count INTEGER NOT NULL DEFAULT 0,
+    renamed_count INTEGER NOT NULL DEFAULT 0,
+    retired_count INTEGER NOT NULL DEFAULT 0,
+    error_message TEXT,
+    started_at TIMESTAMP NOT NULL,
+    completed_at TIMESTAMP NOT NULL,
+    duration_seconds REAL NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_roster_sync_date_class
+    ON roster_sync_runs(sync_date, class_name, id);
+
 -- IDME session cache (cookies + CSRF token per teacher)
 CREATE TABLE IF NOT EXISTS session_cache (
     teacher_id INTEGER PRIMARY KEY,

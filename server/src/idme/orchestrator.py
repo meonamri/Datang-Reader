@@ -92,6 +92,7 @@ class IDMEOrchestrator:
         # the submission path stays decoupled from the bot.
         self.submission_notifier = None
         self.blocked_notifier = None
+        self.roster_sync_notifier = None
 
         # Every entry point shares the same per-class/day lock, so a Telegram
         # answer, scheduled fire and manual click cannot open two MOEIS sessions
@@ -100,6 +101,10 @@ class IDMEOrchestrator:
         self._submission_locks_guard = threading.Lock()
         self._auto_retry_inflight = set()
         self._auto_retry_guard = threading.Lock()
+        # Batch roster reads are deliberately serial.  Besides reducing load on
+        # MOEIS, this prevents the pre-prompt timer and a restart-recovery prompt
+        # from opening two batches at once.
+        self._roster_sync_lock = threading.Lock()
 
         self.logger.info("IDME Orchestrator initialized")
 
@@ -205,6 +210,9 @@ class IDMEOrchestrator:
         submission_id = self._create_submission_record(
             teacher_id, class_name, submission_date, confirm=confirm
         )
+        roster_sync = self.get_roster_sync_status(submission_date).get(class_name)
+        roster_verified = bool(
+            roster_sync and roster_sync.get('status') in ('current', 'changed'))
 
         try:
             # Step 1: Detect absences
@@ -255,6 +263,12 @@ class IDMEOrchestrator:
                     'retryable': False,
                     'error': msg,
                     'message': msg,
+                    'roster_verified': roster_verified,
+                    'roster_changed': bool(
+                        roster_sync and roster_sync.get('status') == 'changed'),
+                    'refresh_attempted': bool(roster_sync),
+                    'retry_attempted': False,
+                    'write_attempted': False,
                 }
 
             # Integrity gate: every student still absent at submission time
@@ -282,6 +296,12 @@ class IDMEOrchestrator:
                     'unanswered_count': count,
                     'unanswered_students': [a['student_name'] for a in unanswered],
                     'error': msg, 'message': msg,
+                    'roster_verified': roster_verified,
+                    'roster_changed': bool(
+                        roster_sync and roster_sync.get('status') == 'changed'),
+                    'refresh_attempted': bool(roster_sync),
+                    'retry_attempted': False,
+                    'write_attempted': False,
                 }
 
             # A full-attendance class is NOT a no-op: MOEIS still needs the day
@@ -333,6 +353,95 @@ class IDMEOrchestrator:
                 # Step 4: Fill and submit form
                 self.logger.info("Step 4: Filling MOEIS attendance form...")
                 filler = IDMEFormFiller(page, debug=IDMEConfig.DEBUG)
+
+                # Read-only submission preflight.  The portal is authoritative,
+                # so reconcile it before touching a checkbox, then recompute the
+                # attendance/teacher-response gate if anything changed since the
+                # pre-prompt refresh.
+                preflight_started = datetime.now()
+                try:
+                    portal_students = await filler.get_student_list()
+                    roster_diff = self._apply_portal_roster(
+                        teacher_id, class_name, portal_students,
+                        'submission_preflight', submission_date,
+                        preflight_started,
+                    )
+                except Exception as e:
+                    self._record_roster_sync(
+                        submission_date, class_name, teacher_id,
+                        'submission_preflight', 'failed', preflight_started,
+                        error=str(e),
+                    )
+                    raise OrchestratorError(
+                        f"Roster preflight failed: {e}")
+
+                roster_changed = self._roster_diff_changed(roster_diff)
+                if roster_changed:
+                    self.logger.warning(
+                        f"Portal roster changed before submission for {class_name}; "
+                        "recomputing attendance before any write")
+                    absences = self.absence_detector.detect_absences(
+                        class_name, submission_date)
+                    summary = self.absence_detector.get_attendance_summary(
+                        class_name, submission_date)
+                    roster_count = summary['roster_count']
+                    scanned_count = summary['scanned_count']
+                    absent_count = len(absences)
+                    self._update_submission(
+                        submission_id, status='running',
+                        total_roster=roster_count,
+                        total_scanned=scanned_count,
+                        total_absent=absent_count,
+                    )
+                    unanswered = self._unanswered_absences(
+                        class_name, submission_date, absences)
+                    if self.roster_sync_notifier:
+                        try:
+                            self.roster_sync_notifier({
+                                'status': 'completed',
+                                'session': None,
+                                'sync_date': submission_date,
+                                'trigger': 'submission_preflight',
+                                'attempted': 1,
+                                'changed': 1,
+                                'failed': 0,
+                                'results': [{
+                                    'class_name': class_name,
+                                    'status': 'changed',
+                                    'added': roster_diff.get('added', 0),
+                                    'renamed': len(roster_diff.get('renamed') or []),
+                                    'retired': len(roster_diff.get('removed') or []),
+                                }],
+                            })
+                        except Exception as e:
+                            self.logger.warning(
+                                f"Roster-sync notification failed: {e}")
+                    if unanswered:
+                        count = len(unanswered)
+                        msg = (f"Awaiting teacher response for {count} absent "
+                               f"student{'s' if count != 1 else ''}")
+                        duration = (datetime.now() - start).total_seconds()
+                        self._update_submission(
+                            submission_id, status='blocked', successful=0,
+                            failed=0, unanswered_count=count,
+                            duration=duration, error=msg)
+                        return {
+                            'class_name': class_name, 'date': submission_date,
+                            'roster_count': roster_count,
+                            'scanned_count': scanned_count,
+                            'absent_count': absent_count, 'submitted': 0,
+                            'failed': 0, 'form_submitted': False,
+                            'duration': duration, 'status': 'blocked',
+                            'retryable': False, 'unanswered_count': count,
+                            'unanswered_students': [
+                                a['student_name'] for a in unanswered],
+                            'error': msg, 'message': msg,
+                            'roster_verified': True,
+                            'roster_changed': True,
+                            'refresh_attempted': True,
+                            'retry_attempted': False,
+                            'write_attempted': False,
+                        }
 
                 fill_result = await filler.mark_absences_and_submit(
                     absent_students=absences,
@@ -400,6 +509,11 @@ class IDMEOrchestrator:
                     'duration': duration,
                     'status': status,
                     'retryable': retryable,
+                    'roster_verified': True,
+                    'roster_changed': roster_changed,
+                    'refresh_attempted': True,
+                    'retry_attempted': False,
+                    'write_attempted': bool(fill_result.get('write_attempted')),
                 }
                 if absent_count == 0:
                     result['message'] = 'All students present'
@@ -439,7 +553,10 @@ class IDMEOrchestrator:
                 'status': 'skipped',
                 'message': str(e),
             }
-        except OrchestratorError:
+        except OrchestratorError as e:
+            duration = (datetime.now() - start).total_seconds()
+            self._update_submission(
+                submission_id, status='failed', duration=duration, error=str(e))
             raise
         except Exception as e:
             duration = (datetime.now() - start).total_seconds()
@@ -453,7 +570,9 @@ class IDMEOrchestrator:
     def init_roster_from_portal(
         self,
         teacher_id: int,
-        class_name: str
+        class_name: str,
+        trigger: str = 'manual',
+        sync_date: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Seed/refresh the identity registry for a class from the MOEIS portal
@@ -468,21 +587,30 @@ class IDMEOrchestrator:
             are RETIRED (enabled = 0) by that call, not just reported.
         """
         return asyncio.run(
-            self._init_roster_from_portal_async(teacher_id, class_name)
+            self._init_roster_from_portal_async(
+                teacher_id, class_name, trigger=trigger, sync_date=sync_date)
         )
 
     async def _init_roster_from_portal_async(
         self,
         teacher_id: int,
-        class_name: str
+        class_name: str,
+        trigger: str = 'manual',
+        sync_date: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Async implementation of init_roster_from_portal (read-only)."""
+        started = datetime.now()
+        sync_date = sync_date or date.today().isoformat()
         self.logger.info(
-            f"Initialising roster for '{class_name}' (teacher ID={teacher_id})"
+            f"Initialising roster for '{class_name}' (teacher ID={teacher_id}, "
+            f"trigger={trigger})"
         )
         try:
             creds = self.teacher_manager.get_teacher_credentials(teacher_id)
         except (TeacherManagerError, DecryptionError) as e:
+            self._record_roster_sync(
+                sync_date, class_name, teacher_id, trigger, 'failed', started,
+                error=f"Credential error: {e}")
             raise OrchestratorError(f"Credential error: {e}")
 
         engine = IDMELoginEngine(
@@ -505,17 +633,189 @@ class IDMEOrchestrator:
 
             filler = IDMEFormFiller(login_result['page'], debug=IDMEConfig.DEBUG)
             portal_students = await filler.get_student_list()
-        except OrchestratorError:
+        except OrchestratorError as e:
+            self._record_roster_sync(
+                sync_date, class_name, teacher_id, trigger, 'failed', started,
+                error=str(e))
             raise
         except Exception as e:
             self.logger.error(f"Roster init failed: {e}")
+            self._record_roster_sync(
+                sync_date, class_name, teacher_id, trigger, 'failed', started,
+                error=str(e))
             raise OrchestratorError(f"Roster init failed: {e}")
         finally:
             await engine.close()
 
-        diff = self.roster_manager.upsert_from_portal(class_name, portal_students)
+        diff = self._apply_portal_roster(
+            teacher_id, class_name, portal_students, trigger, sync_date, started)
         diff['status'] = 'completed'
         return diff
+
+    @staticmethod
+    def _roster_diff_changed(diff: Dict[str, Any]) -> bool:
+        return bool(diff.get('added') or diff.get('renamed') or diff.get('removed'))
+
+    def _apply_portal_roster(
+        self,
+        teacher_id: int,
+        class_name: str,
+        portal_students: List[Dict[str, str]],
+        trigger: str,
+        sync_date: str,
+        started: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """Apply one already-read portal roster and persist its audit result."""
+        started = started or datetime.now()
+        diff = self.roster_manager.upsert_from_portal(class_name, portal_students)
+        if not isinstance(diff, dict):
+            # Defensive contract boundary (and friendly to lightweight test
+            # doubles): a portal read with no usable diff is treated as current,
+            # never as evidence of a change.
+            diff = {
+                'class_name': class_name, 'total': len(portal_students),
+                'added': 0, 'updated': len(portal_students),
+                'renamed': [], 'removed': [],
+            }
+        state = 'changed' if self._roster_diff_changed(diff) else 'current'
+        self._record_roster_sync(
+            sync_date, class_name, teacher_id, trigger, state, started, diff=diff)
+        diff['roster_state'] = state
+        diff['roster_verified'] = True
+        return diff
+
+    def _record_roster_sync(
+        self,
+        sync_date: str,
+        class_name: str,
+        teacher_id: Optional[int],
+        trigger: str,
+        status: str,
+        started: datetime,
+        diff: Optional[Dict[str, Any]] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        """Persist counts-only roster refresh evidence; never duplicate names."""
+        completed = datetime.now()
+        diff = diff or {}
+        try:
+            conn = sqlite3.connect(str(self.db_path))
+            conn.execute(
+                """INSERT INTO roster_sync_runs
+                   (sync_date, class_name, teacher_id, trigger, status,
+                    portal_total, added_count, renamed_count, retired_count,
+                    error_message, started_at, completed_at, duration_seconds)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    sync_date, class_name, teacher_id, trigger, status,
+                    diff.get('total'), int(diff.get('added') or 0),
+                    len(diff.get('renamed') or []),
+                    len(diff.get('removed') or []), error,
+                    started.isoformat(), completed.isoformat(),
+                    (completed - started).total_seconds(),
+                ),
+            )
+            conn.commit()
+        except sqlite3.Error as e:
+            self.logger.warning(
+                f"Could not record roster sync for {class_name}: {e}")
+        finally:
+            if 'conn' in locals():
+                conn.close()
+
+    def get_roster_sync_status(
+        self, sync_date: Optional[str] = None
+    ) -> Dict[str, Dict[str, Any]]:
+        """Latest roster-refresh row per class for one day."""
+        sync_date = sync_date or date.today().isoformat()
+        conn = sqlite3.connect(str(self.db_path))
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                "SELECT * FROM roster_sync_runs WHERE sync_date = ? ORDER BY id",
+                (sync_date,),
+            ).fetchall()
+            return {row['class_name']: dict(row) for row in rows}
+        except sqlite3.Error:
+            # Test fixtures and pre-migration databases may not have the audit
+            # table yet. Treat that as no verification, never as verified.
+            return {}
+        finally:
+            conn.close()
+
+    def refresh_session_rosters(
+        self,
+        session: Dict[str, Any],
+        sync_date: Optional[str] = None,
+        trigger: str = 'pre_prompt',
+        only_missing: bool = False,
+        only_stale: bool = False,
+    ) -> Dict[str, Any]:
+        """Serially refresh enabled classes in one configured session.
+
+        `only_missing` backs prompt-time restart recovery: a class with any
+        pre-prompt attempt today (including a failure) is not retried until the
+        cutoff. `only_stale` backs that one cutoff retry by selecting only
+        missing/failed classes.
+        """
+        sync_date = sync_date or date.today().isoformat()
+        forms = set(session.get('forms') or [])
+        # Prompt recovery and cutoff retry must wait for an already-running
+        # pre-prompt batch, otherwise they could build prompts from a half-
+        # refreshed session. Ordinary timer/manual batches remain non-blocking.
+        wait_for_batch = only_missing or only_stale
+        if not self._roster_sync_lock.acquire(blocking=wait_for_batch):
+            return {
+                'status': 'running', 'session': session.get('name'),
+                'sync_date': sync_date, 'attempted': 0, 'results': [],
+            }
+        try:
+            latest = self.get_roster_sync_status(sync_date)
+            results = []
+            for teacher in self.teacher_manager.get_all_teachers():
+                class_name = teacher['class_name']
+                if IDMEConfig.form_of(class_name) not in forms:
+                    continue
+                prior = latest.get(class_name)
+                if only_missing and prior:
+                    continue
+                if only_stale and prior and prior.get('status') != 'failed':
+                    continue
+                try:
+                    diff = self.init_roster_from_portal(
+                        teacher['id'], class_name, trigger=trigger,
+                        sync_date=sync_date)
+                    results.append({
+                        'class_name': class_name,
+                        'status': diff.get('roster_state', 'current'),
+                        'total': diff.get('total', 0),
+                        'added': diff.get('added', 0),
+                        'renamed': len(diff.get('renamed') or []),
+                        'retired': len(diff.get('removed') or []),
+                    })
+                except Exception as e:
+                    results.append({
+                        'class_name': class_name, 'status': 'failed',
+                        'error': str(e),
+                    })
+            summary = {
+                'status': 'completed', 'session': session.get('name'),
+                'sync_date': sync_date, 'trigger': trigger,
+                'attempted': len(results), 'results': results,
+                'current': sum(r['status'] == 'current' for r in results),
+                'changed': sum(r['status'] == 'changed' for r in results),
+                'failed': sum(r['status'] == 'failed' for r in results),
+            }
+            if self.roster_sync_notifier and (
+                summary['changed'] or summary['failed']
+            ):
+                try:
+                    self.roster_sync_notifier(summary)
+                except Exception as e:
+                    self.logger.warning(f"Roster-sync notification failed: {e}")
+            return summary
+        finally:
+            self._roster_sync_lock.release()
 
     def enough_scans_today(self, scan_date: Optional[str] = None) -> bool:
         """Cheap holiday gate: whether at least MIN_SCANS_FOR_SCHOOL_DAY distinct
@@ -697,6 +997,18 @@ class IDMEOrchestrator:
                 })
             return results
 
+        # The pre-prompt batch is allowed to fail open so teachers still receive
+        # the last known roster.  At the cutoff, retry exactly the classes whose
+        # latest refresh is failed (or missing after a restart) before evaluating
+        # their final teacher-response gate.
+        if enforce_scan_gate and forms is not None:
+            self.refresh_session_rosters(
+                {'name': 'cutoff', 'forms': sorted(forms)},
+                sync_date=submission_date,
+                trigger='cutoff_retry',
+                only_stale=True,
+            )
+
         results = []
         non_school_day = False
         for teacher in teachers:
@@ -765,6 +1077,11 @@ class IDMEOrchestrator:
                     'status': 'failed',
                     'error': str(e),
                     'retryable': True,
+                    'roster_verified': False,
+                    'roster_changed': False,
+                    'refresh_attempted': False,
+                    'retry_attempted': False,
+                    'write_attempted': False,
                 })
 
         # Run-level retry pass: give transient, pre-submission failures (a slow
@@ -793,10 +1110,23 @@ class IDMEOrchestrator:
                     continue
                 self.logger.info(f"Retry: re-submitting {class_name}")
                 time.sleep(RETRY_DELAY_SECONDS)
+                # One roster read immediately before the one bounded retry.
+                # Failure is logged/audited but does not suppress the retry: the
+                # selected policy permits the last local roster as a fallback.
+                try:
+                    self.init_roster_from_portal(
+                        teacher_id, class_name, trigger='retry',
+                        sync_date=submission_date)
+                except Exception as e:
+                    self.logger.warning(
+                        f"Retry roster refresh failed for {class_name}; using "
+                        f"last local roster: {e}")
                 try:
                     retry_result = self.submit_class(
                         teacher_id, class_name, submission_date, confirm=confirm
                     )
+                    retry_result['retry_attempted'] = True
+                    retry_result['refresh_attempted'] = True
                     # Replace in place: the retry wrote its own submission row, so
                     # the durable log and the settings UI's latest-per-class view
                     # already reflect it; keep the in-memory list consistent too.
@@ -816,6 +1146,11 @@ class IDMEOrchestrator:
                         'status': 'failed',
                         'error': str(e),
                         'retryable': False,
+                        'roster_verified': False,
+                        'roster_changed': False,
+                        'refresh_attempted': True,
+                        'retry_attempted': True,
+                        'write_attempted': False,
                     }
 
         # Summary
