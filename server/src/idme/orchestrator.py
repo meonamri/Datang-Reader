@@ -326,11 +326,15 @@ class IDMEOrchestrator:
 
             # Step 3: Login to IDME
             self.logger.info("Step 3: Logging into IDME portal...")
+            # A past submission_date opens the MOEIS form on that date (via the
+            # TARIKH field); today keeps the portal default, unchanged.
             engine = IDMELoginEngine(
                 ic_number=creds['ic_number'],
                 password=creds['password'],
                 headless=IDMEConfig.HEADLESS,
                 debug=IDMEConfig.DEBUG,
+                target_date=(submission_date
+                             if submission_date != date.today().isoformat() else None),
             )
 
             login_result = None

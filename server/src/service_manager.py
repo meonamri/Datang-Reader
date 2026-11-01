@@ -108,7 +108,9 @@ class ServiceManager:
 
         logger.info("Service stopped")
 
-    def _record_idme_scan(self, card_id: str, response: Any) -> None:
+    def _record_idme_scan(
+        self, card_id: str, response: Any, scanned_at: Optional[datetime] = None
+    ) -> None:
         """
         Record a successful scan into the IDME scan tracker (if enabled).
 
@@ -119,7 +121,7 @@ class ServiceManager:
         """
         if self.scan_tracker and isinstance(response, dict) and response.get("name"):
             try:
-                self.scan_tracker.record_scan(card_id, response)
+                self.scan_tracker.record_scan(card_id, response, scanned_at=scanned_at)
             except Exception as scan_err:
                 logger.warning(f"IDME scan recording failed (non-critical): {scan_err}")
 

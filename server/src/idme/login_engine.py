@@ -30,8 +30,9 @@ Simplified:
 import logging
 import asyncio
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime, date
 from pathlib import Path
+from urllib.parse import unquote_plus
 from playwright.async_api import (
     async_playwright,
     Browser,
@@ -85,7 +86,8 @@ class IDMELoginEngine:
         password: str,
         headless: bool = True,
         debug: bool = False,
-        timeout: int = 30000
+        timeout: int = 30000,
+        target_date: Optional[str] = None,
     ):
         """
         Initialize login engine.
@@ -96,7 +98,14 @@ class IDMELoginEngine:
             headless: Run browser headless (default: True).
             debug: Save screenshots on errors (default: False).
             timeout: Default timeout in ms (default: 30000).
+            target_date: YYYY-MM-DD to open the attendance form for. None or
+                today = the portal's default (today). A past date is selected
+                via the form's TARIKH field (#tkh_HH), the same way the portal's
+                own monthly "sah harian" button does it.
         """
+        if target_date is not None:
+            datetime.strptime(target_date, '%Y-%m-%d')  # validate early
+        self.target_date = target_date
         self.ic_number = ic_number
         self.password = password
         self.headless = headless
@@ -440,10 +449,26 @@ class IDMELoginEngine:
             const message = (p && p.textContent.trim()) || h.textContent.trim();
             return {detected: true, message};
         }""")
+        backfill = bool(self.target_date) and self.target_date != date.today().isoformat()
         if holiday['detected']:
-            raise NonSchoolDayError(
-                holiday['message'] or 'Tarikh semasa tidak tersedia'
-            )
+            if not backfill:
+                raise NonSchoolDayError(
+                    holiday['message'] or 'Tarikh semasa tidak tersedia'
+                )
+            # The modal is about TODAY's default date; an explicit past date is
+            # selected and verified below. Dismiss it so it can't cover the form.
+            self.logger.info(
+                f"'Tarikh semasa tidak tersedia' for today; continuing to "
+                f"explicit target date {self.target_date}")
+            await attendance_page.evaluate("""() => {
+                document.querySelectorAll('.sweet-alert .confirm, .swal2-confirm')
+                    .forEach(b => b.click());
+                if (window.swal && typeof window.swal.close === 'function') window.swal.close();
+            }""")
+            await attendance_page.wait_for_timeout(500)
+
+        if backfill:
+            await self._select_target_date(attendance_page)
 
         # Hand the attendance page to the remaining steps (CSRF, cookies,
         # form filling all operate on self.page). Close the stuck home page so
@@ -455,6 +480,74 @@ class IDMELoginEngine:
         except Exception:
             pass
         self.logger.info(f"On attendance page: {self.page.url}")
+
+    async def _select_target_date(self, page: Page):
+        """Switch the attendance form to self.target_date and verify it took.
+
+        Mirrors the portal's own '.sahHarianBtn' handler:
+        ``$('#tkh_HH').val(date).change()`` reloads the student table via
+        POST ajaxloadkehadiranharian with ``tarikhpilihan=<DD/MM/YYYY>``.
+        Fails SAFE: any doubt about which date the form shows raises, so the
+        caller never ticks a checkbox on the wrong day. Also refuses a day the
+        portal already shows as confirmed (TELAH DISAHKAN, locked).
+        """
+        want = datetime.strptime(self.target_date, '%Y-%m-%d').strftime('%d/%m/%Y')
+        self.logger.info(f"Selecting attendance date {want} (#tkh_HH)")
+        if not await page.evaluate(
+                "() => !!(window.jQuery && jQuery('#tkh_HH').length)"):
+            raise NavigationError("TARIKH field #tkh_HH not found on attendance page")
+
+        def _is_reload_for_date(resp) -> bool:
+            if 'ajaxloadkehadiranharian' not in resp.url:
+                return False
+            body = unquote_plus(resp.request.post_data or '')
+            return f'tarikhpilihan={want}' in body
+
+        try:
+            async with page.expect_response(_is_reload_for_date, timeout=30000) as info:
+                await page.evaluate(
+                    "(d) => { jQuery('#tkh_HH').val(d).change(); }", want)
+            resp = await info.value
+        except PlaywrightTimeout:
+            raise NavigationError(
+                f"Student table did not reload for {want} after setting #tkh_HH")
+        if resp.status != 200:
+            raise NavigationError(
+                f"Student table reload for {want} returned HTTP {resp.status}")
+        # The portal silently substitutes the nearest available day for a
+        # non-school day (e.g. asked 30/10, answered tarikhpilihan=2026-10-29,
+        # statushari=1). Trust the server's answer, not our request.
+        try:
+            served = (await resp.json()).get('tarikhpilihan')
+        except Exception:
+            served = None
+        if served != self.target_date:
+            raise NavigationError(
+                f"Portal served attendance for {served!r}, not requested "
+                f"{self.target_date!r} (non-school day or unavailable); refusing to continue")
+
+        # DataTables renders after the AJAX callback; give it a moment, then
+        # require rows and re-check the field still holds the requested date
+        # (the portal's validator resets it to the last valid date on error).
+        await page.wait_for_timeout(1500)
+        await page.wait_for_selector('input.case-hadir', timeout=20000)
+        shown = await page.evaluate("() => jQuery('#tkh_HH').val()")
+        if shown != want:
+            raise NavigationError(
+                f"Attendance form shows date {shown!r}, expected {want!r}; refusing to continue")
+
+        # The day's own status badge (#statusBadge) — not any table cell, which
+        # could belong to another day in the monthly view.
+        status = await page.evaluate('''() => {
+            const b = document.querySelector('#statusBadge');
+            return b ? (b.textContent || '').trim() : '';
+        }''')
+        self.target_date_status = status
+        if status == 'TELAH DISAHKAN':
+            raise LoginEngineError(
+                f"Attendance for {want} is already confirmed (TELAH DISAHKAN); "
+                "locked days are not edited by automation")
+        self.logger.info(f"Attendance form now on {want} (status: {status or 'none'})")
 
     async def step5_extract_csrf_token(self):
         """Step 5: Extract CSRF token from the page."""

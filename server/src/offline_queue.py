@@ -219,14 +219,17 @@ class AttendanceQueue:
     def sync_with_api(
         self,
         api_client: DatangAPIClient,
-        on_synced: Optional[Callable[[str, Any], None]] = None,
+        on_synced: Optional[Callable[[str, Any, datetime], None]] = None,
     ) -> Dict[str, int]:
         """
         Synchronize pending records with API
 
         Args:
             api_client: Authenticated API client
-            on_synced: Optional callback invoked as on_synced(card_id, response)
+            on_synced: Optional callback invoked as
+                on_synced(card_id, response, scanned_at) — scanned_at is the
+                record's original scan timestamp, so the tracker files it under
+                the real scan date rather than the sync date.
                 after each record syncs successfully. Used to feed offline scans
                 into the IDME scan tracker (same as the online path), so queued
                 scans aren't missed by absence detection. Best-effort: callback
@@ -276,7 +279,7 @@ class AttendanceQueue:
                 # offline scans aren't missed by absence detection.
                 if on_synced:
                     try:
-                        on_synced(card_id, response)
+                        on_synced(card_id, response, timestamp)
                     except Exception as hook_err:
                         logger.warning(
                             f"post-sync hook failed for record {entry_id} "

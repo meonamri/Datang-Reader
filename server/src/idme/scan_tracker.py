@@ -60,7 +60,12 @@ class ScanTracker:
         finally:
             conn.close()
 
-    def record_scan(self, card_id: str, datang_response: Dict[str, Any]) -> bool:
+    def record_scan(
+        self,
+        card_id: str,
+        datang_response: Dict[str, Any],
+        scanned_at: Optional[datetime] = None,
+    ) -> bool:
         """
         Record a successful scan from Datang API response.
 
@@ -78,6 +83,12 @@ class ScanTracker:
                     'pid': 'person_id',
                     ...
                 }
+
+            scanned_at: When the card was actually scanned. Offline-queued scans
+                sync later (possibly days later) and MUST be recorded under their
+                real scan date, otherwise absence detection counts the student
+                present on the sync day and absent on the real day. None = now
+                (the live, online path).
 
         Returns:
             True if recorded (new scan), False if duplicate.
@@ -97,8 +108,9 @@ class ScanTracker:
             )
             return False
 
-        today = date.today().isoformat()
-        scan_time = datetime.now().isoformat()
+        scan_dt = scanned_at or datetime.now()
+        today = scan_dt.date().isoformat()  # the scan's own date, not the sync date
+        scan_time = scan_dt.isoformat()
 
         conn = self._get_conn()
         try:
