@@ -171,6 +171,7 @@ def init_idme_module(service_manager=None):
                 precheck_lead_hours=IDMEConfig.TELEGRAM_PRECHECK_LEAD_HOURS,
                 roster_refresh=_orchestrator.refresh_session_rosters,
                 refresh_lead_minutes=IDMEConfig.ROSTER_REFRESH_LEAD_MINUTES,
+                on_prompted=_orchestrator.submit_ready_classes,
             )
             _prompt_scheduler.start()
         else:

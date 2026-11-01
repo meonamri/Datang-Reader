@@ -35,6 +35,15 @@ from .moeis_codes import (
 # only a short opaque entry id plus codes. The entry id resolves to the full
 # student record via the bot's in-memory registry.
 _API_BASE = "https://api.telegram.org/bot{token}/{method}"
+
+
+def _for_day(result) -> str:
+    """' bagi DD/MM/YYYY' from a submission result's ISO 'date', or ''."""
+    day = (result or {}).get('date') if isinstance(result, dict) else None
+    try:
+        return ' bagi ' + datetime.strptime(day, '%Y-%m-%d').strftime('%d/%m/%Y')
+    except (TypeError, ValueError):
+        return ''
 _POLL_TIMEOUT = 30          # long-poll seconds passed to getUpdates
 _HTTP_TIMEOUT = _POLL_TIMEOUT + 10
 _MAX_BTN_LABEL = 40         # truncate long Malay reason labels on buttons
@@ -709,11 +718,11 @@ class IDMETelegramBot:
             count = int((result or {}).get('unanswered_count') or 0)
             self.client.send_message(
                 chat_id,
-                f"⛔ Kehadiran Kelas {class_name} belum dihantar ke IDME. "
+                f"⛔ Kehadiran Kelas {class_name}{_for_day(result)} belum dihantar ke IDME. "
                 f"Masih ada {count} pelajar belum dijawab. "
                 "Lengkapkan semua pilihan pada mesej terdahulu atau hantar "
-                "/kehadiran. Sistem akan menghantar secara automatik selepas "
-                "semua jawapan lengkap hari ini.",
+                "/kehadiran. Sistem akan menghantar ke IDME secara automatik "
+                "sebaik sahaja semua jawapan lengkap.",
             )
         except Exception as e:
             self.logger.warning(
@@ -739,7 +748,8 @@ class IDMETelegramBot:
                 return
             self.client.send_message(
                 chat_id,
-                f"📤 Kehadiran Kelas {class_name} telah direkodkan ke dalam IDME.",
+                f"📤 Kehadiran Kelas {class_name}{_for_day(result)} telah direkodkan "
+                "ke dalam IDME.",
             )
         except Exception as e:
             self.logger.warning(
@@ -1007,8 +1017,11 @@ class TelegramPromptScheduler:
     def __init__(self, bot: IDMETelegramBot, sessions: List[dict],
                  school_day_check=None, enough_scans_today=None,
                  precheck_lead_hours: int = 1, roster_refresh=None,
-                 refresh_lead_minutes: int = 15):
+                 refresh_lead_minutes: int = 15, on_prompted=None):
         self.bot = bot
+        # Callable(session, scan_date) run after a school-day prompt: submits
+        # classes with nothing to answer (all present) without waiting for cutoff.
+        self.on_prompted = on_prompted
         self.sessions = [_PromptSession(s) for s in sessions if s.get('prompt_time')]
         # Zero-arg callable -> Optional[bool] (True school day / False non-school
         # / None inconclusive). When None, no portal pre-check is armed and the
@@ -1132,6 +1145,11 @@ class TelegramPromptScheduler:
                 self.bot.prompt_session(ps.session)
             except Exception as e:
                 self.logger.error(f"Telegram prompt ({ps.name}) failed: {e}")
+            if self.on_prompted:
+                try:
+                    self.on_prompted(ps.session, date.today().isoformat())
+                except Exception as e:
+                    self.logger.error(f"Prompt-time submission ({ps.name}) failed: {e}")
         else:
             self.logger.info(
                 f"Telegram prompt ({ps.name}) skipped: non-school day ({basis})")

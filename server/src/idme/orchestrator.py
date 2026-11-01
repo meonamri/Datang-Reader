@@ -14,6 +14,7 @@ This is the single entry point for IDME submissions.
 
 import logging
 import asyncio
+import re
 import time
 import sqlite3
 import threading
@@ -101,6 +102,12 @@ class IDMEOrchestrator:
         self._submission_locks_guard = threading.Lock()
         self._auto_retry_inflight = set()
         self._auto_retry_guard = threading.Lock()
+        # One portal browser at a time, whatever triggered the submission
+        # (answer, prompt time, cutoff, resume, retry, dashboard): each drives
+        # its own Firefox and the container has little memory.
+        self._portal_lock = threading.Lock()
+        # Skip a 3-hourly retry tick while the previous one is still running.
+        self._retry_run_lock = threading.Lock()
         # Batch roster reads are deliberately serial.  Besides reducing load on
         # MOEIS, this prevents the pre-prompt timer and a restart-recovery prompt
         # from opening two batches at once.
@@ -157,10 +164,11 @@ class IDMEOrchestrator:
                 'message': 'Submission already in progress',
             }
         try:
-            result = asyncio.run(
-                self._submit_class_async(
-                    teacher_id, class_name, submission_date, confirm)
-            )
+            with self._portal_lock:
+                result = asyncio.run(
+                    self._submit_class_async(
+                        teacher_id, class_name, submission_date, confirm)
+                )
             self._notify_submission(class_name, result)
             return result
         finally:
@@ -182,7 +190,10 @@ class IDMEOrchestrator:
         Guarded end-to-end — a Telegram hiccup must never fail a submission."""
         try:
             if result.get('status') == 'blocked':
-                if self.blocked_notifier:
+                # Remind once per class per day: later blocked results (cutoff,
+                # 3-hourly retries) stay silent; success is always announced.
+                if self.blocked_notifier and self._first_blocked(
+                        class_name, result.get('date')):
                     self.blocked_notifier(class_name, result)
                 return
             if not self.submission_notifier:
@@ -1204,8 +1215,12 @@ class IDMEOrchestrator:
         its own date (login_engine target_date), which refuses locked days."""
         if not IDMEConfig.in_response_window(submission_date):
             return
+        # Submit as soon as answers are complete — before the cutoff too. Only a
+        # day with no submission yet, or one blocked awaiting answers, qualifies;
+        # completed/running/skipped days are left alone and failed ones belong to
+        # the retry loop.
         latest = self._latest_submission(class_name, submission_date)
-        if not latest or latest.get('status') != 'blocked':
+        if latest and latest.get('status') != 'blocked':
             return
         key = (submission_date, class_name)
         with self._auto_retry_guard:
@@ -1220,7 +1235,7 @@ class IDMEOrchestrator:
         key = (submission_date, class_name)
         try:
             latest = self._latest_submission(class_name, submission_date)
-            if not latest or latest.get('status') != 'blocked':
+            if latest and latest.get('status') != 'blocked':
                 return
             if self._unanswered_absences(class_name, submission_date):
                 return
@@ -1229,7 +1244,10 @@ class IDMEOrchestrator:
                 self.logger.warning(
                     f"Auto-submit not queued for {class_name}: teacher missing")
                 return
-            confirm = bool(latest.get('requested_confirm'))
+            if latest and latest.get('requested_confirm') is not None:
+                confirm = bool(latest.get('requested_confirm'))
+            else:
+                confirm = IDMEConfig.SCHEDULER_CONFIRM
             self.logger.info(
                 f"All teacher responses complete for {class_name} on "
                 f"{submission_date}; starting automatic submission")
@@ -1262,6 +1280,136 @@ class IDMEOrchestrator:
                     self.logger.warning(
                         f"Resume check failed for {class_name} on {day}: {e}")
         return ready
+
+    def _first_blocked(self, class_name: str, day: Optional[str]) -> bool:
+        """True if the row just marked 'blocked' is the only blocked row for this
+        class and day, i.e. the teacher has not been reminded yet. Fails open."""
+        if not day:
+            return True
+        try:
+            n = sum(1 for r in self.get_submissions_for_date(day)
+                    if r.get('class_name') == class_name and r.get('status') == 'blocked')
+            return n <= 1
+        except Exception as e:
+            self.logger.warning(f"Blocked-reminder check failed for {class_name}: {e}")
+            return True
+
+    def classes_completed_on(self, day: str) -> set:
+        """Class names whose latest submission row for `day` is 'completed'."""
+        latest = {}
+        for row in self.get_submissions_for_date(day):
+            latest[row['class_name']] = row
+        return {c for c, r in latest.items() if r.get('status') == 'completed'}
+
+    def submit_ready_classes(self, session: dict, scan_date: Optional[str] = None) -> None:
+        """Prompt-time submission. In one background thread, submit every class
+        in this session's forms that has nothing left to answer (typically all
+        present) and no submission row yet for the day — whether or not its
+        teacher is linked to Telegram."""
+        if scan_date is None:
+            scan_date = date.today().isoformat()
+        forms = set(session.get('forms') or [])
+        pending = []
+        for teacher in self.teacher_manager.get_all_teachers():
+            class_name = teacher['class_name']
+            if IDMEConfig.form_of(class_name) not in forms:
+                continue
+            if self._latest_submission(class_name, scan_date):
+                continue
+            try:
+                summary = self.absence_detector.get_attendance_summary(class_name, scan_date)
+                if summary['roster_count'] == 0:
+                    continue  # no roster: never "all present"
+                if self._unanswered_absences(class_name, scan_date):
+                    continue
+            except Exception as e:
+                self.logger.warning(
+                    f"Prompt-time readiness check failed for {class_name}: {e}")
+                continue
+            pending.append((class_name, scan_date))
+        if not pending:
+            return
+        self.logger.info(
+            f"Prompt-time submission for {session.get('name')}: "
+            + ", ".join(c for c, _ in pending))
+        threading.Thread(
+            target=self._resume_sequential, args=(pending,), daemon=True).start()
+
+    # Errors worth retrying: the portal (or the path to it) was down or slow.
+    _TRANSIENT_FAILURE = re.compile(
+        r"Timeout \d+ ?ms exceeded|net::ERR_|NS_ERROR_|Not on MOEIS after SSO"
+        r"|did not reload|returned HTTP 5\d\d|has been closed"
+        r"|Connection (?:reset|refused|aborted)|ECONNRESET"
+        r"|Temporary failure in name resolution|Name or service not known",
+        re.IGNORECASE)
+    # Never retried: retrying cannot fix them, and repeated logins with a bad
+    # password could lock the teacher's account.
+    _PERMANENT_FAILURE = re.compile(
+        r"Wrong password|Invalid IC|Account not found|Login error:|Login failed:"
+        r"|Login timed out|already confirmed|No roster|Portal served attendance"
+        r"|Credential error|TARIKH field|Awaiting teacher",
+        re.IGNORECASE)
+
+    @classmethod
+    def is_transient_failure(cls, error: Optional[str]) -> bool:
+        if not error:
+            return False
+        return (bool(cls._TRANSIENT_FAILURE.search(error))
+                and not cls._PERMANENT_FAILURE.search(error))
+
+    def failed_retry_candidates(self) -> List[tuple]:
+        """(class_name, date, confirm) for every day of the current month whose
+        LATEST row is 'failed' with a transient (portal) error. Oldest first."""
+        today = date.today()
+        out = []
+        day = today.replace(day=1)
+        while day <= today:
+            iso = day.isoformat()
+            latest = {}
+            for row in self.get_submissions_for_date(iso):
+                latest[row['class_name']] = row
+            for class_name, row in latest.items():
+                if (row.get('status') == 'failed'
+                        and self.is_transient_failure(row.get('error_message'))):
+                    rc = row.get('requested_confirm')
+                    confirm = (bool(rc) if rc is not None
+                               else IDMEConfig.SCHEDULER_CONFIRM)
+                    out.append((class_name, iso, confirm))
+            day += timedelta(days=1)
+        return out
+
+    def retry_failed_submissions(self) -> List[Dict[str, Any]]:
+        """3-hourly tick: retry this month's portal-failure submissions, one at
+        a time. A past day goes through login_engine target_date (which refuses
+        locked days); the teacher-response gate still applies."""
+        if not self._retry_run_lock.acquire(blocking=False):
+            self.logger.info("Retry tick skipped: previous retry still running")
+            return []
+        try:
+            pending = self.failed_retry_candidates()
+            if not pending:
+                self.logger.info("Retry tick: no failed submissions to retry this month")
+                return []
+            self.logger.info(
+                f"Retry tick: {len(pending)} failed submission(s): "
+                + ", ".join(f"{c} {d}" for c, d, _ in pending))
+            results = []
+            for class_name, day, confirm in pending:
+                if not IDMEConfig.in_retry_window(day):
+                    continue  # month rolled over during the run
+                teacher = self.teacher_manager.get_teacher_for_class(class_name)
+                if not teacher:
+                    continue
+                try:
+                    r = self.submit_class(teacher['id'], class_name, day, confirm=confirm)
+                    results.append(r)
+                    self.logger.info(
+                        f"Retry {class_name} {day}: {r.get('status')}")
+                except Exception as e:
+                    self.logger.error(f"Retry {class_name} {day} failed: {e}")
+            return results
+        finally:
+            self._retry_run_lock.release()
 
     def resume_ready_blocked_submissions(self) -> None:
         """Recover ready blocked classes (today and the response window) after a

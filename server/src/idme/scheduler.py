@@ -15,6 +15,9 @@ import threading
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 
+# First failure-retry tick after startup (seconds).
+RETRY_FIRST_DELAY_SECONDS = 600
+
 
 class _Session:
     """One scheduled session: a cutoff time, the forms it covers, its own timer,
@@ -64,6 +67,7 @@ class IDMEScheduler:
             for s in sessions
         ]
         self.running = False
+        self.retry_timer: Optional[threading.Timer] = None
         self.logger = logging.getLogger(__name__)
 
     def start(self):
@@ -80,6 +84,12 @@ class IDMEScheduler:
         self.logger.info(
             f"IDME scheduler started. Daily submissions at — {cutoffs} — mode: {mode}"
         )
+        # Retry this month's portal-failure submissions every few hours; the
+        # first tick shortly after startup so an outage is caught after a deploy.
+        self._schedule_retry(RETRY_FIRST_DELAY_SECONDS)
+        self.logger.info(
+            f"IDME failure retry every {IDMEConfig.RETRY_INTERVAL_HOURS:g}h "
+            "(current month, portal errors only)")
 
     def stop(self):
         """Stop the scheduler (cancels every session timer)."""
@@ -88,7 +98,25 @@ class IDMEScheduler:
             if session.timer:
                 session.timer.cancel()
                 session.timer = None
+        if self.retry_timer:
+            self.retry_timer.cancel()
+            self.retry_timer = None
         self.logger.info("IDME scheduler stopped")
+
+    def _schedule_retry(self, seconds: float):
+        self.retry_timer = threading.Timer(seconds, self._retry_tick)
+        self.retry_timer.daemon = True
+        self.retry_timer.start()
+
+    def _retry_tick(self):
+        """Retry failed submissions, then ALWAYS re-arm."""
+        from .idme_config import IDMEConfig
+        try:
+            self.orchestrator.retry_failed_submissions()
+        except Exception as e:
+            self.logger.error(f"Retry tick failed: {e}")
+        if self.running:
+            self._schedule_retry(max(60.0, IDMEConfig.RETRY_INTERVAL_HOURS * 3600))
 
     def _schedule_next(self, session: _Session):
         """Calculate seconds until a session's next cutoff and schedule it."""
@@ -114,8 +142,16 @@ class IDMEScheduler:
         session.last_run = datetime.now()
 
         try:
+            # Classes normally submit as soon as their teacher's answers are
+            # complete (or at prompt time when all present). The cutoff only
+            # catches what is left — reminding teachers still owing answers (the
+            # blocked notice) and submitting classes completed by late scans —
+            # and never re-touches a class already completed today.
+            done = self.orchestrator.classes_completed_on(
+                datetime.now().date().isoformat())
             results = self.orchestrator.submit_all_classes(
-                forms=set(session.forms), enforce_scan_gate=True)
+                forms=set(session.forms), enforce_scan_gate=True,
+                exclude_classes=done)
             session.last_result = {
                 'timestamp': session.last_run.isoformat(),
                 'results': results,

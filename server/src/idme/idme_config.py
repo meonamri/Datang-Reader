@@ -300,6 +300,22 @@ class IDMEConfig:
     # valid, and how far back the dashboard may re-send a prompt.
     RESPONSE_WINDOW_DAYS = int(os.getenv('IDME_RESPONSE_WINDOW_DAYS', '7'))
 
+    # Failed submissions caused by portal problems (IDME down, timeouts) are
+    # retried this often, for any day in the CURRENT calendar month.
+    RETRY_INTERVAL_HOURS = float(os.getenv('IDME_RETRY_INTERVAL_HOURS', '3'))
+
+    @classmethod
+    def in_retry_window(cls, day, today=None) -> bool:
+        """True if YYYY-MM-DD `day` is in the same calendar month as today and
+        not in the future."""
+        from datetime import date as _date
+        try:
+            d = _date.fromisoformat(str(day))
+        except ValueError:
+            return False
+        t = today or _date.today()
+        return d.year == t.year and d.month == t.month and d <= t
+
     @classmethod
     def in_response_window(cls, day, today=None) -> bool:
         """True if YYYY-MM-DD `day` is today or within RESPONSE_WINDOW_DAYS before
