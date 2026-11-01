@@ -14,16 +14,24 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements file (Docker-specific, without GUI dependencies)
-COPY requirements.txt .
+# constraints.txt pins the exact production versions (see header in that file).
+COPY requirements.txt constraints.txt ./
 
 # Install Python dependencies to a virtual environment
 RUN python -m venv /opt/venv && \
-    /opt/venv/bin/pip install --no-cache-dir --upgrade pip && \
-    /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
+    /opt/venv/bin/pip install --no-cache-dir --upgrade pip -c constraints.txt && \
+    /opt/venv/bin/pip install --no-cache-dir -r requirements.txt -c constraints.txt && \
+    /opt/venv/bin/pip check
 
 
 # Stage 2: Runtime
 FROM python:3.10-slim
+
+# OS security updates at build time (previously applied by hand on top of the
+# image on 2026-10-22; now part of every build).
+RUN apt-get update && \
+    apt-get upgrade -y --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/*
 
 # Set labels for metadata
 LABEL maintainer="Datang Reader Team" \
