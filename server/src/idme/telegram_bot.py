@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
+from .idme_config import IDMEConfig
 from .moeis_codes import (
     COMMON_SEBAB, MOEIS_CATEGORIES, COMPLETE_MOEIS_SEBAB, SEBAB_DESCRIPTIONS,
 )
@@ -200,6 +201,8 @@ class IDMETelegramBot:
         # cutoff; the bot remains usable when no callback is supplied.
         self.response_callback = response_callback
         self.guard = TelegramAuthGuard(db_path)
+        # Prompt-button registry is persisted here so taps survive a restart.
+        self._entries_db = str(db_path)
         self.logger = logging.getLogger(__name__)
 
         self.running = False
@@ -207,8 +210,9 @@ class IDMETelegramBot:
         self._offset: Optional[int] = None
         self.bot_username: Optional[str] = None
 
-        # entry_id -> student record being reasoned about. Short-lived (one prompt
-        # round); a stale tap after a restart is answered with "expired".
+        # entry_id -> student record being reasoned about. In-memory cache of the
+        # telegram_prompt_entries table: a tap after a restart is resolved from
+        # the DB. Entries whose scan_date has left the response window expire.
         self._entries: Dict[str, Dict[str, Any]] = {}
         # Per-chat self-link conversation state (in-memory; only the security-
         # relevant failure counter is persisted). chat_id -> 'await_password' |
@@ -453,8 +457,7 @@ class IDMETelegramBot:
             return
 
         entry_id = parts[1] if len(parts) > 1 else ''
-        with self._lock:
-            entry = self._entries.get(entry_id)
+        entry = self._get_entry(entry_id)
 
         if entry is None:
             self.client.answer_callback_query(
@@ -829,23 +832,93 @@ class IDMETelegramBot:
             )
         return len(absences)
 
+    _ENTRIES_DDL = (
+        "CREATE TABLE IF NOT EXISTS telegram_prompt_entries ("
+        " entry_id TEXT PRIMARY KEY, teacher_id INTEGER NOT NULL,"
+        " class_name TEXT NOT NULL, student_name TEXT NOT NULL, idpelajar TEXT,"
+        " scan_date DATE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+    )
+
+    def _entries_conn(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self._entries_db, timeout=5)
+        conn.row_factory = sqlite3.Row
+        conn.execute(self._ENTRIES_DDL)  # idempotent; migrations also create it
+        return conn
+
     def _register_entry(self, teacher, absence, scan_date) -> str:
         entry_id = secrets.token_urlsafe(5)
+        entry = {
+            'teacher_id': teacher['id'],
+            'class_name': teacher['class_name'],
+            'student_name': absence['student_name'],
+            'idpelajar': absence.get('idpelajar'),
+            'scan_date': scan_date,
+        }
         with self._lock:
-            self._entries[entry_id] = {
-                'teacher_id': teacher['id'],
-                'class_name': teacher['class_name'],
-                'student_name': absence['student_name'],
-                'idpelajar': absence.get('idpelajar'),
-                'scan_date': scan_date,
-            }
+            self._entries[entry_id] = entry
+        # Persist so the button still resolves after a restart. Best-effort: on a
+        # DB error the button keeps working until the next restart.
+        try:
+            conn = self._entries_conn()
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO telegram_prompt_entries "
+                    "(entry_id, teacher_id, class_name, student_name, idpelajar, scan_date) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (entry_id, entry['teacher_id'], entry['class_name'],
+                     entry['student_name'], entry['idpelajar'], scan_date))
+                cutoff = (date.today()
+                          - timedelta(days=IDMEConfig.RESPONSE_WINDOW_DAYS)).isoformat()
+                conn.execute(
+                    "DELETE FROM telegram_prompt_entries WHERE scan_date < ?", (cutoff,))
+                conn.commit()
+            finally:
+                conn.close()
+        except sqlite3.Error as e:
+            self.logger.warning(
+                f"Could not persist prompt entry (valid until restart only): {e}")
         return entry_id
+
+    def _get_entry(self, entry_id: str) -> Optional[Dict[str, Any]]:
+        """Resolve a button's entry id: memory first, then the persisted table.
+        None if unknown or its scan_date is outside the response window."""
+        if not entry_id:
+            return None
+        with self._lock:
+            entry = self._entries.get(entry_id)
+        if entry is None:
+            try:
+                conn = self._entries_conn()
+                try:
+                    row = conn.execute(
+                        "SELECT teacher_id, class_name, student_name, idpelajar, scan_date "
+                        "FROM telegram_prompt_entries WHERE entry_id = ?",
+                        (entry_id,)).fetchone()
+                finally:
+                    conn.close()
+            except sqlite3.Error as e:
+                self.logger.warning(f"Prompt entry lookup failed: {e}")
+                row = None
+            if row is None:
+                return None
+            entry = dict(row)
+            with self._lock:
+                self._entries[entry_id] = entry
+        if not IDMEConfig.in_response_window(entry.get('scan_date')):
+            return None
+        return entry
 
     # ---- keyboards -------------------------------------------------------
 
     @staticmethod
     def _prompt_text(entry) -> str:
-        return (f"🔴 {entry['student_name']} ({entry['class_name']})\n"
+        # Show the day: a teacher may hold prompts for more than one date.
+        day = entry.get('scan_date') or ''
+        try:
+            shown = datetime.strptime(day, '%Y-%m-%d').strftime('%d/%m/%Y')
+        except ValueError:
+            shown = day
+        return (f"🔴 {entry['student_name']} ({entry['class_name']}) — {shown}\n"
                 "Pilih sebab tidak hadir:")
 
     def _quickpick_keyboard(self, entry_id) -> str:

@@ -875,7 +875,9 @@ def unlink_teacher_telegram(teacher_id):
 
 @idme_bp.route('/telegram/prompt', methods=['POST'])
 def prompt_class_now():
-    """Manually (re-)send today's absentee prompt to one class's teacher.
+    """Manually (re-)send an absentee prompt to one class's teacher — today's
+    by default, or a recent day via "date" (YYYY-MM-DD, within the last
+    IDMEConfig.RESPONSE_WINDOW_DAYS days, never the future).
 
     Backs the settings 'Prompt teacher' button — e.g. a teacher who onboarded
     after the scheduled session prompt already fired. Runs in the web process,
@@ -891,7 +893,18 @@ def prompt_class_now():
     if not class_name:
         return jsonify({'error': 'class_name is required'}), 400
 
-    result = _telegram_bot.prompt_class(class_name)
+    day = (data.get('date') or '').strip() or None
+    if day is not None:
+        try:
+            date.fromisoformat(day)
+        except ValueError:
+            return jsonify({'error': 'date must be YYYY-MM-DD'}), 400
+        if not IDMEConfig.in_response_window(day):
+            return jsonify({'error': (
+                f'date must be today or within the last '
+                f'{IDMEConfig.RESPONSE_WINDOW_DAYS} days')}), 400
+
+    result = _telegram_bot.prompt_class(class_name, scan_date=day)
     if not result.get('ok'):
         return jsonify({'error': result.get('error', 'Failed to prompt')}), 400
     return jsonify({'success': True, 'sent': result.get('sent', 0),

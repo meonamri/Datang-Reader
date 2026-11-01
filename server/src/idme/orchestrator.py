@@ -18,7 +18,7 @@ import time
 import sqlite3
 import threading
 from typing import Dict, List, Optional, Any
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from pathlib import Path
 
 from .idme_config import IDMEConfig
@@ -1199,8 +1199,10 @@ class IDMEOrchestrator:
         return unanswered
 
     def handle_teacher_response(self, class_name: str, submission_date: str) -> None:
-        """Queue same-day catch-up when a response completes a blocked class."""
-        if submission_date != date.today().isoformat():
+        """Queue catch-up when a response completes a blocked class — today or
+        any day within IDMEConfig.RESPONSE_WINDOW_DAYS. A past day is submitted for
+        its own date (login_engine target_date), which refuses locked days."""
+        if not IDMEConfig.in_response_window(submission_date):
             return
         latest = self._latest_submission(class_name, submission_date)
         if not latest or latest.get('status') != 'blocked':
@@ -1229,8 +1231,8 @@ class IDMEOrchestrator:
                 return
             confirm = bool(latest.get('requested_confirm'))
             self.logger.info(
-                f"All teacher responses complete for {class_name}; "
-                "starting same-day automatic submission")
+                f"All teacher responses complete for {class_name} on "
+                f"{submission_date}; starting automatic submission")
             self.submit_class(
                 teacher['id'], class_name, submission_date, confirm=confirm)
         except Exception as e:
@@ -1239,15 +1241,51 @@ class IDMEOrchestrator:
             with self._auto_retry_guard:
                 self._auto_retry_inflight.discard(key)
 
+    def ready_blocked_submissions(self) -> List[tuple]:
+        """(class_name, date) pairs, oldest first, whose LATEST submission row
+        within the response window is 'blocked' and that now have no unanswered
+        absences — i.e. what a resume would submit. Read-only."""
+        today = date.today()
+        ready = []
+        for back in range(IDMEConfig.RESPONSE_WINDOW_DAYS, -1, -1):
+            day = (today - timedelta(days=back)).isoformat()
+            latest = {}
+            for row in self.get_submissions_for_date(day):
+                latest[row['class_name']] = row
+            for class_name, row in latest.items():
+                if row.get('status') != 'blocked':
+                    continue
+                try:
+                    if not self._unanswered_absences(class_name, day):
+                        ready.append((class_name, day))
+                except Exception as e:
+                    self.logger.warning(
+                        f"Resume check failed for {class_name} on {day}: {e}")
+        return ready
+
     def resume_ready_blocked_submissions(self) -> None:
-        """Recover ready blocked classes after a same-day process restart."""
-        today = date.today().isoformat()
-        latest = {}
-        for row in self.get_submissions_for_date(today):
-            latest[row['class_name']] = row
-        for class_name, row in latest.items():
-            if row.get('status') == 'blocked':
-                self.handle_teacher_response(class_name, today)
+        """Recover ready blocked classes (today and the response window) after a
+        process restart. One background thread submits them ONE AT A TIME: each
+        submission drives its own Firefox and the container has little memory."""
+        pending = self.ready_blocked_submissions()
+        if not pending:
+            return
+        self.logger.info(
+            f"Resuming {len(pending)} ready blocked submission(s): "
+            + ", ".join(f"{c} {d}" for c, d in pending))
+        threading.Thread(
+            target=self._resume_sequential, args=(pending,), daemon=True).start()
+
+    def _resume_sequential(self, pending: List[tuple]) -> None:
+        for class_name, day in pending:
+            key = (day, class_name)
+            with self._auto_retry_guard:
+                if key in self._auto_retry_inflight:
+                    continue
+                self._auto_retry_inflight.add(key)
+            # _auto_submit_if_ready re-checks status/answers and always releases
+            # the in-flight key in its finally.
+            self._auto_submit_if_ready(class_name, day)
 
     def _latest_submission(
         self, class_name: str, submission_date: str

@@ -295,6 +295,23 @@ class IDMEConfig:
     DEBUG = os.getenv('IDME_DEBUG', 'false').lower() == 'true'
     SESSION_EXPIRY_HOURS = int(os.getenv('IDME_SESSION_EXPIRY_HOURS', '6'))
 
+    # How many days back (plus today) a teacher's Telegram answer can still
+    # complete — and auto-submit — a blocked day, how long prompt buttons stay
+    # valid, and how far back the dashboard may re-send a prompt.
+    RESPONSE_WINDOW_DAYS = int(os.getenv('IDME_RESPONSE_WINDOW_DAYS', '7'))
+
+    @classmethod
+    def in_response_window(cls, day, today=None) -> bool:
+        """True if YYYY-MM-DD `day` is today or within RESPONSE_WINDOW_DAYS before
+        it. Future dates and malformed values are outside the window."""
+        from datetime import date as _date, timedelta as _timedelta
+        try:
+            d = _date.fromisoformat(str(day))
+        except ValueError:
+            return False
+        t = today or _date.today()
+        return t - _timedelta(days=cls.RESPONSE_WINDOW_DAYS) <= d <= t
+
     # Form filling
     DEFAULT_CATEGORY = 'N'
     DEFAULT_SEBAB_ID = 'N0040027'

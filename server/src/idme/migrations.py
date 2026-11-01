@@ -80,5 +80,16 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_roster_sync_date_class
             ON roster_sync_runs(sync_date, class_name, id);
+        CREATE TABLE IF NOT EXISTS telegram_prompt_entries (
+            entry_id TEXT PRIMARY KEY,
+            teacher_id INTEGER NOT NULL,
+            class_name TEXT NOT NULL,
+            student_name TEXT NOT NULL,
+            idpelajar TEXT,
+            scan_date DATE NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_tg_prompt_entries_date
+            ON telegram_prompt_entries(scan_date);
     """)
     conn.commit()
