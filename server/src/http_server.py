@@ -15,6 +15,25 @@ from .service_manager import ServiceManager
 logger = logging.getLogger(__name__)
 
 
+class _QuietPollFilter(logging.Filter):
+    """Drop werkzeug access lines for SUCCESSFUL client reachability polls.
+
+    The input client polls GET /health and GET /status every ~2s to confirm it
+    can reach this server; at ~75k lines/day each they rotated all other log
+    history out of the 30 MB docker log within two days. Non-200 responses and
+    every other request are still logged.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        if ('"GET /health ' in msg or '"GET /status ' in msg) and '" 200 ' in msg:
+            return False
+        return True
+
+
+logging.getLogger("werkzeug").addFilter(_QuietPollFilter())
+
+
 def create_app(use_mock_api: bool = False) -> tuple[Flask, ServiceManager]:
     """
     Create and configure Flask application
