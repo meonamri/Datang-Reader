@@ -58,6 +58,15 @@ class NavigationError(LoginEngineError):
     pass
 
 
+class AlreadyConfirmedError(LoginEngineError):
+    """Raised when the requested day is already confirmed (TELAH DISAHKAN) on
+    the portal — locked, typically confirmed by hand by the teacher. Nothing was
+    written; the orchestrator records it as 'confirmed_external', not a failure.
+    The message keeps the "already confirmed" wording the retry classifier
+    treats as permanent."""
+    pass
+
+
 class NonSchoolDayError(LoginEngineError):
     """Raised when the portal signals today is a non-school day (weekend / public holiday).
 
@@ -544,7 +553,7 @@ class IDMELoginEngine:
         }''')
         self.target_date_status = status
         if status == 'TELAH DISAHKAN':
-            raise LoginEngineError(
+            raise AlreadyConfirmedError(
                 f"Attendance for {want} is already confirmed (TELAH DISAHKAN); "
                 "locked days are not edited by automation")
         self.logger.info(f"Attendance form now on {want} (status: {status or 'none'})")
@@ -656,6 +665,14 @@ class IDMELoginEngine:
                 f"Non-school day detected after login ({duration:.1f}s) — "
                 f"skipping submission"
             )
+            await self.close()
+            raise
+
+        except AlreadyConfirmedError as e:
+            # The day is locked on the portal (confirmed outside automation).
+            # Login itself succeeded — no LOGIN FAILED log or error screenshot.
+            duration = (datetime.now() - start).total_seconds()
+            self.logger.info(f"Day already confirmed on portal ({duration:.1f}s): {e}")
             await self.close()
             raise
 

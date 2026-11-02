@@ -32,7 +32,9 @@ from .present_override_store import PresentOverrideStore
 from .absence_detector import AbsenceDetector
 from .names import normalize_name
 from .session_cache import SessionCache
-from .login_engine import IDMELoginEngine, LoginEngineError, NonSchoolDayError
+from .login_engine import (
+    IDMELoginEngine, LoginEngineError, NonSchoolDayError, AlreadyConfirmedError,
+)
 from .form_filler import IDMEFormFiller, FormFillerError
 
 
@@ -567,6 +569,33 @@ class IDMEOrchestrator:
                 'duration': duration,
                 'status': 'skipped',
                 'message': str(e),
+            }
+        except AlreadyConfirmedError as e:
+            # The portal already shows this day as TELAH DISAHKAN (locked) —
+            # confirmed outside Datang, usually by hand. Nothing was written and
+            # retrying can never change it, so record it as its own terminal
+            # status instead of 'failed'. successful stays 0: Datang recorded
+            # nothing, and the portal's absences may differ from ours.
+            duration = (datetime.now() - start).total_seconds()
+            msg = f"Already confirmed on MOEIS outside Datang; nothing submitted ({e})"
+            self.logger.info(f"{class_name} {submission_date}: {msg}")
+            self._update_submission(
+                submission_id, status=self.CONFIRMED_EXTERNAL,
+                duration=duration, error=msg)
+            return {
+                'class_name': class_name,
+                'date': submission_date,
+                'roster_count': roster_count,
+                'scanned_count': scanned_count,
+                'absent_count': absent_count,
+                'submitted': 0,
+                'failed': 0,
+                'form_submitted': False,
+                'duration': duration,
+                'status': self.CONFIRMED_EXTERNAL,
+                'retryable': False,
+                'write_attempted': False,
+                'message': msg,
             }
         except OrchestratorError as e:
             duration = (datetime.now() - start).total_seconds()
@@ -1171,13 +1200,16 @@ class IDMEOrchestrator:
         # Summary
         total = len(results)
         completed = sum(1 for r in results if r.get('status') == 'completed')
+        external = sum(1 for r in results
+                       if r.get('status') == self.CONFIRMED_EXTERNAL)
         skipped = sum(1 for r in results if r.get('status') == 'skipped')
         blocked = sum(1 for r in results if r.get('status') == 'blocked')
         running = sum(1 for r in results if r.get('status') == 'running')
-        failed = total - completed - skipped - blocked - running
+        failed = total - completed - external - skipped - blocked - running
 
         self.logger.info(
             f"Bulk submission done: {completed}/{total} succeeded, "
+            f"{external} already confirmed on portal, "
             f"{skipped} skipped (non-school day), {blocked} blocked "
             f"(awaiting teacher), {running} already running, {failed} failed"
         )
@@ -1295,11 +1327,13 @@ class IDMEOrchestrator:
             return True
 
     def classes_completed_on(self, day: str) -> set:
-        """Class names whose latest submission row for `day` is 'completed'."""
+        """Class names whose latest submission row for `day` is done: 'completed',
+        or 'confirmed_external' (locked on the portal outside Datang)."""
         latest = {}
         for row in self.get_submissions_for_date(day):
             latest[row['class_name']] = row
-        return {c for c, r in latest.items() if r.get('status') == 'completed'}
+        return {c for c, r in latest.items()
+                if r.get('status') in ('completed', self.CONFIRMED_EXTERNAL)}
 
     def submit_ready_classes(self, session: dict, scan_date: Optional[str] = None) -> None:
         """Prompt-time submission. In one background thread, submit every class
@@ -1334,6 +1368,10 @@ class IDMEOrchestrator:
             + ", ".join(c for c, _ in pending))
         threading.Thread(
             target=self._resume_sequential, args=(pending,), daemon=True).start()
+
+    # Terminal status for a day the portal already shows as TELAH DISAHKAN
+    # (confirmed outside Datang). Not a failure; never retried.
+    CONFIRMED_EXTERNAL = 'confirmed_external'
 
     # Errors worth retrying: the portal (or the path to it) was down or slow.
     _TRANSIENT_FAILURE = re.compile(
@@ -1515,7 +1553,8 @@ class IDMEOrchestrator:
         if error:
             updates.append("error_message = ?")
             params.append(error)
-        if status in ('completed', 'failed', 'skipped', 'blocked'):
+        if status in ('completed', 'failed', 'skipped', 'blocked',
+                      self.CONFIRMED_EXTERNAL):
             updates.append("completed_at = ?")
             params.append(datetime.now().isoformat())
 

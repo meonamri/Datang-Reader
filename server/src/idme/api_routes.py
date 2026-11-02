@@ -239,7 +239,9 @@ def _fire_card(session, rows, onboarded):
     human headline/detail. The text is built here (not in the template or JS) so
     the server-render and the live refresh always agree."""
     statuses = [r['status'] for r in rows]
-    completed = statuses.count('completed')
+    # A day confirmed on the portal outside Datang is done for the session
+    # verdict, the same as one Datang submitted itself.
+    completed = statuses.count('completed') + statuses.count('confirmed_external')
     skipped = statuses.count('skipped')
     blocked = statuses.count('blocked')
     failed = statuses.count('failed')
@@ -1053,7 +1055,7 @@ def submit_remaining_stream():
     for r in prior:
         latest[r['class_name']] = r
     exclude = {cn for cn, r in latest.items()
-               if r.get('status') in ('completed', 'running')}
+               if r.get('status') in ('completed', 'running', 'confirmed_external')}
 
     def run():
         results = _orchestrator.submit_all_classes(
@@ -1061,7 +1063,8 @@ def submit_remaining_stream():
             forms=IDMEConfig.all_session_forms(),
             exclude_classes=exclude,
         )
-        completed = sum(1 for r in results if r.get('status') == 'completed')
+        completed = sum(1 for r in results
+                        if r.get('status') in ('completed', 'confirmed_external'))
         failed = sum(1 for r in results if r.get('status') == 'failed')
         skipped = sum(1 for r in results if r.get('status') == 'skipped')
         blocked = sum(1 for r in results if r.get('status') == 'blocked')

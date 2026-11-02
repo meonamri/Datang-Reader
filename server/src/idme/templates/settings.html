@@ -903,7 +903,8 @@
         function submitRemaining(ov) {
             return (ov.classes || []).filter(c =>
                 c.onboarded && c.session &&
-                c.today_status !== 'completed' && c.today_status !== 'running');
+                c.today_status !== 'completed' && c.today_status !== 'running'
+                && c.today_status !== 'confirmed_external');
         }
         function updateSubmitRemaining(ov) {
             const btn = document.getElementById('submit-remaining');
@@ -1006,6 +1007,9 @@
             } else if (s === 'failed') {
                 cls = 'bad'; label = 'Failed';
                 title = c.today_error || `${fail || 0} of ${absent || 0} absent student(s) could not be recorded`;
+            } else if (s === 'confirmed_external') {
+                cls = 'done'; label = 'Confirmed by hand';
+                title = c.today_error || 'Already confirmed on MOEIS outside Datang; nothing submitted';
             } else if (s === 'completed' && (absent || 0) === 0) {
                 cls = 'done'; label = 'Done'; title = 'Ran with no absences to record';
             } else {
@@ -1206,6 +1210,7 @@
             if (r.status === 'blocked') return '<span class="pill amber">Awaiting teacher</span>';
             if (r.status === 'skipped') return '<span class="pill grey">Skipped</span>';
             if (r.status === 'running') return '<span class="pill amber">Running</span>';
+            if (r.status === 'confirmed_external') return '<span class="pill grey">Confirmed by hand</span>';
             if (r.status === 'completed') {
                 return (r.total_absent || 0) === 0
                     ? '<span class="pill grey">Done</span>'
