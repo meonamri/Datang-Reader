@@ -154,9 +154,26 @@ def create_app(use_mock_api: bool = False) -> tuple[Flask, ServiceManager]:
                         "message": "Invalid temperature value"
                     }), 400
 
+            # Optional reader-outbox fields (used by ATTENDANCE_MODE=local):
+            # original tap time, reader identity and an idempotency key.
+            scanned_at = None
+            if data.get('scanned_at'):
+                try:
+                    from .local_attendance import _parse_scanned_at
+                    scanned_at = _parse_scanned_at(data.get('scanned_at'))
+                except (ValueError, TypeError):
+                    return jsonify({
+                        "success": False,
+                        "message": "Invalid scanned_at (expected ISO-8601)"
+                    }), 400
+            reader_id = (str(data['reader_id'])[:64] if data.get('reader_id') else None)
+            event_id = (str(data['event_id'])[:128] if data.get('event_id') else None)
+
             # Process attendance
             logger.info(f"Received card scan via HTTP: {card_id[:8]}...")
-            result = service_manager.process_attendance(card_id, temperature)
+            result = service_manager.process_attendance(
+                card_id, temperature,
+                scanned_at=scanned_at, reader_id=reader_id, event_id=event_id)
 
             return jsonify({
                 "timestamp": datetime.now().isoformat(),
@@ -192,6 +209,25 @@ def create_app(use_mock_api: bool = False) -> tuple[Flask, ServiceManager]:
                 "status": "error",
                 "message": str(e)
             }), 500
+
+    @app.route('/attendance/status', methods=['GET'])
+    def attendance_status():
+        """Local attendance authority: mode, today's events, mirror backlog."""
+        return jsonify({"status": "ok", "attendance": service_manager.attendance_status()}), 200
+
+    @app.route('/attendance/compare', methods=['GET'])
+    def attendance_compare():
+        """Shadow-mode verdict: local card resolution vs Datang.my, per day."""
+        store = service_manager.local_attendance
+        if store is None:
+            return jsonify({"status": "error",
+                            "message": "ATTENDANCE_MODE is 'datang'; nothing recorded"}), 409
+        scan_date = request.args.get('date') or datetime.now().date().isoformat()
+        try:
+            datetime.strptime(scan_date, "%Y-%m-%d")
+        except ValueError:
+            return jsonify({"status": "error", "message": "date must be YYYY-MM-DD"}), 400
+        return jsonify({"status": "ok", "compare": store.compare(scan_date)}), 200
 
     @app.route('/sync', methods=['POST'])
     def sync_queue():

@@ -5,6 +5,7 @@ Main service orchestrator that coordinates all components.
 """
 
 import logging
+import os
 import time
 from typing import Optional, Dict, Any
 from datetime import datetime
@@ -13,6 +14,7 @@ from .rfid_reader import RFIDReader
 from .api_client import DatangAPIClient, MockAPIClient, NetworkError, AuthenticationError, AttendanceSubmissionError
 from .auth_manager import AuthManager
 from .offline_queue import AttendanceQueue
+from .local_attendance import LocalAttendanceStore, DatangMirror, mode_from_env
 
 
 logger = logging.getLogger(__name__)
@@ -53,6 +55,29 @@ class ServiceManager:
         # IDME scan tracker (set by init_idme_module if IDME is enabled)
         self.scan_tracker = None
 
+        # Local attendance authority (see local_attendance.py). 'datang' = the
+        # historical behaviour, nothing below is constructed.
+        self.attendance_mode = mode_from_env()
+        self.local_attendance: Optional[LocalAttendanceStore] = None
+        self.datang_mirror: Optional[DatangMirror] = None
+        if self.attendance_mode != "datang":
+            db_path = os.getenv("ATTENDANCE_DB_PATH") or os.getenv(
+                "IDME_DATABASE_PATH", "/data/idme/idme_data.db")
+            try:
+                self.local_attendance = LocalAttendanceStore(db_path, mode=self.attendance_mode)
+                self.local_attendance.seed_from_history()
+            except Exception as e:
+                # Never let the new path take attendance down: fall back to Datang.my.
+                logger.error(f"Local attendance unavailable ({e}); falling back to ATTENDANCE_MODE=datang")
+                self.attendance_mode = "datang"
+                self.local_attendance = None
+        self.mirror_enabled = (
+            self.attendance_mode == "local"
+            and os.getenv("ATTENDANCE_DATANG_MIRROR", "true").strip().lower() in ("1", "true", "yes")
+        )
+        logger.info(f"Attendance authority: {self.attendance_mode}"
+                    + (" (mirroring to Datang.my)" if self.mirror_enabled else ""))
+
         logger.info("Service manager initialized")
 
     def start(self) -> bool:
@@ -80,6 +105,19 @@ class ServiceManager:
 
         logger.info("RFID reader connected")
 
+        if self.attendance_mode == "local":
+            # Datang.my is optional here: a login failure must not stop taps
+            # being recorded, and the legacy offline queue is NOT replayed at
+            # startup (replays are uncertain writes; use POST /sync by hand).
+            if self.mirror_enabled:
+                if not self.auth_manager.ensure_authenticated():
+                    logger.warning("Datang.my login failed; mirror will keep retrying")
+                self.datang_mirror = DatangMirror(self.local_attendance, self.api_client, self.auth_manager)
+                self.datang_mirror.start()
+            self.running = True
+            logger.info("Service started (local attendance authority)")
+            return True
+
         # Authenticate with API
         logger.info("Authenticating with Datang API...")
         if not self.auth_manager.ensure_authenticated():
@@ -101,6 +139,9 @@ class ServiceManager:
         """Stop the service"""
         logger.info("Stopping Datang Reader service...")
         self.running = False
+
+        if self.datang_mirror:
+            self.datang_mirror.stop()
 
         # Disconnect RFID reader
         if self.rfid_reader:
@@ -125,18 +166,52 @@ class ServiceManager:
             except Exception as scan_err:
                 logger.warning(f"IDME scan recording failed (non-critical): {scan_err}")
 
-    def process_attendance(self, card_id: str, temperature: Optional[float] = None) -> Dict[str, Any]:
+    def process_attendance(
+        self,
+        card_id: str,
+        temperature: Optional[float] = None,
+        scanned_at: Optional[datetime] = None,
+        reader_id: Optional[str] = None,
+        event_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
-        Process attendance for a scanned card
+        Process attendance for a scanned card, routed by ATTENDANCE_MODE.
 
         Args:
             card_id: RFID card ID
             temperature: Optional temperature reading
+            scanned_at: Original tap time from a reader outbox (local mode only;
+                Datang.my cannot accept one)
+            reader_id: Reader identity, for the audit log
+            event_id: Client event id; makes a resent tap idempotent (local mode)
 
         Returns:
             Dictionary with result information
         """
+        if self.attendance_mode == "local":
+            try:
+                result = self.local_attendance.record(
+                    card_id, scanned_at=scanned_at, reader_id=reader_id,
+                    event_id=event_id, mirror=self.mirror_enabled)
+                logger.info(f"Local attendance: card {card_id[:8]}... -> {result.get('status')}")
+                return result
+            except Exception as e:
+                logger.error(f"Local attendance write failed ({e}); using Datang.my for this tap")
+
         timestamp = datetime.now()
+        result = self._process_via_datang(card_id, temperature, timestamp)
+
+        if self.attendance_mode == "shadow":
+            try:
+                self.local_attendance.record_shadow(card_id, timestamp, reader_id, result)
+            except Exception as e:
+                logger.warning(f"Shadow attendance logging failed (non-critical): {e}")
+        return result
+
+    def _process_via_datang(
+        self, card_id: str, temperature: Optional[float], timestamp: datetime
+    ) -> Dict[str, Any]:
+        """The original Datang.my-authoritative path (unchanged behaviour)."""
         logger.info(f"Processing attendance for card: {card_id[:8]}...")
 
         try:
@@ -338,8 +413,17 @@ class ServiceManager:
             "rfid_reader": self.rfid_reader.get_status(),
             "api": self.api_client.get_status(),
             "queue": self.queue.get_statistics(),
-            "device_id": Config.DEVICE_ID
+            "device_id": Config.DEVICE_ID,
+            "attendance": self.attendance_status(),
         }
+
+    def attendance_status(self) -> Dict[str, Any]:
+        if not self.local_attendance:
+            return {"mode": self.attendance_mode}
+        try:
+            return {**self.local_attendance.stats(), "mirror_enabled": self.mirror_enabled}
+        except Exception as e:
+            return {"mode": self.attendance_mode, "error": str(e)}
 
     def health_check(self) -> bool:
         """
@@ -355,6 +439,10 @@ class ServiceManager:
         if not self.rfid_reader.test_connection():
             logger.warning("Health check: RFID reader not connected")
             return False
+
+        # Local authority does not depend on Datang.my being logged in
+        if self.attendance_mode == "local":
+            return True
 
         # Check API authentication
         if not self.api_client.token:

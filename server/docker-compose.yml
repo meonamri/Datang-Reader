@@ -26,6 +26,13 @@ services:
       - DATANG_DEVICE_ID=${DATANG_DEVICE_ID:-docker-reader}
       - DATANG_MOCK_API=${DATANG_MOCK_API:-false}
 
+      # === Attendance authority (src/local_attendance.py, LOCAL_ATTENDANCE.md) ===
+      # datang (default) = unchanged; shadow = Datang.my authoritative + local
+      # comparison log; local = school-owned card lookup, Datang.my optional.
+      - ATTENDANCE_MODE=${ATTENDANCE_MODE:-datang}
+      # local mode only: forward same-day taps to Datang.my in the background.
+      - ATTENDANCE_DATANG_MIRROR=${ATTENDANCE_DATANG_MIRROR:-true}
+
       # === IDME Module (Optional) ===
       - IDME_ENABLED=${IDME_ENABLED:-false}
       # Two-session school: upper forms (3-6) submit at the morning cutoff,
