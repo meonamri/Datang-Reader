@@ -101,14 +101,44 @@ teacher). Classes without a teacher are never submitted to MOEIS.
 
 ### Telegram reason collection (optional, off by default)
 
-By default every absence is submitted as `N0040027` PONTENG · MALAS KE SEKOLAH.
-An optional Telegram bot lets each class teacher record a **per-student reason**
-*before* the cutoff: at a per-session prompt time the bot DMs the teacher their
-current absentee list with inline buttons (curated quick-pick + "More…" → full
-MOEIS list by category); the chosen reason is stored in the `absence_reasons`
-table and `AbsenceDetector.detect_absences` merges it over the default. A student
-left untouched keeps MALAS KE SEKOLAH — the original behaviour, so this only
-*adds* data the existing submission pipeline already consumes.
+An optional Telegram bot lets each class teacher record a **per-student reason**:
+at a per-session prompt time the bot DMs the teacher their current absentee list
+with inline buttons (curated quick-pick + "More…" → full MOEIS list by category);
+the chosen reason is stored in the `absence_reasons` table and
+`AbsenceDetector.detect_absences` merges it over the default `N0040027` PONTENG ·
+MALAS KE SEKOLAH. Choosing PONTENG explicitly is still an answer.
+
+**Every absentee needs an answer before MOEIS is opened** (the integrity gate in
+`_submit_class_async`, unconditional — Telegram on or off, any caller). A class
+with unanswered absentees is recorded `blocked` with no login. The bot is the
+only writer of reasons, so with the bot off only zero-absentee classes can ever
+be submitted.
+
+**When a class is submitted (Telegram on):**
+
+- **Prompt time** — classes with nothing to answer (all present) and no row yet
+  are submitted (`submit_ready_classes`).
+- **The moment the last absentee is answered** — `handle_teacher_response`
+  submits that class at once, before or after the cutoff, for its own date,
+  for today or up to `IDME_RESPONSE_WINDOW_DAYS` (7) back. Past dates go
+  through `login_engine` target_date, which refuses a day already locked.
+  Ready blocked classes are also resumed after a restart.
+- **Session cutoff** — now effectively the **reminder**: it sends the blocked
+  notice to teachers still owing answers (once per class per day) and submits
+  whatever became ready without an answer event (e.g. late scans). It never
+  re-touches a class completed today. The settings page shows it as
+  "Remind in Xh Ym" (the day name across `IDME_WEEKEND_DAYS`).
+- **Unlinked teachers are never submitted.** With `IDME_TELEGRAM_ENABLED=true`, a
+  class whose teacher has no `telegram_chat_id` is never submitted by any path
+  — prompt time, answer-complete, cutoff, restart resume, the 3-hourly retry,
+  or the manual Submit remaining / `POST /idme/submit` (409 `not_linked`).
+  `orchestrator._telegram_unlinked()` is the rule; `submit_class` is the
+  chokepoint and writes **no row** (status `not_linked`), and the bulk/retry
+  paths drop such classes up front. The settings page flags them "Not linked"
+  and the daily-run card counts them ("N not linked") instead of reading
+  "Submitted". The rule keys on the config switch, not on whether the bot
+  started, and the page follows the same switch. With Telegram off it never
+  applies: the cutoff submits every (zero-absentee) class as before.
 
 - **Config (env / `.env`):** `IDME_TELEGRAM_ENABLED` (default false),
   `IDME_TELEGRAM_BOT_TOKEN` (from @BotFather), `IDME_TELEGRAM_PASSPHRASE` (shared

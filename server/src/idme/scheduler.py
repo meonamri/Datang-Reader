@@ -146,14 +146,14 @@ class IDMEScheduler:
             # complete (or at prompt time when all present). The cutoff only
             # catches what is left — reminding teachers still owing answers (the
             # blocked notice) and submitting classes completed by late scans —
-            # and never re-touches a class already completed today. With the
-            # Telegram bot on, classes whose teacher is not linked are left for
-            # manual submission (linked_only / _manual_only).
+            # and never re-touches a class already completed today. With
+            # Telegram on, classes whose teacher is not linked are never
+            # submitted (orchestrator._telegram_unlinked).
             done = self.orchestrator.classes_completed_on(
                 datetime.now().date().isoformat())
             results = self.orchestrator.submit_all_classes(
                 forms=set(session.forms), enforce_scan_gate=True,
-                exclude_classes=done, linked_only=True)
+                exclude_classes=done)
             session.last_result = {
                 'timestamp': session.last_run.isoformat(),
                 'results': results,

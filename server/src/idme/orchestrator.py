@@ -153,6 +153,15 @@ class IDMEOrchestrator:
         """
         if submission_date is None:
             submission_date = date.today().isoformat()
+        teacher = self.teacher_manager.get_teacher(teacher_id)
+        if teacher and self._telegram_unlinked(teacher):
+            self.logger.info(f"Not submitting {class_name}: {self.NOT_LINKED_MSG}")
+            return {
+                'class_name': class_name, 'date': submission_date,
+                'status': self.NOT_LINKED, 'retryable': False,
+                'submitted': 0, 'failed': 0, 'form_submitted': False,
+                'error': self.NOT_LINKED_MSG, 'message': self.NOT_LINKED_MSG,
+            }
         key = (submission_date, class_name)
         with self._submission_locks_guard:
             lock = self._submission_locks.setdefault(key, threading.Lock())
@@ -962,7 +971,6 @@ class IDMEOrchestrator:
         forms: Optional[set] = None,
         enforce_scan_gate: bool = False,
         exclude_classes: Optional[set] = None,
-        linked_only: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Submit absences for ALL configured teacher-class pairs.
@@ -993,10 +1001,6 @@ class IDMEOrchestrator:
                 classes already recorded (or currently running) today so a
                 catch-up run never re-touches — or worse, stamps 'skipped' over —
                 a class that already succeeded this morning.
-            linked_only: When True (the scheduled cutoff), skip classes that
-                _manual_only reserves for a human — NO row is written, so they
-                stay "not recorded today" and "Submit remaining" still picks
-                them up. Manual callers leave it False.
 
         Returns:
             List of per-class results.
@@ -1016,13 +1020,14 @@ class IDMEOrchestrator:
         )
 
         teachers = self.teacher_manager.get_all_teachers()
-        if linked_only:
-            manual = sorted(t['class_name'] for t in teachers if self._manual_only(t))
-            if manual:
-                self.logger.info(
-                    "Leaving classes without a Telegram-linked teacher for manual "
-                    "submission: " + ", ".join(manual))
-            teachers = [t for t in teachers if not self._manual_only(t)]
+        # Never submitted (see _telegram_unlinked): dropped before any row is
+        # written, on every path through here (cutoff and manual alike).
+        unlinked = sorted(t['class_name'] for t in teachers if self._telegram_unlinked(t))
+        if unlinked:
+            self.logger.info(
+                "Not submitting classes without a Telegram-linked teacher: "
+                + ", ".join(unlinked))
+            teachers = [t for t in teachers if not self._telegram_unlinked(t)]
         if not teachers:
             self.logger.warning("No teachers configured — nothing to submit")
             return []
@@ -1254,16 +1259,21 @@ class IDMEOrchestrator:
         return unanswered
 
     @staticmethod
-    def _manual_only(teacher: Optional[Dict[str, Any]]) -> bool:
-        """True when no automatic path may submit this teacher's class.
+    def _telegram_unlinked(teacher: Optional[Dict[str, Any]]) -> bool:
+        """True when this teacher's class must never be submitted to MOEIS.
 
-        With the Telegram bot on, automatic submission (prompt time, a completed
-        answer set, the cutoff sweep, restart resume) is reserved for classes
-        whose teacher is linked: the teacher is the one confirming the absentee
-        reasons. An unlinked class is left for a human to submit (the settings
-        "Submit remaining" button or a manual submit). With the bot off nobody
-        can be linked, so the cutoff keeps submitting every class as before."""
+        With Telegram on (IDME_TELEGRAM_ENABLED), a class is submitted only when
+        its teacher is linked: the teacher confirms every absentee reason over
+        Telegram. An unlinked class is never submitted by any path — prompt
+        time, answer-complete, cutoff, restart resume, the 3-hourly retry, or
+        the manual Submit remaining / /idme/submit — until the teacher links.
+        submit_class is the chokepoint; the other paths also skip such classes
+        up front so they never queue work. With Telegram off nobody can be
+        linked, so this is always False and every class submits as before."""
         return bool(IDMEConfig.TELEGRAM_ENABLED) and not (teacher or {}).get('telegram_chat_id')
+
+    NOT_LINKED = 'not_linked'
+    NOT_LINKED_MSG = 'Teacher not linked to Telegram; class is never submitted'
 
     def handle_teacher_response(self, class_name: str, submission_date: str) -> None:
         """Queue catch-up when a response completes a blocked class — today or
@@ -1300,10 +1310,9 @@ class IDMEOrchestrator:
                 self.logger.warning(
                     f"Auto-submit not queued for {class_name}: teacher missing")
                 return
-            if self._manual_only(teacher):
+            if self._telegram_unlinked(teacher):
                 self.logger.info(
-                    f"Auto-submit not queued for {class_name}: teacher not linked "
-                    "to Telegram (submit manually)")
+                    f"Auto-submit not queued for {class_name}: {self.NOT_LINKED_MSG}")
                 return
             if latest and latest.get('requested_confirm') is not None:
                 confirm = bool(latest.get('requested_confirm'))
@@ -1368,7 +1377,7 @@ class IDMEOrchestrator:
         """Prompt-time submission. In one background thread, submit every class
         in this session's forms that has nothing left to answer (typically all
         present) and no submission row yet for the day. Classes whose teacher is
-        not linked to Telegram are left for manual submission (_manual_only)."""
+        not linked to Telegram are never submitted (_telegram_unlinked)."""
         if scan_date is None:
             scan_date = date.today().isoformat()
         forms = set(session.get('forms') or [])
@@ -1377,7 +1386,7 @@ class IDMEOrchestrator:
             class_name = teacher['class_name']
             if IDMEConfig.form_of(class_name) not in forms:
                 continue
-            if self._manual_only(teacher):
+            if self._telegram_unlinked(teacher):
                 continue
             if self._latest_submission(class_name, scan_date):
                 continue
@@ -1440,6 +1449,9 @@ class IDMEOrchestrator:
             for class_name, row in latest.items():
                 if (row.get('status') == 'failed'
                         and self.is_transient_failure(row.get('error_message'))):
+                    if self._telegram_unlinked(
+                            self.teacher_manager.get_teacher_for_class(class_name)):
+                        continue  # never submitted while unlinked
                     rc = row.get('requested_confirm')
                     confirm = (bool(rc) if rc is not None
                                else IDMEConfig.SCHEDULER_CONFIRM)

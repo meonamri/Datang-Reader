@@ -148,6 +148,9 @@
         .runcard.run-failed, .runcard.run-partial { border-left-color: var(--red); background: var(--red-bg); }
         .runcard.run-failed .rc-dot, .runcard.run-partial .rc-dot { background: var(--red); }
         .runcard.run-failed .rc-head, .runcard.run-partial .rc-head { color: var(--red); }
+        .runcard.run-unlinked { border-left-color: var(--amber); }
+        .runcard.run-unlinked .rc-dot { background: var(--amber); }
+        .runcard.run-unlinked .rc-head { color: var(--amber); }
         .runcard.run-running { border-left-color: var(--ink); }
         .runcard.run-running .rc-dot { background: var(--ink); }
         /* run-pending / run-none keep the neutral grey default */
@@ -283,6 +286,7 @@
             font-family: var(--mono); font-size: 11.5px; color: var(--red);
             line-height: 1.5; word-break: break-word;
         }
+        .ccard .cerr.warnline { background: var(--amber-bg); border-left-color: var(--amber); color: var(--amber); }
         .ccard-actions { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--line); }
 
         .empty { text-align: center; padding: 40px 20px; color: var(--ink-3); font-size: 13.5px; line-height: 1.6; }
@@ -458,12 +462,13 @@
                 <h1>IDME Settings</h1>
                 <div class="sub">MOEIS attendance &middot; teachers, rosters &amp; daily run</div>
             </div>
-            {# With the Telegram bot on, a linked teacher's class submits as soon as
-               its absentees are answered (all-present classes at prompt time), and
-               the session time is just the reminder for teachers still owing
-               answers. Unlinked classes are submitted by hand. Without the bot the
+            {# Telegram mode (IDME_TELEGRAM_ENABLED, the same switch the backend
+               uses): a linked teacher's class submits as soon as its absentees are
+               answered (all-present classes at prompt time), the session time is
+               just the reminder for teachers still owing answers, and a class
+               whose teacher is not linked is never submitted. Without it the
                cutoff is when everything submits. #}
-            {% set early = telegram_enabled %}
+            {% set early = telegram_mode %}
             <div class="right">
                 <div class="label">{{ 'Teacher reminder' if early else 'Cutoffs' }}</div>
                 <div class="cutoffs">
@@ -488,7 +493,7 @@
         <div class="banner banner-locked">
             <div class="body">
                 <div class="mode">AUTO-CONFIRM &middot; LOCKS RECORDS</div>
-                <div class="desc">{% if early %}A class with a Telegram-linked teacher is submitted and <strong>locked (TELAH DISAHKAN)</strong> unattended as soon as every absent student has a reason. Hard to reverse. Classes without a linked teacher are only submitted by hand.{% else %}Each session cutoff submits and <strong>locks (TELAH DISAHKAN)</strong> every onboarded class unattended - hard to reverse.{% endif %}</div>
+                <div class="desc">{% if early %}A class with a Telegram-linked teacher is submitted and <strong>locked (TELAH DISAHKAN)</strong> unattended as soon as every absent student has a reason. Hard to reverse. Classes without a linked teacher are never submitted.{% else %}Each session cutoff submits and <strong>locks (TELAH DISAHKAN)</strong> every onboarded class unattended - hard to reverse.{% endif %}</div>
             </div>
             {% if not early %}<div class="fire" id="next-fire" data-next="{{ overview.scheduler.next_run if overview.scheduler else '' }}"></div>{% endif %}
         </div>
@@ -496,7 +501,7 @@
         <div class="banner banner-draft">
             <div class="body">
                 <div class="mode">DRAFT &middot; LIVE</div>
-                <div class="desc">{% if early %}A class with a Telegram-linked teacher is saved as a re-editable <strong>draft (MENUNGGU PENGESAHAN)</strong> as soon as every absent student has a reason. Classes without a linked teacher are only submitted by hand.{% else %}Each session cutoff saves re-editable <strong>drafts (MENUNGGU PENGESAHAN)</strong> for a human to confirm. Nothing is locked automatically.{% endif %}</div>
+                <div class="desc">{% if early %}A class with a Telegram-linked teacher is saved as a re-editable <strong>draft (MENUNGGU PENGESAHAN)</strong> as soon as every absent student has a reason. Classes without a linked teacher are never submitted.{% else %}Each session cutoff saves re-editable <strong>drafts (MENUNGGU PENGESAHAN)</strong> for a human to confirm. Nothing is locked automatically.{% endif %}</div>
             </div>
             {% if not early %}<div class="fire" id="next-fire" data-next="{{ overview.scheduler.next_run if overview.scheduler else '' }}"></div>{% endif %}
         </div>
@@ -509,13 +514,13 @@
         <div class="today">
             <div class="today-head">
                 <span class="label">Today</span>
-                {% if early %}<span class="today-note">linked classes submit once their absentees are answered &middot; unlinked classes: Submit remaining</span>{% endif %}
-                <span class="opchip {{ 'bad' if (sm.misfires or sm.unclassified) else ('warn' if (sm.no_teacher or sm.unrostered) else 'ok') }}" id="op-issue">
+                {% if early %}<span class="today-note">linked classes submit once their absentees are answered &middot; unlinked classes are never submitted</span>{% endif %}
+                <span class="opchip {{ 'bad' if (sm.misfires or sm.unclassified) else ('warn' if (sm.unlinked or sm.no_teacher or sm.unrostered) else 'ok') }}" id="op-issue">
                     <span class="dot"></span>
-                    <span id="op-issue-text">{% if sm.misfires %}{{ sm.misfires }} misfire{% if sm.no_teacher %} &middot; {{ sm.no_teacher }} no teacher{% endif %}{% elif sm.unclassified %}{{ sm.unclassified }} no session{% elif sm.no_teacher %}{{ sm.no_teacher }} need a teacher{% elif sm.unrostered %}{{ sm.unrostered }} unrostered{% else %}all aligned{% endif %}</span>
+                    <span id="op-issue-text">{% if sm.misfires %}{{ sm.misfires }} misfire{% if sm.no_teacher %} &middot; {{ sm.no_teacher }} no teacher{% endif %}{% elif sm.unclassified %}{{ sm.unclassified }} no session{% elif sm.unlinked %}{{ sm.unlinked }} not linked{% elif sm.no_teacher %}{{ sm.no_teacher }} need a teacher{% elif sm.unrostered %}{{ sm.unrostered }} unrostered{% else %}all aligned{% endif %}</span>
                 </span>
                 <button class="btn btn-sm btn-quiet" id="submit-remaining" type="button"
-                        title="Log in to MOEIS now and submit every onboarded class not already recorded today, including classes without a Telegram-linked teacher (never submitted automatically). Cannot override the portal's own non-school-day verdict.">Submit remaining</button>
+                        title="Log in to MOEIS now and submit every onboarded class not already recorded today (classes without a Telegram-linked teacher are never submitted). Cannot override the portal's own non-school-day verdict.">Submit remaining</button>
             </div>
             <div class="runstrip" id="run-strip"{% if not overview.last_fire %} style="display:none;"{% endif %}>
                 {% for f in overview.last_fire %}
@@ -762,7 +767,9 @@
 
     <script>
         const INITIAL_OVERVIEW = {{ overview|tojson }};
-        const TELEGRAM_ENABLED = {{ 'true' if telegram_enabled else 'false' }};
+        const TELEGRAM_ENABLED = {{ 'true' if telegram_enabled else 'false' }};   // bot running (prompt/unlink controls)
+        const TELEGRAM_MODE = {{ 'true' if telegram_mode else 'false' }};         // backend rule (wording, not-linked)
+        const WEEKEND_DAYS = {{ weekend_days|tojson }};                          // Python weekday(): Mon=0 … Sun=6
         let COVERAGE = null;           // {class_name: {mapped, total, pct, unmapped[]}}
         let LAST_OVERVIEW = INITIAL_OVERVIEW;
         const viewState = { view: 'classes', form: 'all', issuesOnly: false };
@@ -871,16 +878,29 @@
             const hrs = Math.floor(diffMs / 3600000), mins = Math.floor((diffMs % 3600000) / 60000);
             el.textContent = `next cutoff in ${hrs > 0 ? hrs + 'h ' + mins + 'm' : mins + 'm'}`;
         }
-        // Per-session "Remind in Xh Ym" (Telegram mode): counts down to the next
-        // occurrence of the session's HH:MM in the browser's clock. The scheduler
-        // fires daily; non-school days are filtered server-side by the scan gate.
+        // Per-session reminder (Telegram mode), in the browser's clock. The next
+        // reminder is the session's HH:MM on the next school day (WEEKEND_DAYS
+        // comes from IDME_WEEKEND_DAYS — fri,sat at this school). Shown as a
+        // countdown, except on a weekend day or after the last reminder before
+        // one, where it shows the day instead ("Remind Sun 11:30").
+        const isWeekend = d => WEEKEND_DAYS.includes((d.getDay() + 6) % 7);   // JS Sun=0 -> Python Mon=0
         function formatCountdowns() {
             const now = new Date();
             document.querySelectorAll('.js-countdown').forEach(el => {
-                const [h, m] = (el.dataset.hhmm || '').split(':').map(Number);
+                const hhmm = el.dataset.hhmm || '';
+                const [h, m] = hhmm.split(':').map(Number);
                 if (isNaN(h) || isNaN(m)) return;
                 const t = new Date(now); t.setHours(h, m, 0, 0);
                 if (t <= now) t.setDate(t.getDate() + 1);
+                for (let i = 0; i < 7 && isWeekend(t); i++) t.setDate(t.getDate() + 1);
+                const today = new Date(now); today.setHours(0, 0, 0, 0);
+                const tDay = new Date(t); tDay.setHours(0, 0, 0, 0);
+                const days = Math.round((tDay - today) / 86400000);
+                if (isWeekend(now) || days > 1) {
+                    const dow = t.toLocaleDateString('en-GB', { weekday: 'short' });
+                    el.textContent = `Remind ${dow} ${hhmm}`;
+                    return;
+                }
                 const mins = Math.ceil((t - now) / 60000);
                 const hh = Math.floor(mins / 60), mm = mins % 60;
                 el.textContent = `Remind in ${hh > 0 ? hh + 'h ' : ''}${mm}m`;
@@ -929,6 +949,7 @@
 
         // ---- Class classification / form derivation ----
         function classifyClass(c) {
+            if (c.onboarded && c.telegram_unlinked) return 'unlinked';
             if (c.onboarded) return 'onboarded';
             if (c.teacher_name && !c.teacher_enabled) return 'disabled';
             return 'noteacher';
@@ -944,6 +965,7 @@
             onboarded: { dot: 'var(--green)', badge: 'Onboarded', cls: '' },
             disabled:  { dot: 'var(--ink-3)', badge: 'Teacher off', cls: '' },
             noteacher: { dot: 'var(--amber)', badge: 'No teacher', cls: 'warn' },
+            unlinked:  { dot: 'var(--amber)', badge: 'Not linked', cls: 'warn' },
         };
 
         // ---- Daily-run status (refresh) ----
@@ -968,7 +990,7 @@
                     + `<span class="rc-detail">${escapeHtml(f.detail || '')}</span></div>`
                     + err
                     + `</div>`
-                    + `<span class="rc-cut">${TELEGRAM_ENABLED ? 'remind ' : ''}${escapeHtml(f.cutoff || '')}</span>`
+                    + `<span class="rc-cut">${TELEGRAM_MODE ? 'remind ' : ''}${escapeHtml(f.cutoff || '')}</span>`
                     + `</div>`;
             }).join('');
             updateSubmitRemaining(ov);
@@ -980,7 +1002,7 @@
         // a catch-up to run. Hidden entirely while IDME is disabled.
         function submitRemaining(ov) {
             return (ov.classes || []).filter(c =>
-                c.onboarded && c.session &&
+                c.onboarded && c.session && !c.telegram_unlinked &&
                 c.today_status !== 'completed' && c.today_status !== 'running'
                 && c.today_status !== 'confirmed_external');
         }
@@ -1027,6 +1049,7 @@
             if (chip && txt) {
                 if (s.misfires) { chip.className = 'opchip bad'; txt.textContent = `${s.misfires} misfire${s.no_teacher ? ' · ' + s.no_teacher + ' no teacher' : ''}`; }
                 else if (s.unclassified) { chip.className = 'opchip bad'; txt.textContent = `${s.unclassified} no session`; }
+                else if (s.unlinked) { chip.className = 'opchip warn'; txt.textContent = `${s.unlinked} not linked`; }
                 else if (s.no_teacher) { chip.className = 'opchip warn'; txt.textContent = `${s.no_teacher} need a teacher`; }
                 else if (s.unrostered) { chip.className = 'opchip warn'; txt.textContent = `${s.unrostered} unrostered`; }
                 else { chip.className = 'opchip ok'; txt.textContent = 'all aligned'; }
@@ -1132,11 +1155,12 @@
                 let tMark = '✓', tColor = green, tLabel = 'Teacher';
                 if (st === 'disabled') { tMark = '○'; tColor = off; tLabel = 'Off'; }
                 if (st === 'noteacher') { tMark = '✕'; tColor = amber; tLabel = 'Teacher'; }
+                if (st === 'unlinked') { tMark = '✕'; tColor = amber; tLabel = 'Telegram'; }
 
                 // third metric
                 let m3 = '', m3c = green, m3l = 'absent';
                 if (st === 'onboarded') { m3 = c.absent; m3c = c.absent > 0 ? amber : green; m3l = 'absent'; }
-                else if (st === 'disabled') { m3 = '·'; m3c = off; m3l = 'not sent'; }
+                else if (st === 'disabled' || st === 'unlinked') { m3 = '·'; m3c = st === 'unlinked' ? amber : off; m3l = 'not sent'; }
                 else { m3 = '·'; m3c = amber; m3l = 'not sent'; }
 
                 // coverage from merged map
@@ -1164,9 +1188,9 @@
                         : 'No successful portal roster read today');
                 const syncChip = `<span class="sesschip ${syncState === 'current' ? '' : 'warn'}" title="${escapeHtml(syncTitle)}">${syncLabel}</span>`;
                 // Telegram mode: an unlinked teacher's class is never submitted
-                // automatically (orchestrator._manual_only) — say so on the card.
-                const manualChip = (TELEGRAM_ENABLED && c.onboarded && !c.telegram_linked)
-                    ? `<span class="sesschip warn" title="Teacher not linked to Telegram: never submitted automatically. Use Submit remaining.">manual &middot; no Telegram</span>` : '';
+                // by any path (orchestrator._telegram_unlinked) — say so inline.
+                const unlinkedLine = st === 'unlinked'
+                    ? `<div class="cerr warnline">Teacher not linked to Telegram &middot; never submitted until they link</div>` : '';
 
                 // Inline failure/block reason (tooltips are unreachable on touch).
                 let errLine = '';
@@ -1185,9 +1209,9 @@
                     <div class="top">
                         <span class="sdot" style="background:${meta.dot};"></span>
                         <span class="code">${escapeHtml(c.class_name)}</span>
-                        <span class="badge" style="color:${meta.dot === 'var(--green)' ? green : (st === 'noteacher' ? amber : off)};border-color:${meta.dot === 'var(--green)' ? green : (st === 'noteacher' ? amber : line)};">${meta.badge}</span>
+                        <span class="badge" style="color:${meta.dot === 'var(--green)' ? green : (meta.cls === 'warn' ? amber : off)};border-color:${meta.dot === 'var(--green)' ? green : (meta.cls === 'warn' ? amber : line)};">${meta.badge}</span>
                     </div>
-                    <div class="chips">${runChip(c)}${manualChip}${sessChip}${syncChip}</div>
+                    <div class="chips">${runChip(c)}${sessChip}${syncChip}</div>
                     <div class="teacher">${c.teacher_name ? escapeHtml(c.teacher_name) : 'No teacher assigned'}</div>
                     <div class="chain">
                         ${chainLeg('Roster', '✓', green)}${seg1}${chainLeg('Section', sMark, sColor)}${seg2}${chainLeg(tLabel, tMark, tColor)}
@@ -1201,7 +1225,7 @@
                         <div class="track"><div class="fill" style="width:${pct === null ? 0 : pct}%;background:${barColor};"></div></div>
                         <span class="ct">${covText}</span>
                     </div>
-                    ${errLine}
+                    ${errLine}${unlinkedLine}
                     ${(TELEGRAM_ENABLED && c.onboarded && c.telegram_linked)
                         ? `<div class="ccard-actions"><button class="btn btn-sm js-prompt-teacher" type="button" data-class="${escapeHtml(c.class_name)}" title="Send today's absentee list to this teacher on Telegram now">Prompt teacher</button></div>`
                         : ''}

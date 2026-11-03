@@ -250,11 +250,11 @@ def test_teacher_messages_name_the_day():
     assert _for_day({}) == '' and _for_day(None) == ''
 
 
-# ---- unlinked teachers are never submitted automatically ---------------------
-# With the Telegram bot on, only classes whose teacher is linked are submitted
-# by an automatic path; unlinked classes wait for "Submit remaining" / manual.
+# ---- unlinked teachers are never submitted ----------------------------------
+# With Telegram on, a class whose teacher is not linked is never submitted by
+# any path; with Telegram off the rule does not apply.
 
-def test_prompt_time_leaves_unlinked_classes_for_manual_submit(orch, monkeypatch):
+def test_prompt_time_skips_unlinked_classes(orch, monkeypatch):
     monkeypatch.setattr(IDMEConfig, 'TELEGRAM_ENABLED', True)
     monkeypatch.setattr(IDMEConfig, 'form_of', classmethod(lambda cls, c: int(c[0])))
     orch.teacher_manager.get_all_teachers = lambda: [
@@ -271,19 +271,24 @@ def test_prompt_time_leaves_unlinked_classes_for_manual_submit(orch, monkeypatch
     assert started == [('1 UKM', iso(0))]
 
 
-def test_ready_check_never_auto_submits_an_unlinked_class(orch, monkeypatch):
+def test_answer_complete_skips_unlinked_and_releases_its_key(orch, monkeypatch):
+    # Real in-flight key for one class, taken the way handle_teacher_response
+    # takes it, so the test proves the skip path releases it.
     monkeypatch.setattr(IDMEConfig, 'TELEGRAM_ENABLED', True)
     calls = []
     orch._latest_submission = lambda c, d: {'status': 'blocked'}
     orch._unanswered_absences = lambda c, d, a=None: []
     orch.teacher_manager.get_teacher_for_class = lambda c: {'id': 7, 'telegram_chat_id': None}
     orch.submit_class = lambda *a, **k: calls.append(a) or {}
-    orch._auto_submit_if_ready('1 UKM', iso(0))   # e.g. restart resume
+    key = (iso(0), '1 UKM')
+    with orch._auto_retry_guard:
+        orch._auto_retry_inflight.add(key)
+    orch._auto_submit_if_ready('1 UKM', iso(0))
     assert calls == []
-    assert ('1 UKM', iso(0)) not in {(c, d) for d, c in orch._auto_retry_inflight}
+    assert key not in orch._auto_retry_inflight
 
 
-def _cutoff_setup(orch, monkeypatch, telegram):
+def _two_teachers(orch, monkeypatch, telegram):
     monkeypatch.setattr(IDMEConfig, 'TELEGRAM_ENABLED', telegram)
     orch.teacher_manager.get_all_teachers = lambda: [
         {'id': 1, 'name': 'A', 'class_name': '3 UKM', 'telegram_chat_id': 111},
@@ -295,37 +300,89 @@ def _cutoff_setup(orch, monkeypatch, telegram):
     return submitted
 
 
-def test_cutoff_skips_unlinked_classes_but_manual_submit_does_not(orch, monkeypatch):
-    submitted = _cutoff_setup(orch, monkeypatch, telegram=True)
-    orch.submit_all_classes(submission_date=iso(0), linked_only=True)
+def test_bulk_submit_never_includes_unlinked_classes(orch, monkeypatch):
+    # Covers the cutoff and the manual Submit remaining / submit-all alike.
+    submitted = _two_teachers(orch, monkeypatch, telegram=True)
+    orch.submit_all_classes(submission_date=iso(0))
     assert submitted == ['3 UKM']
-    submitted.clear()
-    orch.submit_all_classes(submission_date=iso(0))          # Submit remaining / manual
+
+
+def test_without_telegram_bulk_submit_includes_every_class(orch, monkeypatch):
+    submitted = _two_teachers(orch, monkeypatch, telegram=False)
+    orch.submit_all_classes(submission_date=iso(0))
     assert submitted == ['3 UKM', '3 UM']
 
 
-def test_without_telegram_the_cutoff_still_submits_every_class(orch, monkeypatch):
-    submitted = _cutoff_setup(orch, monkeypatch, telegram=False)
-    orch.submit_all_classes(submission_date=iso(0), linked_only=True)
-    assert submitted == ['3 UKM', '3 UM']
+def test_submit_class_refuses_an_unlinked_teacher_with_no_row(orch, monkeypatch):
+    # Real teacher row (credentials Fernet-encrypted with the fixture's key):
+    # one class, unlinked then linked.
+    monkeypatch.setattr(IDMEConfig, 'TELEGRAM_ENABLED', True)
+    tid = orch.teacher_manager.add_teacher('CIKGU A', '980331026309', 'pw', '3 UKM')['id']
+    portal = []
+
+    async def fake_async(teacher_id, class_name, day, confirm):
+        portal.append(class_name)
+        return {'class_name': class_name, 'date': day, 'status': 'completed'}
+
+    orch._submit_class_async = fake_async
+    r = orch.submit_class(tid, '3 UKM', iso(0), confirm=False)
+    assert r['status'] == orch.NOT_LINKED
+    assert portal == []
+    assert orch.get_submissions_for_date(iso(0)) == []
+
+    orch.teacher_manager.link_telegram_chat(tid, '555')
+    r = orch.submit_class(tid, '3 UKM', iso(0), confirm=False)
+    assert r['status'] == 'completed' and portal == ['3 UKM']
 
 
-def test_scheduled_cutoff_asks_for_linked_only():
+def test_retry_tick_skips_unlinked_classes(orch, monkeypatch):
+    monkeypatch.setattr(IDMEConfig, 'TELEGRAM_ENABLED', True)
+    rows = [{'class_name': '3 UKM', 'status': 'failed', 'error_message': 'Timeout 30000ms exceeded'},
+            {'class_name': '3 UM', 'status': 'failed', 'error_message': 'Timeout 30000ms exceeded'}]
+    orch.get_submissions_for_date = lambda d: rows if d == iso(0) else []
+    orch.teacher_manager.get_teacher_for_class = lambda c: (
+        {'id': 1, 'telegram_chat_id': 111} if c == '3 UKM' else {'id': 2, 'telegram_chat_id': None})
+    assert [c for c, d, _ in orch.failed_retry_candidates()] == ['3 UKM']
+
+
+def test_scheduled_cutoff_calls_bulk_submit_without_linked_only():
     from src.idme.scheduler import IDMEScheduler
 
     class Orch:
-        def __init__(self):
-            self.kwargs = None
+        kwargs = None
 
         def classes_completed_on(self, day):
             return set()
 
         def submit_all_classes(self, **kwargs):
-            self.kwargs = kwargs
+            Orch.kwargs = kwargs
             return []
 
-    o = Orch()
-    s = IDMEScheduler(o, [{'name': 'morning', 'label': 'M', 'cutoff': '11:30', 'forms': [3]}])
+    s = IDMEScheduler(Orch(), [{'name': 'morning', 'label': 'M', 'cutoff': '11:30', 'forms': [3]}])
     s.running = False
     s._execute(s.sessions[0])
-    assert o.kwargs['linked_only'] is True
+    assert Orch.kwargs['enforce_scan_gate'] is True and 'linked_only' not in Orch.kwargs
+
+
+# ---- daily-run card with unlinked classes ----------------------------------
+
+def _card(rows, onboarded, unlinked):
+    from src.idme.api_routes import _fire_card
+    session = {'name': 'morning', 'label': 'M', 'cutoff': '11:30', 'forms_label': 'F3-6'}
+    return _fire_card(session, rows, onboarded, unlinked)
+
+
+def test_card_is_not_green_while_unlinked_classes_are_unsubmitted():
+    c = _card([{'status': 'completed'}] * 7, onboarded=7, unlinked=1)
+    assert c['status'] == 'partial'
+    assert c['detail'] == '7 sent · 1 not linked'
+
+
+def test_card_for_an_all_unlinked_session_says_not_linked():
+    c = _card([], onboarded=0, unlinked=3)
+    assert c['status'] == 'unlinked' and c['headline'] == 'Not linked'
+
+
+def test_card_unchanged_without_unlinked_classes():
+    assert _card([{'status': 'completed'}] * 2, onboarded=2, unlinked=0)['status'] == 'success'
+    assert _card([], onboarded=4, unlinked=0)['detail'] == '4 classes due at 11:30'

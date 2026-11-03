@@ -234,10 +234,16 @@ def _pl(n):
     return '' if n == 1 else 'es'
 
 
-def _fire_card(session, rows, onboarded):
+def _fire_card(session, rows, onboarded, unlinked=0):
     """Roll one session's latest-per-class rows into a single verdict plus a
     human headline/detail. The text is built here (not in the template or JS) so
-    the server-render and the live refresh always agree."""
+    the server-render and the live refresh always agree.
+
+    `onboarded` counts the session's classes that can be submitted; `unlinked`
+    counts onboarded classes with no row today whose teacher is not on Telegram
+    — never submitted, so they write no row. They are reported separately so a
+    session can't read "Submitted" (or "Not run yet" forever) while classes in
+    it are sitting unsubmitted."""
     statuses = [r['status'] for r in rows]
     # A day confirmed on the portal outside Smartt is done for the session
     # verdict, the same as one Smartt submitted itself.
@@ -269,9 +275,10 @@ def _fire_card(session, rows, onboarded):
         'counts': {
             'total': total, 'completed': completed,
             'skipped': skipped, 'blocked': blocked, 'failed': failed,
-            'onboarded': onboarded,
+            'onboarded': onboarded, 'unlinked': unlinked,
         },
     }
+    nl_text = f"{unlinked} not linked" if unlinked else ''
 
     if running:
         card.update(status='running', headline='Running',
@@ -279,22 +286,29 @@ def _fire_card(session, rows, onboarded):
     elif total == 0:
         if onboarded:
             card.update(status='pending', headline='Not run yet',
-                        detail=f"{onboarded} class{_pl(onboarded)} due at {cutoff}")
+                        detail=f"{onboarded} class{_pl(onboarded)} due at {cutoff}"
+                               + (f" · {nl_text}" if unlinked else ''))
+        elif unlinked:
+            card.update(status='unlinked', headline='Not linked',
+                        detail=f"{unlinked} class{_pl(unlinked)} without a "
+                               "Telegram-linked teacher",
+                        message='Classes whose teacher is not linked to Telegram '
+                                'are never submitted.')
         else:
             card.update(status='none', headline='No classes',
                         detail='nothing onboarded for this session')
-    elif skipped and not completed and not failed and not blocked:
+    elif skipped and not completed and not failed and not blocked and not unlinked:
         card.update(status='skipped', headline='Skipped',
                     detail='non-school day', message=_msg('skipped'))
-    elif blocked and not completed and not failed:
+    elif blocked and not completed and not failed and not unlinked:
         card.update(status='blocked', headline='Awaiting teacher',
                     detail=f"{blocked} class{_pl(blocked)} blocked",
                     message=_msg('blocked'))
-    elif failed and not completed:
+    elif failed and not completed and not unlinked:
         card.update(status='failed', headline='Failed',
                     detail=f"{failed} class{_pl(failed)} failed",
                     message=_msg('failed'))
-    elif completed and not failed and not skipped and not blocked:
+    elif completed and not failed and not skipped and not blocked and not unlinked:
         card.update(status='success', headline='Submitted',
                     detail=f"{completed} class{_pl(completed)}"
                            + (f" · {at_text}" if at_text else ''))
@@ -308,6 +322,8 @@ def _fire_card(session, rows, onboarded):
             bits.append(f"{blocked} awaiting teacher")
         if skipped:
             bits.append(f"{skipped} skipped")
+        if unlinked:
+            bits.append(nl_text)
         card.update(status='partial', headline='Partial',
                     detail=' · '.join(bits),
                     message=_msg('failed') or _msg('blocked'))
@@ -333,9 +349,13 @@ def _build_last_fire(class_rows):
         forms = set(session['forms'])
         sess_rows = [r for cn, r in latest.items()
                      if IDMEConfig.form_of(cn) in forms]
-        onboarded = sum(1 for c in class_rows
-                        if c['onboarded'] and c['form'] in forms)
-        cards.append(_fire_card(session, sess_rows, onboarded))
+        in_session = [c for c in class_rows if c['onboarded'] and c['form'] in forms]
+        # Unlinked classes never write a row; count the ones with none today
+        # (a class unlinked after it was submitted keeps its row and verdict).
+        unlinked = sum(1 for c in in_session
+                       if c.get('telegram_unlinked') and c['class_name'] not in latest)
+        onboarded = sum(1 for c in in_session if not c.get('telegram_unlinked'))
+        cards.append(_fire_card(session, sess_rows, onboarded, unlinked))
     return cards
 
 
@@ -393,6 +413,11 @@ def _build_overview():
             # Whether this class's teacher has linked their Telegram chat — the
             # settings 'Prompt teacher' button only shows when this is true.
             'telegram_linked': bool(teacher.get('telegram_chat_id')) if teacher else False,
+            # Telegram mode and onboarded but not linked: never submitted by any
+            # path (orchestrator._telegram_unlinked).
+            'telegram_unlinked': bool(
+                teacher and teacher['enabled']
+                and _orchestrator and _orchestrator._telegram_unlinked(teacher)),
             'form': form,
             'session': session['name'] if session else None,
             'session_label': session['label'] if session else None,
@@ -455,6 +480,7 @@ def _build_overview():
         'misfires': len(orphan_teachers),
         'unrostered': len(orphan_sections),
         'unclassified': len(unclassified_classes),
+        'unlinked': sum(1 for c in class_rows if c['telegram_unlinked']),
         'coverage_mapped': cov_mapped,
         'coverage_total': cov_total,
         'coverage_pct': round(cov_mapped / cov_total * 100) if cov_total else 0,
@@ -527,6 +553,11 @@ def settings_page():
         sessions=IDMEConfig.SESSIONS,
         overview=overview,
         telegram_enabled=bool(_telegram_bot),
+        # Wording and "not linked" flags follow the backend rule
+        # (IDMEConfig.TELEGRAM_ENABLED), not whether the bot started: that is
+        # what decides whether unlinked classes are submitted.
+        telegram_mode=bool(IDMEConfig.TELEGRAM_ENABLED),
+        weekend_days=sorted(IDMEConfig.WEEKEND_DAYS),
     )
 
 
@@ -1007,6 +1038,8 @@ def submit_to_idme():
                 submission_date=submission_date,
                 confirm=confirm,
             )
+            if result.get('status') == _orchestrator.NOT_LINKED:
+                return jsonify(result), 409
             return jsonify(result), 200
         except Exception as e:
             return jsonify({'error': str(e), 'status': 'failed'}), 500
