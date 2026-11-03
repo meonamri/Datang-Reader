@@ -55,5 +55,36 @@ automatically**) · `stale` (not today's tap: Datang.my would stamp the wrong da
 Rollback: set `ATTENDANCE_MODE=datang` and recreate. `attendance_events` and
 `card_directory` are additive tables and are left in place.
 
-Not in this phase (still per the plan): reader-side outbox (clients send
-`event_id`/`scanned_at`), admin UI to add/fix cards, Mini App, admin portal.
+## Reader outbox (client/gui/outbox.py)
+
+Every tap is saved to `~/.datang_outbox.db` on the reader before it is sent.
+If the server looked unreachable the kiosk shows **Saved** at once; a sync
+thread delivers saved taps oldest first (backoff up to 5 min) with their
+original `scanned_at`, `event_id` and `reader_id`. The status bar shows
+`N WAITING`; outbox counts are also in `~/.datang_stats.json`.
+
+The server makes `POST /card` idempotent on `event_id` in every mode
+(`src/request_log.py`), and advertises `capabilities: ["card_event_id", ...]`
+on `/status`. Readers resend after a timeout/5xx **only** to a server that
+advertises it. Otherwise the tap is held as `uncertain`, never resent.
+
+**Deploy order: server first, then readers.** Inspect a reader's backlog:
+`sqlite3 ~/.datang_outbox.db "select status,count(*) from taps group by 1"`.
+
+Known interaction: the GUI still runs `sudo reboot` after ~30 failed health
+polls (about 2.5 min). With the outbox, taps made during a server outage are
+safe, but the kiosk is unavailable while it reboots.
+
+## Card screen (GET /cards)
+
+Linked from the RFID coverage section of `/idme/settings`. It lists unknown
+cards, searches by card, name or class, lists roster students without a card,
+and shows the audit trail (`card_audit`).
+- One active card per student: assigning a new card retires the old one;
+  the reader then refuses the old card with `CARD_RETIRED`.
+- Moving a card that someone else holds needs confirmation.
+- Admin-set roster tags (`tag_source='admin'`) are not overwritten by
+  Datang.my name matching.
+- Same access as `/idme/settings`: private tailnet only, never a public proxy.
+
+Not built yet (deferred by decision 2026-11-03): teacher Mini App, admin portal.
