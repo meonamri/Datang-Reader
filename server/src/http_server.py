@@ -50,6 +50,10 @@ def create_app(use_mock_api: bool = False) -> tuple[Flask, ServiceManager]:
     # Initialize service manager
     service_manager = ServiceManager(use_mock_api=use_mock_api)
 
+    from .request_log import RequestLog
+    from .config import Config
+    request_log = RequestLog(Config.DATABASE_FILE)
+
     # Initialize IDME module (optional - won't break if disabled or missing)
     try:
         from .idme import init_idme_module, idme_bp
@@ -96,6 +100,9 @@ def create_app(use_mock_api: bool = False) -> tuple[Flask, ServiceManager]:
             return jsonify({
                 "status": "ok",
                 "timestamp": datetime.now().isoformat(),
+                # Reader outboxes only auto-resend an ambiguous tap to a server
+                # that answers resends idempotently (see request_log.py).
+                "capabilities": ["card_event_id", "card_scanned_at"],
                 "service": status_info
             }), 200
         except Exception as e:
@@ -169,16 +176,25 @@ def create_app(use_mock_api: bool = False) -> tuple[Flask, ServiceManager]:
             reader_id = (str(data['reader_id'])[:64] if data.get('reader_id') else None)
             event_id = (str(data['event_id'])[:128] if data.get('event_id') else None)
 
+            # A reader outbox resends a tap it got no answer for; answer the
+            # resend from the first attempt instead of processing it twice.
+            if event_id:
+                state, stored = request_log.begin(event_id, card_id)
+                if state == "done":
+                    return jsonify(stored), 200
+                if state == "busy":
+                    return jsonify({"success": False, "status": "processing",
+                                    "message": "Still processing this tap"}), 409
+
             # Process attendance
             logger.info(f"Received card scan via HTTP: {card_id[:8]}...")
             result = service_manager.process_attendance(
                 card_id, temperature,
                 scanned_at=scanned_at, reader_id=reader_id, event_id=event_id)
-
-            return jsonify({
-                "timestamp": datetime.now().isoformat(),
-                **result
-            }), 200
+            result = {"timestamp": datetime.now().isoformat(), **result}
+            if event_id:
+                request_log.finish(event_id, result)
+            return jsonify(result), 200
 
         except Exception as e:
             logger.error(f"Error processing card scan: {e}")

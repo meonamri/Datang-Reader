@@ -8,7 +8,7 @@ import logging
 import os
 import time
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 from .config import Config
 from .rfid_reader import RFIDReader
 from .api_client import DatangAPIClient, MockAPIClient, NetworkError, AuthenticationError, AttendanceSubmissionError
@@ -198,7 +198,15 @@ class ServiceManager:
             except Exception as e:
                 logger.error(f"Local attendance write failed ({e}); using Datang.my for this tap")
 
+        # Datang.my stamps its own arrival time, but the IDME daily_scans row
+        # must carry the real tap date, so a reader's delayed resend keeps it.
         timestamp = datetime.now()
+        if scanned_at is not None:
+            if timestamp - timedelta(days=7) <= scanned_at <= timestamp + timedelta(minutes=2):
+                timestamp = scanned_at
+            else:
+                logger.warning(f"Ignoring implausible scanned_at {scanned_at.isoformat()} "
+                               f"from reader {reader_id or '?'}")
         result = self._process_via_datang(card_id, temperature, timestamp)
 
         if self.attendance_mode == "shadow":
@@ -225,7 +233,7 @@ class ServiceManager:
             logger.info("Attendance submitted successfully")
 
             # Record scan for IDME absence detection (if enabled)
-            self._record_idme_scan(card_id, response)
+            self._record_idme_scan(card_id, response, scanned_at=timestamp)
 
             return {
                 "success": True,
@@ -247,7 +255,7 @@ class ServiceManager:
                         temperature=temperature
                     )
                     # Record scan for IDME absence detection (if enabled)
-                    self._record_idme_scan(card_id, response)
+                    self._record_idme_scan(card_id, response, scanned_at=timestamp)
                     return {
                         "success": True,
                         "online": True,

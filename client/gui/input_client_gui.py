@@ -29,6 +29,7 @@ from PyQt5.QtGui import (
 )
 
 from config import Config
+from outbox import Outbox, deliver, sync_due, FINAL
 
 try:
     import requests
@@ -44,6 +45,9 @@ MAX_RETRIES = 3
 RETRY_DELAY = 2
 REQUEST_TIMEOUT = 5
 STATS_FILE = os.path.expanduser("~/.datang_stats.json")
+# Every tap is saved here before it is sent (see outbox.py).
+OUTBOX_FILE = os.path.expanduser(os.getenv("DATANG_OUTBOX_FILE", "~/.datang_outbox.db"))
+OUTBOX_SYNC_INTERVAL_S = 3
 
 # Apple-inspired midnight palette (translated from Kiosk.html design tokens)
 COLORS = {
@@ -99,6 +103,9 @@ class InputClient:
         self.health_endpoint = f"{self.container_url}/health"
         self.status_endpoint = f"{self.container_url}/status"
         self.logger = logging.getLogger('InputClient')
+        # True once the server says it answers a resent event_id idempotently;
+        # only then are ambiguous failures (timeouts, 5xx) resent.
+        self.server_idempotent = False
 
     def check_container_health(self) -> bool:
         try:
@@ -170,6 +177,37 @@ class HealthCheckThread(QThread):
                 status_data = {}
             self.health_status.emit(is_healthy, status_data)
             time.sleep(5)
+
+    def stop(self):
+        self.running = False
+
+
+class OutboxSyncThread(QThread):
+    """Delivers taps saved while the server was unreachable, oldest first."""
+    delivered = pyqtSignal(list)   # [(row_dict, body_dict)]
+
+    def __init__(self, client: InputClient, outbox: Outbox):
+        super().__init__()
+        self.client = client
+        self.outbox = outbox
+        self.running = True
+        self._last_purge = 0.0
+
+    def run(self):
+        log = logging.getLogger('OutboxSync')
+        while self.running:
+            try:
+                done = sync_due(self.outbox, self.client.card_endpoint, REQUEST_TIMEOUT,
+                                self.client.server_idempotent)
+                if done:
+                    log.info(f"Delivered {len(done)} saved tap(s)")
+                    self.delivered.emit(done)
+                if time.monotonic() - self._last_purge > 3600:
+                    self.outbox.purge()
+                    self._last_purge = time.monotonic()
+            except Exception as e:  # never let the sync loop die
+                log.error(f"Outbox sync failed: {e}")
+            time.sleep(OUTBOX_SYNC_INTERVAL_S)
 
     def stop(self):
         self.running = False
@@ -373,6 +411,10 @@ class AttendanceApp(QMainWindow):
         self.last_scan_ok = None
         self.container_online = False
         self.container_queue_size = 0
+
+        self.outbox = Outbox(OUTBOX_FILE)
+        self.outbox_counts = self.outbox.counts()
+        self.sync_thread = None
 
         self._load_stats()
 
@@ -821,7 +863,8 @@ class AttendanceApp(QMainWindow):
         States: 'idle' | 'processing' | 'success' | 'error'.
         Callers pass any text overrides; defaults match the design.
         """
-        self.puck.set_state(state)
+        if state != 'saved':
+            self.puck.set_state(state)
 
         if state == 'idle':
             self._apply_headline(headline or "Tap your card", COLORS['fg_0'])
@@ -850,6 +893,18 @@ class AttendanceApp(QMainWindow):
                 f"Checked in · {checkin_time}" if checkin_time else ""
             )
             self.attendee_box.setVisible(True)
+        elif state == 'saved':
+            # Kept on this reader; the sync loop delivers it when the server is back.
+            self.puck.set_state('success')
+            self._apply_headline(headline or "Saved", COLORS['amber'])
+            self.subline_label.setText(
+                subline or "Saved on this reader \u2014 it will be sent when the server is back")
+            self.subline_label.setStyleSheet(
+                f"color: {COLORS['fg_2']}; font-size: 18px; font-weight: 400;"
+                f" background: transparent;"
+            )
+            self.subline_label.setVisible(True)
+            self.attendee_box.setVisible(False)
         elif state == 'error':
             self._apply_headline(headline or "Card not recognised", COLORS['red'])
             self.subline_label.setText(subline or "Please report to the front office")
@@ -900,6 +955,10 @@ class AttendanceApp(QMainWindow):
         self.health_thread.health_status.connect(self.on_health_status)
         self.health_thread.start()
 
+        self.sync_thread = OutboxSyncThread(self.client, self.outbox)
+        self.sync_thread.delivered.connect(self.on_outbox_delivered)
+        self.sync_thread.start()
+
     def update_time(self):
         now = datetime.now()
         self.time_label.setText(now.strftime("%H:%M:%S"))
@@ -907,12 +966,15 @@ class AttendanceApp(QMainWindow):
 
     def on_health_status(self, is_healthy: bool, status_data: dict):
         self.container_online = is_healthy
+        if status_data:
+            self.client.server_idempotent = 'card_event_id' in (status_data.get('capabilities') or [])
+        self._refresh_outbox_counts()
         if is_healthy:
             self.consecutive_unhealthy = 0
             self.signal_dot.setStyleSheet(
                 f"background: {COLORS['green']}; border-radius: 5px;"
             )
-            self.signal_text.setText("ONLINE")
+            self.signal_text.setText(self._signal_label("ONLINE"))
             self.signal_text.setStyleSheet(
                 f"color: {COLORS['fg_1']}; font-size: 11px; font-weight: 600;"
                 f" letter-spacing: 2px; background: transparent;"
@@ -924,7 +986,7 @@ class AttendanceApp(QMainWindow):
             self.signal_dot.setStyleSheet(
                 f"background: {COLORS['red']}; border-radius: 5px;"
             )
-            self.signal_text.setText("QUEUED")
+            self.signal_text.setText(self._signal_label("QUEUED"))
             self.signal_text.setStyleSheet(
                 f"color: {COLORS['fg_2']}; font-size: 11px; font-weight: 600;"
                 f" letter-spacing: 2px; background: transparent;"
@@ -959,19 +1021,48 @@ class AttendanceApp(QMainWindow):
             QTimer.singleShot(4000, self.reset_display)
             return
 
-        # Processing UI — show before network call
-        self.set_hero_state('processing')
-        QApplication.processEvents()
-
-        success, message, online, data = self.client.send_card_scan(card_id)
-        name = (data or {}).get('name', '') or ''
-        section = (data or {}).get('section', '') or ''
+        # Save the tap on this reader FIRST, so nothing is lost if the server
+        # or network is down. If the server looked reachable, try it now
+        # (the hold keeps the sync loop from sending the same tap in parallel);
+        # otherwise answer at once and let the sync loop deliver it later.
+        row = self.outbox.add(card_id, hold_seconds=60 if self.container_online else 0)
+        verdict, body = None, None
+        if self.container_online:
+            self.set_hero_state('processing')
+            QApplication.processEvents()
+            verdict, body, _err = deliver(self.outbox, self.outbox.get(row['event_id']),
+                                          self.client.card_endpoint, REQUEST_TIMEOUT,
+                                          self.client.server_idempotent)
+        self._refresh_outbox_counts()
 
         self.seen_cards.add(card_id)
+        self.last_scan_time = timestamp_short
+
+        if verdict != FINAL:
+            # Kept locally. Counted as recorded on this screen; if the server
+            # later refuses it, on_outbox_delivered takes it back off.
+            self.recorded_cards.add(card_id)
+            self.last_scan_ok = True
+            self.last_scan_saved = True
+            saved = self.outbox.get(row['event_id'])
+            self.set_hero_state(
+                'saved',
+                subline=("Saved on this reader \u2014 the office will confirm it"
+                         if saved is not None and saved['status'] == 'uncertain' else None))
+            self._refresh_stats_labels()
+            self._update_last_scan_label()
+            QTimer.singleShot(4000, self.reset_display)
+            return
+
+        body = body if isinstance(body, dict) else {'success': False, 'message': 'Rejected by server'}
+        success = bool(body.get('success'))
+        message = body.get('message', 'Unknown error')
+        data = body.get('data') or {}
+        name = data.get('name', '') or ''
+        section = data.get('section', '') or ''
+        self.last_scan_saved = False
         if success:
             self.recorded_cards.add(card_id)
-
-        self.last_scan_time = timestamp_short
         self.last_scan_ok = success
 
         if success:
@@ -995,6 +1086,28 @@ class AttendanceApp(QMainWindow):
 
     def reset_display(self):
         self.set_hero_state('idle')
+
+    # --------------------------------------------------------------- outbox
+    def _refresh_outbox_counts(self):
+        try:
+            self.outbox_counts = self.outbox.counts()
+        except Exception as e:
+            logging.warning(f"Could not read outbox: {e}")
+
+    def _signal_label(self, base: str) -> str:
+        waiting = self.outbox_counts.get('pending', 0)
+        return f"{base} \u00b7 {waiting} WAITING" if waiting else base
+
+    def on_outbox_delivered(self, done: list):
+        for row, body in done:
+            if not (body or {}).get('success'):
+                logging.warning(f"Saved tap {row['card_id'][:4]}... refused by server: "
+                                f"{(body or {}).get('message')}")
+                if row['scanned_at'][:10] == datetime.now().strftime('%Y-%m-%d'):
+                    self.recorded_cards.discard(row['card_id'])
+        self._refresh_outbox_counts()
+        self.signal_text.setText(self._signal_label("ONLINE" if self.container_online else "QUEUED"))
+        self._refresh_stats_labels()
 
     # ---------------------------------------------------------------- stats
     @property
@@ -1022,7 +1135,9 @@ class AttendanceApp(QMainWindow):
         if self.last_scan_time is None:
             self.last_scan_label.setText("Awaiting first scan")
             return
-        if self.last_scan_ok and self.container_online:
+        if self.last_scan_ok and getattr(self, 'last_scan_saved', False):
+            status = "Saved"
+        elif self.last_scan_ok and self.container_online:
             status = "Online"
         elif self.last_scan_ok:
             status = "Queued"
@@ -1055,6 +1170,7 @@ class AttendanceApp(QMainWindow):
             "total_scans": self.total_scans,
             "successful_scans": self.successful_scans,
             "failed_scans": self.failed_scans,
+            "outbox": getattr(self, 'outbox_counts', {}),
         }
         try:
             with open(STATS_FILE, "w") as f:
@@ -1079,6 +1195,9 @@ class AttendanceApp(QMainWindow):
         if self.health_thread:
             self.health_thread.stop()
             self.health_thread.wait()
+        if self.sync_thread:
+            self.sync_thread.stop()
+            self.sync_thread.wait()
         event.accept()
 
 
