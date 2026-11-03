@@ -1,6 +1,6 @@
 [Unit]
 Description=Smartt GUI Client
-Documentation=https://github.com/meonamri/datang-reader
+Documentation=https://github.com/meonamri/Smartt
 After=graphical-session.target docker.service
 Wants=graphical-session.target
 

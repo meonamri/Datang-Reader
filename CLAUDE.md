@@ -28,8 +28,9 @@ Renamed in 2026-11, with the old names still honoured:
 
 Renamed state files are moved on first start (`state_path()` in
 `server/src/config.py` and `client/gui/config.py`); a legacy SQLite file with a
-`-wal`/`-shm`/`-journal` sidecar is used in place instead. The GitHub repo and
-the `~/Datang-Reader` checkout directories are **not** renamed.
+`-wal`/`-shm`/`-journal` sidecar is used in place instead. The GitHub repo is now
+`meonamri/Smartt` (renamed from `Datang-Reader` 2026-11-03; GitHub redirects the
+old URL). Existing checkouts keep their `~/Datang-Reader` directory names.
 
 ## IDME module (`server/src/idme/`)
 
