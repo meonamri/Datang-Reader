@@ -1,4 +1,4 @@
-# Datang Reader - Docker Image
+# Smartt - Docker Image
 # Multi-stage build for optimized image size
 # Includes Playwright + Firefox for IDME portal automation
 
@@ -34,7 +34,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Set labels for metadata
-LABEL maintainer="Datang Reader Team" \
+LABEL maintainer="Smartt Team" \
       description="RFID Attendance Tracking System with IDME Portal Automation" \
       version="2.0.0"
 
@@ -55,7 +55,7 @@ RUN playwright install --with-deps firefox
 
 # Copy application code
 COPY src/ ./src/
-COPY datang_reader.py .
+COPY smartt.py .
 
 # Create directories for persistent data
 RUN mkdir -p /data/logs /data/idme/screenshots && \
@@ -79,4 +79,4 @@ ENV DATANG_API_BASE_URL="" \
     IDME_DATABASE_PATH="/data/idme/idme_data.db"
 
 # Run HTTP server by default
-CMD ["python", "datang_reader.py", "--http-server"]
+CMD ["python", "smartt.py", "--http-server"]

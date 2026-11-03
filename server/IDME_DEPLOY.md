@@ -1,12 +1,12 @@
 # IDME production rollout
 
 Turning on the IDME module = an **in-place upgrade** of the existing
-`datang-reader` container. There is no separate service. Datang scanning is
+`smartt` container. There is no separate service. Datang.my scanning is
 unchanged; the only new behaviour is MOEIS submission for classes that have a
 configured teacher.
 
 Production runs on the Raspberry Pi: project dir `~/Datang-Reader/server`,
-compose project name `server`, host port `8081` (set via `DATANG_HOST_PORT`).
+compose project name `server`, host port `8081` (set via `SMARTT_HOST_PORT`).
 
 > **Turn-on is gated.** Deploying with `IDME_ENABLED=true` is safe, but leave
 > `IDME_SCHEDULER_CONFIRM=false` (drafts) until the post-deploy checks below
@@ -78,10 +78,32 @@ bash server/preflight_idme.sh    # run from ~/Datang-Reader/server
 
 ## 5. Recreate the container
 
+**First deploy after the Smartt rename (2026-11):** the compose service and
+container changed from `datang-reader` to `smartt`, so a plain `up` would start
+`smartt` beside the old container and fail on the busy host port. Build first
+(no downtime), then swap:
+
+```bash
+cd ~/Datang-Reader/server
+curl -s localhost:8081/status          # queue.pending should be 0 (startup replays it)
+docker compose build smartt
+docker stop datang-reader              # never `docker restart`
+docker compose up -d --remove-orphans  # starts smartt, removes the old container
+curl -s localhost:8081/health
+```
+
+Rollback: `docker stop smartt`, check out the previous commit, then
+`docker compose up -d --remove-orphans` brings `datang-reader` back on the same
+data (the host-side `docker-data/` files are not renamed).
+Anything outside this repo that names the `datang-reader` container (monitoring,
+scripts, `docker logs datang-reader`) must switch to `smartt`.
+
+Later deploys:
+
 ```bash
 cd ~/Datang-Reader/server
 docker compose up -d --build        # rebuilds image, recreates the 8081 container
-docker compose logs -f datang-reader | grep -i idme
+docker compose logs -f smartt | grep -i idme
 ```
 
 Confirm the startup log shows the scheduler mode: **`mode: DRAFT (MENUNGGU
@@ -95,7 +117,7 @@ Per class to automate:
 2. Initialise the roster from the portal (`/idme/settings` → "Initialise Roster
    from Portal", or `POST /idme/roster/init`).
 3. **Verify the class string matches in three places** or the class silently
-   misfires: roster `Class` == Datang scan `section` == teacher `class_name`.
+   misfires: roster `Class` == Datang.my scan `section` == teacher `class_name`.
 
 Only onboarded classes are submitted; onboard gradually.
 

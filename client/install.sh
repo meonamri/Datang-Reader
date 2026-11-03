@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Datang Reader Linux Service - Installation Script
+# Smartt Linux Service - Installation Script
 #
 # This script can install in two modes:
 # 1. User mode (default) - Creates venv and sets up GUI client
@@ -20,9 +20,9 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Installation paths
-INSTALL_DIR="/opt/datang-reader"
-SERVICE_USER="datang"
-SERVICE_FILE="/etc/systemd/system/datang-reader.service"
+INSTALL_DIR="/opt/smartt"
+SERVICE_USER="smartt"
+SERVICE_FILE="/etc/systemd/system/smartt.service"
 
 # Print colored message
 print_msg() {
@@ -45,7 +45,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # User mode installation (no sudo required)
 install_user_mode() {
-    print_header "Datang Reader - User Mode Installation"
+    print_header "Smartt - User Mode Installation"
 
     echo "This will set up the GUI Input Client in your local directory."
     echo "A virtual environment will be created with all dependencies."
@@ -260,7 +260,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --help)
-            echo "Datang Reader Installation Script"
+            echo "Smartt Installation Script"
             echo ""
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -307,10 +307,10 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-print_header "Datang Reader Linux Service - System Mode Installation"
+print_header "Smartt Linux Service - System Mode Installation"
 
 # Offer Docker deployment option
-echo "This script will install Datang Reader natively using systemd."
+echo "This script will install Smartt natively using systemd."
 echo ""
 echo "Alternative: Docker deployment is recommended for production."
 echo "  - Easier deployment and updates"
@@ -400,7 +400,7 @@ cp -r "$SCRIPT_DIR/gui" "$INSTALL_DIR/"
 cp -r "$SCRIPT_DIR/console" "$INSTALL_DIR/"
 
 # Make main script executable
-chmod +x "$INSTALL_DIR/datang_reader.py"
+chmod +x "$INSTALL_DIR/smartt.py"
 
 print_msg "$GREEN" "✓ Service files installed"
 
@@ -426,8 +426,8 @@ chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 # Install systemd service
 print_header "Installing Systemd Service"
 
-if [ -f "$SCRIPT_DIR/systemd/datang-reader.service" ]; then
-    cp "$SCRIPT_DIR/systemd/datang-reader.service" "$SERVICE_FILE"
+if [ -f "$SCRIPT_DIR/systemd/smartt.service" ]; then
+    cp "$SCRIPT_DIR/systemd/smartt.service" "$SERVICE_FILE"
 
     # Reload systemd
     systemctl daemon-reload
@@ -456,10 +456,10 @@ echo "   export DATANG_READER_USERNAME=\"your_username_here\""
 echo "   export DATANG_READER_PASSWORD=\"your_password_here\""
 echo ""
 echo "3. Test RFID reader:"
-echo "   sudo -u $SERVICE_USER $INSTALL_DIR/venv/bin/python3 $INSTALL_DIR/datang_reader.py --test-reader"
+echo "   sudo -u $SERVICE_USER $INSTALL_DIR/venv/bin/python3 $INSTALL_DIR/smartt.py --test-reader"
 echo ""
 echo "4. Login and save authentication token:"
-echo "   sudo -u $SERVICE_USER $INSTALL_DIR/venv/bin/python3 $INSTALL_DIR/datang_reader.py --login"
+echo "   sudo -u $SERVICE_USER $INSTALL_DIR/venv/bin/python3 $INSTALL_DIR/smartt.py --login"
 echo ""
 echo "SECURITY NOTE: Never hardcode credentials in config.py - use environment variables only!"
 echo ""
@@ -468,16 +468,16 @@ echo ""
 print_header "Installation Complete!"
 
 echo "Service commands:"
-echo "  Enable auto-start:  sudo systemctl enable datang-reader"
-echo "  Start service:      sudo systemctl start datang-reader"
-echo "  Stop service:       sudo systemctl stop datang-reader"
-echo "  View status:        sudo systemctl status datang-reader"
-echo "  View logs:          sudo journalctl -u datang-reader -f"
+echo "  Enable auto-start:  sudo systemctl enable smartt"
+echo "  Start service:      sudo systemctl start smartt"
+echo "  Stop service:       sudo systemctl stop smartt"
+echo "  View status:        sudo systemctl status smartt"
+echo "  View logs:          sudo journalctl -u smartt -f"
 echo ""
 echo "Manual testing:"
-echo "  Console mode:  sudo -u $SERVICE_USER $INSTALL_DIR/venv/bin/python3 $INSTALL_DIR/datang_reader.py --console"
-echo "  GUI mode:      sudo -u $SERVICE_USER $INSTALL_DIR/venv/bin/python3 $INSTALL_DIR/datang_reader.py --gui"
-echo "  Show status:   sudo -u $SERVICE_USER $INSTALL_DIR/venv/bin/python3 $INSTALL_DIR/datang_reader.py --status"
+echo "  Console mode:  sudo -u $SERVICE_USER $INSTALL_DIR/venv/bin/python3 $INSTALL_DIR/smartt.py --console"
+echo "  GUI mode:      sudo -u $SERVICE_USER $INSTALL_DIR/venv/bin/python3 $INSTALL_DIR/smartt.py --gui"
+echo "  Show status:   sudo -u $SERVICE_USER $INSTALL_DIR/venv/bin/python3 $INSTALL_DIR/smartt.py --status"
 echo ""
 print_msg "$GREEN" "Installation successful!"
 echo ""

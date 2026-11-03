@@ -1,15 +1,16 @@
 services:
-  datang-reader:
+  smartt:
     build:
       context: .
       dockerfile: Dockerfile
-    image: datang-reader:latest
-    container_name: datang-reader
+    image: smartt:latest
+    container_name: smartt
 
     # Port mapping: host:container
-    # Override with DATANG_HOST_PORT in .env (default: 8080)
+    # Override with SMARTT_HOST_PORT in .env (default: 8080). DATANG_HOST_PORT,
+    # the pre-rename name, is still honoured.
     ports:
-      - "${DATANG_HOST_PORT:-8080}:8080"
+      - "${SMARTT_HOST_PORT:-${DATANG_HOST_PORT:-8080}}:8080"
 
     # Environment variables for configuration
     # IMPORTANT: Set these values or use .env file
@@ -19,7 +20,7 @@ services:
       # boundary would be 8h off. Cutoff times below are interpreted in THIS zone.
       - TZ=${TZ:-Asia/Kuala_Lumpur}
 
-      # === Datang API Configuration ===
+      # === Datang.my API (the vendor service Smartt reports taps to) ===
       - DATANG_API_BASE_URL=${DATANG_API_BASE_URL}
       - DATANG_READER_USERNAME=${DATANG_READER_USERNAME}
       - DATANG_READER_PASSWORD=${DATANG_READER_PASSWORD}
@@ -75,11 +76,11 @@ services:
 
     # Volume mounts for persistent data
     volumes:
-      # Datang authentication token
-      - ../docker-data/token:/root/.datang_reader_token
+      # Datang.my authentication token
+      - ../docker-data/token:/root/.smartt_token
 
-      # Datang offline queue database
-      - ../docker-data/queue.db:/root/.datang_reader_queue.db
+      # Smartt offline queue database (taps waiting for Datang.my)
+      - ../docker-data/queue.db:/root/.smartt_queue.db
 
       # Logs
       - ../docker-data/logs:/data/logs

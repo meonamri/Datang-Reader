@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GUI Input Client for Datang Reader (Docker Deployment)
+GUI Input Client for Smartt (Docker Deployment)
 
 Apple-inspired kiosk UI for the SMKSAT RFID reader.
 Single-stage layout: top strip · centered hero "puck" · bottom status strip.
@@ -28,7 +28,7 @@ from PyQt5.QtGui import (
     QPainterPath, QRadialGradient,
 )
 
-from config import Config
+from config import Config, env, state_path
 from outbox import Outbox, deliver, sync_due, FINAL
 
 try:
@@ -44,15 +44,17 @@ DEFAULT_CONTAINER_URL = Config.CONTAINER_URL
 MAX_RETRIES = 3
 RETRY_DELAY = 2
 REQUEST_TIMEOUT = 5
-STATS_FILE = os.path.expanduser("~/.datang_stats.json")
+STATS_FILE = state_path("~/.smartt_stats.json", "~/.datang_stats.json")
 # Every tap is saved here before it is sent (see outbox.py).
-OUTBOX_FILE = os.path.expanduser(os.getenv("DATANG_OUTBOX_FILE", "~/.datang_outbox.db"))
+OUTBOX_FILE = os.path.expanduser(
+    env("SMARTT_OUTBOX_FILE", "DATANG_OUTBOX_FILE")
+    or state_path("~/.smartt_outbox.db", "~/.datang_outbox.db"))
 OUTBOX_SYNC_INTERVAL_S = 3
 # Reboot the reader once the server has been unreachable for this long without
 # a single successful health check (wall time, not a poll count: one poll can
 # take 5-10 s, so the old "30 polls" meant 2.5-5 min). Taps made meanwhile are
 # safe in the outbox.
-REBOOT_AFTER_UNHEALTHY_S = int(os.getenv("DATANG_REBOOT_AFTER_UNHEALTHY_S", "60"))
+REBOOT_AFTER_UNHEALTHY_S = int(env("SMARTT_REBOOT_AFTER_UNHEALTHY_S", "DATANG_REBOOT_AFTER_UNHEALTHY_S", "60"))
 
 # Apple-inspired midnight palette (translated from Kiosk.html design tokens)
 COLORS = {
@@ -398,7 +400,7 @@ class RfidPuck(QWidget):
 
 
 class AttendanceApp(QMainWindow):
-    """Datang Reader kiosk — Apple-inspired single-stage layout."""
+    """Smartt kiosk — Apple-inspired single-stage layout."""
 
     def __init__(self, container_url: str):
         super().__init__()
@@ -437,7 +439,7 @@ class AttendanceApp(QMainWindow):
         self.start_background_tasks()
 
     def init_ui(self):
-        self.setWindowTitle("SMK Sultan Ahmad Tajuddin — Datang Reader")
+        self.setWindowTitle("SMK Sultan Ahmad Tajuddin — Smartt")
         self.setGeometry(100, 100, Config.WINDOW_WIDTH, Config.WINDOW_HEIGHT)
         self.setStyleSheet(f"""
             QMainWindow, QWidget {{
@@ -534,7 +536,7 @@ class AttendanceApp(QMainWindow):
             f"color: {COLORS['fg_0']}; font-size: 13px; font-weight: 600;"
             f" letter-spacing: 1.2px; background: transparent;"
         )
-        sub = QLabel("ATTENDANCE · DATANG READER")
+        sub = QLabel("ATTENDANCE · SMARTT")
         sub.setStyleSheet(
             f"color: {COLORS['fg_2']}; font-size: 10px; font-weight: 400;"
             f" letter-spacing: 1.6px; background: transparent;"
@@ -1219,7 +1221,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description='GUI RFID Input Client for Dockerized Datang Reader'
+        description='GUI RFID Input Client for Dockerized Smartt'
     )
     parser.add_argument(
         '--url',

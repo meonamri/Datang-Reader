@@ -1,5 +1,5 @@
 """
-IDME Login Engine for Datang-Reader
+IDME Login Engine for Smartt
 
 6-step Playwright automation for logging into the Malaysian Ministry
 of Education's IDME portal (idme.moe.gov.my) and navigating to the

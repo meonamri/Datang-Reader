@@ -1,7 +1,7 @@
 """
-Datang API Client Module
+Datang.my API Client Module
 
-This module handles all HTTP communication with the Datang attendance API.
+This module handles all HTTP communication with the Datang.my attendance API.
 """
 
 import requests
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class DatangAPIError(Exception):
-    """Base exception for Datang API errors"""
+    """Base exception for Datang.my API errors"""
     pass
 
 
@@ -35,7 +35,7 @@ class NetworkError(DatangAPIError):
 
 
 class DatangAPIClient:
-    """Client for Datang attendance API"""
+    """Client for Datang.my attendance API"""
 
     # Error codes the attendance endpoint returns (as a 200-OK body, not a
     # 401/403) that actually mean "your token is dead" — these must trigger a
@@ -64,7 +64,7 @@ class DatangAPIClient:
         Login and obtain authentication token
 
         Args:
-            username: Reader username (from Datang Dashboard). If None, use config.
+            username: Reader username (from Datang.my Dashboard). If None, use config.
             password: Reader password. If None, use config.
 
         Returns:

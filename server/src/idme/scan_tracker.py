@@ -1,8 +1,8 @@
 """
 Scan Tracker for IDME Module
 
-Records RFID scans from Datang API responses into idme_data.db.
-Called after each successful Datang API scan to track who is present.
+Records RFID scans from Datang.my API responses into idme_data.db.
+Called after each successful Datang.my API scan to track who is present.
 Used by AbsenceDetector to determine who is absent.
 """
 
@@ -67,7 +67,7 @@ class ScanTracker:
         scanned_at: Optional[datetime] = None,
     ) -> bool:
         """
-        Record a successful scan from Datang API response.
+        Record a successful scan from Datang.my API response.
 
         Called from ServiceManager.process_attendance() after successful API call.
         Extracts name, section (class), and time from the response.
@@ -75,7 +75,7 @@ class ScanTracker:
 
         Args:
             card_id: RFID card ID (integration_tag).
-            datang_response: The 'data' dict from Datang API response:
+            datang_response: The 'data' dict from Datang.my API response:
                 {
                     'name': 'STUDENT NAME',
                     'section': '5 UKM',
@@ -94,7 +94,7 @@ class ScanTracker:
             True if recorded (new scan), False if duplicate.
         """
         if not datang_response or not isinstance(datang_response, dict):
-            self.logger.warning("Invalid Datang response, skipping scan recording")
+            self.logger.warning("Invalid Datang.my response, skipping scan recording")
             return False
 
         student_name = datang_response.get('name', '').strip().upper()
@@ -104,7 +104,7 @@ class ScanTracker:
 
         if not student_name or not class_name:
             self.logger.warning(
-                f"Missing name or section in Datang response for card {card_id}"
+                f"Missing name or section in Datang.my response for card {card_id}"
             )
             return False
 

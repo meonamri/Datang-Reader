@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Datang Reader GUI - Auto-start Installation Script
+# Smartt GUI - Auto-start Installation Script
 #
 # This script installs the GUI client as a systemd user service
 # that automatically starts when you log in to your desktop.
@@ -35,7 +35,7 @@ print_header() {
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-print_header "Datang Reader GUI - Auto-start Installation"
+print_header "Smartt GUI - Auto-start Installation"
 
 # Check if running as root (should not be)
 if [[ $EUID -eq 0 ]]; then
@@ -68,7 +68,7 @@ mkdir -p "$SYSTEMD_USER_DIR"
 print_msg "$GREEN" "✓ Created systemd user directory: $SYSTEMD_USER_DIR"
 
 # Copy service file
-SERVICE_FILE="$PROJECT_ROOT/systemd/datang-reader-gui.service"
+SERVICE_FILE="$PROJECT_ROOT/systemd/smartt-gui.service"
 if [ ! -f "$SERVICE_FILE" ]; then
     print_msg "$RED" "Error: Service file not found: $SERVICE_FILE"
     exit 1
@@ -76,8 +76,22 @@ fi
 
 # Update service file with current user and paths
 print_msg "$YELLOW" "Configuring service file..."
-sed "s|/home/user|$HOME|g" "$SERVICE_FILE" > "$SYSTEMD_USER_DIR/datang-reader-gui.service"
-print_msg "$GREEN" "✓ Installed service file to $SYSTEMD_USER_DIR/datang-reader-gui.service"
+sed "s|/home/user|$HOME|g" "$SERVICE_FILE" > "$SYSTEMD_USER_DIR/smartt-gui.service"
+print_msg "$GREEN" "✓ Installed service file to $SYSTEMD_USER_DIR/smartt-gui.service"
+
+# Smartt was called "Datang Reader" before 2026-11. Retire the old unit so the
+# kiosk is never started twice: disable it now (so the next boot starts only
+# smartt-gui), but leave a running copy alone until smartt-gui is started below.
+LEGACY_UNIT="datang-reader-gui.service"
+LEGACY_ACTIVE=""
+if [ -f "$SYSTEMD_USER_DIR/$LEGACY_UNIT" ]; then
+    if systemctl --user is-active --quiet "$LEGACY_UNIT"; then
+        LEGACY_ACTIVE=1
+    fi
+    systemctl --user disable "$LEGACY_UNIT" 2>/dev/null || true
+    rm -f "$SYSTEMD_USER_DIR/$LEGACY_UNIT"
+    print_msg "$GREEN" "✓ Retired legacy unit $LEGACY_UNIT (replaced by smartt-gui.service)"
+fi
 
 # Reload systemd user daemon
 print_header "Enabling Auto-start"
@@ -86,7 +100,7 @@ systemctl --user daemon-reload
 print_msg "$GREEN" "✓ Reloaded systemd user daemon"
 
 # Enable the service
-systemctl --user enable datang-reader-gui.service
+systemctl --user enable smartt-gui.service
 print_msg "$GREEN" "✓ Enabled auto-start on login"
 
 # Enable lingering (optional - allows service to run even when not logged in)
@@ -108,12 +122,12 @@ echo "The GUI client will now auto-start when you log in."
 echo ""
 echo "Service management commands:"
 echo ""
-print_msg "$GREEN" "  Start now:       systemctl --user start datang-reader-gui"
-print_msg "$GREEN" "  Stop service:    systemctl --user stop datang-reader-gui"
-print_msg "$GREEN" "  Restart:         systemctl --user restart datang-reader-gui"
-print_msg "$GREEN" "  View status:     systemctl --user status datang-reader-gui"
-print_msg "$GREEN" "  View logs:       journalctl --user -u datang-reader-gui -f"
-print_msg "$GREEN" "  Disable auto-start: systemctl --user disable datang-reader-gui"
+print_msg "$GREEN" "  Start now:       systemctl --user start smartt-gui"
+print_msg "$GREEN" "  Stop service:    systemctl --user stop smartt-gui"
+print_msg "$GREEN" "  Restart:         systemctl --user restart smartt-gui"
+print_msg "$GREEN" "  View status:     systemctl --user status smartt-gui"
+print_msg "$GREEN" "  View logs:       journalctl --user -u smartt-gui -f"
+print_msg "$GREEN" "  Disable auto-start: systemctl --user disable smartt-gui"
 echo ""
 
 echo "Important notes:"
@@ -123,7 +137,7 @@ echo ""
 print_msg "$YELLOW" "  2. The GUI will start automatically on next login"
 echo ""
 print_msg "$YELLOW" "  3. To start now without rebooting:"
-echo "     systemctl --user start datang-reader-gui"
+echo "     systemctl --user start smartt-gui"
 echo ""
 
 # Ask if user wants to start now
@@ -131,7 +145,7 @@ read -p "Start the GUI service now? (y/N): " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     # Check if Docker server is running
-    if ! docker ps | grep -q datang; then
+    if ! docker ps | grep -qE 'smartt|datang'; then
         print_msg "$YELLOW" "Warning: Docker server doesn't appear to be running"
         echo ""
         read -p "Start Docker server first? (y/N): " -n 1 -r
@@ -144,10 +158,14 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
         fi
     fi
 
-    systemctl --user start datang-reader-gui
+    if [ -n "$LEGACY_ACTIVE" ]; then
+        systemctl --user stop "$LEGACY_UNIT" 2>/dev/null || true
+        print_msg "$GREEN" "✓ Stopped legacy $LEGACY_UNIT"
+    fi
+    systemctl --user start smartt-gui
     print_msg "$GREEN" "✓ GUI service started"
     echo ""
-    print_msg "$BLUE" "Check status with: systemctl --user status datang-reader-gui"
+    print_msg "$BLUE" "Check status with: systemctl --user status smartt-gui"
 fi
 
 echo ""

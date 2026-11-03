@@ -1,11 +1,12 @@
 """
-Datang Reader Linux Service
+Smartt Linux Service
 
-Main package for the Datang attendance reader Linux service.
+Main package for Smartt (Smart Attendance Record Tracking Tajuddin), the
+school-owned attendance service that reports taps to Datang.my.
 """
 
 __version__ = "1.0.0"
-__author__ = "Datang Linux Port"
+__author__ = "Smartt"
 
 from .config import Config
 from .rfid_reader import RFIDReader

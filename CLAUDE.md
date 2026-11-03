@@ -1,10 +1,35 @@
-# CLAUDE.md — Datang Reader
+# CLAUDE.md — Smartt
 
-Split-architecture RFID attendance tracking for the Datang API, with an optional
+Split-architecture RFID attendance tracking for the Datang.my API, with an optional
 **IDME module** that submits absences to Malaysia's IDME/MOEIS portal.
 
 See `README.md` for the full architecture and API. This file covers the
 operational facts that aren't obvious from the code.
+
+## Naming: Smartt vs Datang.my
+
+**Smartt** (Smart Attendance Record Tracking Tajuddin) is this school-owned
+service: the server, the readers, the IDME module and the `/cards` screen. It
+was called "Datang Reader" until 2026-11. **Datang.my** is the vendor attendance
+API that Smartt reports taps to; anything named `DATANG_*`, `DatangAPIClient`,
+`datang_*` columns or `ATTENDANCE_MODE=datang` refers to Datang.my and keeps
+that name.
+
+Renamed in 2026-11, with the old names still honoured:
+
+| Was | Now |
+|---|---|
+| container / image / compose service `datang-reader` | `smartt` |
+| reader unit `datang-reader-gui.service` | `smartt-gui.service` (the installer retires the old unit) |
+| `server/datang_reader.py` | `server/smartt.py` (the old file is a shim) |
+| `~/.datang_reader_token`, `~/.datang_reader_queue.db`, `~/.datang_reader.log` | `~/.smartt_token`, `~/.smartt_queue.db`, `~/.smartt.log` |
+| `~/.datang_stats.json`, `~/.datang_outbox.db` (readers) | `~/.smartt_stats.json`, `~/.smartt_outbox.db` |
+| `DATANG_HOST_PORT`, `_CONTAINER_URL`, `_LOG_LEVEL`, `_FULLSCREEN`, `_ENABLE_PULSE`, `_PULSE_FPS`, `_SERIAL_PORT`, `_SERIAL_BAUD`, `_OUTBOX_FILE`, `_REBOOT_AFTER_UNHEALTHY_S` | `SMARTT_*` (old `DATANG_*` names are read when the new one is unset) |
+
+Renamed state files are moved on first start (`state_path()` in
+`server/src/config.py` and `client/gui/config.py`); a legacy SQLite file with a
+`-wal`/`-shm`/`-journal` sidecar is used in place instead. The GitHub repo and
+the `~/Datang-Reader` checkout directories are **not** renamed.
 
 ## IDME module (`server/src/idme/`)
 
@@ -24,8 +49,8 @@ through the single `form_of` chokepoint (to that session's lowest form) so every
 consumer — cutoff, scan gate, Telegram routing, settings UI — routes it with no
 other change. An explicit override wins over any leading number the string also
 has. It is **off by default** (`IDME_ENABLED=false`)
-and runs inside the same `datang-reader` container — it is not a separate
-service. Datang scanning for every student is unchanged; the only added
+and runs inside the same `smartt` container — it is not a separate
+service. Datang.my scanning for every student is unchanged; the only added
 behaviour is MOEIS submission for *onboarded* classes (those with a configured
 teacher). Classes without a teacher are never submitted to MOEIS.
 
@@ -54,7 +79,7 @@ teacher). Classes without a teacher are never submitted to MOEIS.
   school-wide non-school-day signal and would abandon every remaining class.
   Tests: `server/test_idme_full_attendance.py`.
 - **A class is identified by a string that must match in three places** or it
-  silently misfires: the roster `Class`, the Datang scan `section`, and the
+  silently misfires: the roster `Class`, the Datang.my scan `section`, and the
   teacher `class_name`. A student name mismatch = that student marked absent
   every day until an RFID tag is learned for them.
 - Identity resolution: name bridges roster-init + first scan + card
@@ -197,7 +222,7 @@ the override and restores the reason keyboard.
 
 ### Deploying / turning it on
 
-Rollout is an in-place upgrade of the existing `datang-reader` container.
+Rollout is an in-place upgrade of the existing `smartt` container.
 Follow **`server/IDME_DEPLOY.md`** — it has the volume/bind-mount gotchas and
 the post-deploy gating (observe one real scheduled fire; verify per-class
 roster/name alignment) that must clear before flipping `IDME_SCHEDULER_CONFIRM`

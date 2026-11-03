@@ -24,7 +24,7 @@ class AuthManager:
         Initialize authentication manager
 
         Args:
-            api_client: Datang API client instance
+            api_client: Datang.my API client instance
         """
         self.api_client = api_client
         self.token_file = Config.TOKEN_FILE

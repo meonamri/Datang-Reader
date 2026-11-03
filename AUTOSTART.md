@@ -1,6 +1,6 @@
 # Auto-start GUI on Boot
 
-This guide explains how to configure the Datang Reader GUI to automatically launch when your system boots.
+This guide explains how to configure the Smartt GUI to automatically launch when your system boots.
 
 ## Quick Setup
 
@@ -38,44 +38,44 @@ That's it! The GUI will now automatically start on boot.
 ### Check Status
 
 ```bash
-systemctl --user status datang-reader-gui
+systemctl --user status smartt-gui
 ```
 
 ### View Logs
 
 ```bash
 # Live log streaming
-journalctl --user -u datang-reader-gui -f
+journalctl --user -u smartt-gui -f
 
 # Last 100 lines
-journalctl --user -u datang-reader-gui -n 100
+journalctl --user -u smartt-gui -n 100
 ```
 
 ### Start/Stop/Restart
 
 ```bash
 # Start
-systemctl --user start datang-reader-gui
+systemctl --user start smartt-gui
 
 # Stop
-systemctl --user stop datang-reader-gui
+systemctl --user stop smartt-gui
 
 # Restart
-systemctl --user restart datang-reader-gui
+systemctl --user restart smartt-gui
 ```
 
 ### Disable Auto-start
 
 ```bash
-systemctl --user disable datang-reader-gui
+systemctl --user disable smartt-gui
 ```
 
 To completely remove:
 
 ```bash
-systemctl --user disable datang-reader-gui
-systemctl --user stop datang-reader-gui
-rm ~/.config/systemd/user/datang-reader-gui.service
+systemctl --user disable smartt-gui
+systemctl --user stop smartt-gui
+rm ~/.config/systemd/user/smartt-gui.service
 systemctl --user daemon-reload
 ```
 
@@ -89,19 +89,19 @@ If you prefer to install manually:
 
 ```bash
 mkdir -p ~/.config/systemd/user
-cp systemd/datang-reader-gui.service ~/.config/systemd/user/
+cp systemd/smartt-gui.service ~/.config/systemd/user/
 ```
 
 ### 2. Update Paths in Service File
 
-Edit `~/.config/systemd/user/datang-reader-gui.service` and replace `/home/user` with your actual home directory.
+Edit `~/.config/systemd/user/smartt-gui.service` and replace `/home/user` with your actual home directory.
 
 ### 3. Enable Service
 
 ```bash
 systemctl --user daemon-reload
-systemctl --user enable datang-reader-gui
-systemctl --user start datang-reader-gui
+systemctl --user enable smartt-gui
+systemctl --user start smartt-gui
 ```
 
 ---
@@ -112,12 +112,12 @@ systemctl --user start datang-reader-gui
 
 **Check service status:**
 ```bash
-systemctl --user status datang-reader-gui
+systemctl --user status smartt-gui
 ```
 
 **Check logs:**
 ```bash
-journalctl --user -u datang-reader-gui -n 50
+journalctl --user -u smartt-gui -n 50
 ```
 
 **Common issues:**
@@ -151,7 +151,7 @@ docker compose logs
 ### Disable service temporarily
 
 ```bash
-systemctl --user stop datang-reader-gui
+systemctl --user stop smartt-gui
 ```
 
 ### Service runs even when logged out
@@ -195,7 +195,7 @@ The service uses these environment variables:
 | `XAUTHORITY` | `~/.Xauthority` | X11 authentication file |
 | `PYTHONUNBUFFERED` | `1` | Disable Python output buffering |
 
-To customize, edit `~/.config/systemd/user/datang-reader-gui.service`
+To customize, edit `~/.config/systemd/user/smartt-gui.service`
 
 ---
 
@@ -210,8 +210,8 @@ optionally pointing to a different server:
 
 ```bash
 # Create template service (note the @ in the filename)
-cp ~/.config/systemd/user/datang-reader-gui.service \
-   ~/.config/systemd/user/datang-reader-gui@.service
+cp ~/.config/systemd/user/smartt-gui.service \
+   ~/.config/systemd/user/smartt-gui@.service
 ```
 
 Edit the template to use the instance identifier (`%i`):
@@ -223,8 +223,8 @@ Environment="DISPLAY=:%i"
 
 Enable for DISPLAY :0 (port 8080) and DISPLAY :1 (port 8081):
 ```bash
-systemctl --user enable datang-reader-gui@0
-systemctl --user enable datang-reader-gui@1
+systemctl --user enable smartt-gui@0
+systemctl --user enable smartt-gui@1
 ```
 
 If all clients should connect to the same server, use a fixed URL instead:
@@ -239,12 +239,12 @@ Environment="DISPLAY=:%i"
 Edit service file and add to `[Service]` section:
 
 ```ini
-Environment="DATANG_CONTAINER_URL=http://192.168.1.100:8080"
+Environment="SMARTT_CONTAINER_URL=http://192.168.1.100:8080"
 ```
 
 Then modify `ExecStart`:
 ```ini
-ExecStart=/home/user/Datang-Reader/client/run-gui.sh --url ${DATANG_CONTAINER_URL}
+ExecStart=/home/user/Datang-Reader/client/run-gui.sh --url ${SMARTT_CONTAINER_URL}
 ```
 
 ### Auto-start Docker Server
@@ -274,4 +274,4 @@ docker update --restart unless-stopped $(docker compose ps -q)
 
 - [README.md](README.md) - Main documentation
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Troubleshooting guide
-- [systemd/datang-reader-gui.service](systemd/datang-reader-gui.service) - Service file template
+- [systemd/smartt-gui.service](systemd/smartt-gui.service) - Service file template

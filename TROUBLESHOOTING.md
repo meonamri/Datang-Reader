@@ -144,13 +144,13 @@ sudo apt-get install -y python3-pyqt5 qtbase5-dev python3-dev
 
 2. Check API base URL in `server/.env`:
    ```bash
-   cat server/.env | grep DATANG_API_BASE_URL
+   cat server/.env | grep -E 'SMARTT_|DATANG_'API_BASE_URL
    ```
    Should be: `https://datang.my/api` (or your custom endpoint)
 
 3. Check container network:
    ```bash
-   docker compose exec datang-reader curl -I https://datang.my
+   docker compose exec smartt curl -I https://datang.my
    ```
 
 4. Test with mock API:
@@ -190,7 +190,7 @@ sudo apt-get install -y python3-pyqt5 qtbase5-dev python3-dev
 
 3. Check credentials in `server/.env`:
    ```bash
-   cat server/.env | grep DATANG_
+   cat server/.env | grep -E 'SMARTT_|DATANG_'
    ```
 
 4. Verify credentials work:
@@ -361,13 +361,13 @@ If using a serial-based RFID reader instead of HID keyboard:
 
 1. Check container stats:
    ```bash
-   docker stats datang-reader
+   docker stats smartt
    ```
 
 2. Set memory limit in `docker-compose.yml`:
    ```yaml
    services:
-     datang-reader:
+     smartt:
        deploy:
          resources:
            limits:
@@ -401,7 +401,7 @@ If using a serial-based RFID reader instead of HID keyboard:
 
 3. Enable debug logging in `server/.env`:
    ```
-   DATANG_LOG_LEVEL=DEBUG
+   SMARTT_LOG_LEVEL=DEBUG
    ```
 
 4. Check for database locks:
@@ -439,12 +439,12 @@ If none of these solutions work:
 
 1. **Check logs:**
    - Container: `docker compose logs -f`
-   - GUI: `tail -f ~/.datang_reader.log`
+   - GUI: `tail -f ~/.smartt.log`
 
 2. **Enable debug mode:**
    ```bash
    # In server/.env
-   DATANG_LOG_LEVEL=DEBUG
+   SMARTT_LOG_LEVEL=DEBUG
    docker compose restart
    ```
 

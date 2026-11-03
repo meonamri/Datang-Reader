@@ -1,17 +1,17 @@
 #!/bin/bash
 #
-# Datang Reader - Tailscale Serve Setup
+# Smartt - Tailscale Serve Setup
 #
-# Exposes the Datang Reader HTTP server as a named Tailscale service,
+# Exposes the Smartt HTTP server as a named Tailscale service,
 # making it accessible via HTTPS on your tailnet at:
 #   svc:<service-name>.<tailnet>.ts.net
 #
 # Prerequisites:
 #   - Tailscale installed and logged in on this machine
-#   - Datang Reader server running (Docker or native) on the configured port
+#   - Smartt server running (Docker or native) on the configured port
 #
 # Usage:
-#   ./tailscale-serve-setup.sh                        # Setup with defaults (port 8080, name "datang-reader")
+#   ./tailscale-serve-setup.sh                        # Setup with defaults (port 8080, name "smartt")
 #   ./tailscale-serve-setup.sh 8081                   # Custom port
 #   ./tailscale-serve-setup.sh 8080 my-reader         # Custom port and service name
 #   ./tailscale-serve-setup.sh --remove               # Remove (default service name)
@@ -29,10 +29,10 @@ NC='\033[0m'
 
 # Defaults
 DEFAULT_PORT="8080"
-DEFAULT_SERVICE_NAME="datang-reader"
+DEFAULT_SERVICE_NAME="smartt"
 
 echo -e "${BLUE}============================================${NC}"
-echo -e "${BLUE}  Datang Reader - Tailscale Serve Setup${NC}"
+echo -e "${BLUE}  Smartt - Tailscale Serve Setup${NC}"
 echo -e "${BLUE}============================================${NC}"
 echo
 
@@ -75,11 +75,11 @@ echo -e "${GREEN}✓${NC} Tailscale IP: ${BLUE}${TS_IP}${NC}"
 echo
 
 # Check if the local service is running
-echo "Checking if Datang Reader is running on port ${PORT}..."
+echo "Checking if Smartt is running on port ${PORT}..."
 if curl -sf "http://localhost:${PORT}/health" > /dev/null 2>&1; then
-    echo -e "${GREEN}✓${NC} Datang Reader is responding on port ${PORT}"
+    echo -e "${GREEN}✓${NC} Smartt is responding on port ${PORT}"
 else
-    echo -e "${YELLOW}!${NC} Datang Reader is not responding on port ${PORT}"
+    echo -e "${YELLOW}!${NC} Smartt is not responding on port ${PORT}"
     echo "  Make sure the Docker container is running and mapped to port ${PORT}"
     echo "  Continuing with setup anyway..."
 fi
@@ -105,7 +105,7 @@ echo -e "${BLUE}============================================${NC}"
 echo -e "${BLUE}  Service is now accessible on your tailnet${NC}"
 echo -e "${BLUE}============================================${NC}"
 echo
-echo "Your Datang Reader is now available at:"
+echo "Your Smartt is now available at:"
 echo -e "  ${GREEN}https://${SERVICE_FQDN}${NC}"
 echo
 echo "Test it from any device on your tailnet:"

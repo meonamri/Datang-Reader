@@ -1,8 +1,8 @@
 #!/bin/bash
 #
-# Datang Reader - Docker Deployment Script
+# Smartt - Docker Deployment Script
 #
-# This script deploys the Datang Reader application in Docker
+# This script deploys the Smartt application in Docker
 # with the split architecture (host input client + containerized app)
 #
 
@@ -20,7 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 echo -e "${BLUE}============================================${NC}"
-echo -e "${BLUE}  Datang Reader - Docker Deployment${NC}"
+echo -e "${BLUE}  Smartt - Docker Deployment${NC}"
 echo -e "${BLUE}============================================${NC}"
 echo
 
@@ -118,7 +118,7 @@ echo "Waiting for container to be healthy..."
 sleep 3
 
 # Check health
-HEALTH_STATUS=$($COMPOSE_CMD ps | grep datang-reader | awk '{print $NF}')
+HEALTH_STATUS=$($COMPOSE_CMD ps | grep smartt | awk '{print $NF}')
 
 if [ -z "$HEALTH_STATUS" ]; then
     echo -e "${YELLOW}⚠${NC} Could not determine health status"
@@ -133,7 +133,7 @@ echo "Container status:"
 $COMPOSE_CMD ps
 
 # Get configured host port
-HOST_PORT="${DATANG_HOST_PORT:-8080}"
+HOST_PORT="${SMARTT_HOST_PORT:-8080}"
 
 echo
 echo -e "${BLUE}============================================${NC}"

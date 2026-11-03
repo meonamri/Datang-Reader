@@ -1,5 +1,5 @@
 """
-IDME Orchestrator for Datang-Reader
+IDME Orchestrator for Smartt
 
 Main workflow coordinator that ties everything together:
   1. Detect absent students (roster - scans)
@@ -572,12 +572,12 @@ class IDMEOrchestrator:
             }
         except AlreadyConfirmedError as e:
             # The portal already shows this day as TELAH DISAHKAN (locked) —
-            # confirmed outside Datang, usually by hand. Nothing was written and
+            # confirmed outside Smartt, usually by hand. Nothing was written and
             # retrying can never change it, so record it as its own terminal
-            # status instead of 'failed'. successful stays 0: Datang recorded
+            # status instead of 'failed'. successful stays 0: Smartt recorded
             # nothing, and the portal's absences may differ from ours.
             duration = (datetime.now() - start).total_seconds()
-            msg = f"Already confirmed on MOEIS outside Datang; nothing submitted ({e})"
+            msg = f"Already confirmed on MOEIS outside Smartt; nothing submitted ({e})"
             self.logger.info(f"{class_name} {submission_date}: {msg}")
             self._update_submission(
                 submission_id, status=self.CONFIRMED_EXTERNAL,
@@ -1328,7 +1328,7 @@ class IDMEOrchestrator:
 
     def classes_completed_on(self, day: str) -> set:
         """Class names whose latest submission row for `day` is done: 'completed',
-        or 'confirmed_external' (locked on the portal outside Datang)."""
+        or 'confirmed_external' (locked on the portal outside Smartt)."""
         latest = {}
         for row in self.get_submissions_for_date(day):
             latest[row['class_name']] = row
@@ -1370,7 +1370,7 @@ class IDMEOrchestrator:
             target=self._resume_sequential, args=(pending,), daemon=True).start()
 
     # Terminal status for a day the portal already shows as TELAH DISAHKAN
-    # (confirmed outside Datang). Not a failure; never retried.
+    # (confirmed outside Smartt). Not a failure; never retried.
     CONFIRMED_EXTERNAL = 'confirmed_external'
 
     # Errors worth retrying: the portal (or the path to it) was down or slow.

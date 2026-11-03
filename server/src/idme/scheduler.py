@@ -1,5 +1,5 @@
 """
-IDME Scheduler for Datang-Reader
+IDME Scheduler for Smartt
 
 Schedules daily IDME submissions at each session's cutoff time. This is a
 two-session school: upper forms (3-6) submit at the morning cutoff and lower

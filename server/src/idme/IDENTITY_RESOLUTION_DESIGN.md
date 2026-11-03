@@ -18,21 +18,21 @@ That subtraction only works if we can decide, for each roster student, **"did
 this person scan today?"** — i.e. we must link a roster entry to a scan event.
 There are two distinct matching points ("seams"):
 
-- **Seam A — absence detection:** roster identities vs. **Datang scan** identities.
+- **Seam A — absence detection:** roster identities vs. **Datang.my scan** identities.
   This is where the live bug is (`diag_idme_pipeline.py`, 2026-06-15): present
   students get marked absent when their names don't match exactly.
 - **Seam B — form filling:** the absent identities vs. the **MOEIS portal** rows
   that `form_filler` has to find and uncheck.
 
-The hard constraint: **Datang and MOEIS share no common stable identifier.**
+The hard constraint: **Datang.my and MOEIS share no common stable identifier.**
 
 | System | Identifiers it exposes to us |
 |--------|------------------------------|
-| Datang scan response | `name`, `section` (class), `pid` (Datang's id), and the RFID `tag` (= `card_id`) we sent |
+| Datang.my scan response | `name`, `section` (class), `pid` (Datang.my's id), and the RFID `tag` (= `card_id`) we sent |
 | MOEIS portal (`get_student_list`) | `data-namapelajar` (name), `data-idpelajar` (MOEIS id) |
 
-`pid` (Datang) and `idpelajar` (MOEIS) are different namespaces. **IC is NOT
-available on the scan side — confirmed:** the Datang success `data` carries
+`pid` (Datang.my) and `idpelajar` (MOEIS) are different namespaces. **IC is NOT
+available on the scan side — confirmed:** the Datang.my success `data` carries
 `pid · time · time_text · image · name · section · group · …` and **no IC/MyKad**
 (`api_client.py`; `ic: None` there is the *request* field we send, not a response
 field). So a tap gives us only **name + section + tag (card_id)**. The **portal doesn't expose
@@ -53,15 +53,15 @@ occasionally within) classes.
 **Goals**
 - Make the **daily** absent decision depend on a **stable key (RFID tag)**, not names.
 - Survive **card replacement** without manual roster edits (cards are re-issued
-  often; the card↔student truth is maintained on the Datang side by design).
+  often; the card↔student truth is maintained on the Datang.my side by design).
 - Turn silent false-absences into **loud, fixable alerts.**
 - Scale to many teachers/classes; make the school Excel import **optional.**
 
 **Non-goals**
-- Changing how Datang resolves a card to a student (that stays Datang's job).
+- Changing how Datang.my resolves a card to a student (that stays Datang.my's job).
 - Fixing borrowed/shared cards (a tap is always attributed to the card *owner* —
   inherent to card attendance; out of scope).
-- Any change to the proven RFID→Datang scan submission path.
+- Any change to the proven RFID→Datang.my scan submission path.
 
 ## 3. Core idea: a persistent identity registry + passively-learned tags
 
@@ -77,7 +77,7 @@ the existing scan stream** — no separate card-import step.
                  ▲ (init: name+class)            ▲ (learn: name+class)
                  │                                │
    ┌─────────────┴───────────┐      ┌────────────┴──────────────────┐
-   │ MOEIS portal            │      │ Datang scan stream             │
+   │ MOEIS portal            │      │ Datang.my scan stream             │
    │ get_student_list →      │      │ record_scan(card_id, resp) →   │
    │ name + idpelajar/class  │      │ name + section + card_id (tag) │
    └─────────────────────────┘      └────────────────────────────────┘
@@ -118,8 +118,8 @@ CREATE INDEX IF NOT EXISTS idx_students_idpelajar ON students(idpelajar);
 CREATE TABLE IF NOT EXISTS unmatched_scans (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     card_id      TEXT NOT NULL,
-    scan_name    TEXT NOT NULL,      -- name Datang returned
-    scan_class   TEXT,              -- section Datang returned
+    scan_name    TEXT NOT NULL,      -- name Datang.my returned
+    scan_class   TEXT,              -- section Datang.my returned
     scan_date    DATE NOT NULL,
     resolved     BOOLEAN DEFAULT 0,  -- set when an admin maps/ignores it
     created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -241,7 +241,7 @@ docstring claiming otherwise):
 1. ~~Does the MOEIS portal DOM expose IC?~~ **RESOLVED 2026-06-15: NO.**
    `diag_idme_pipeline.py --probe-portal-attrs` shows the attendance row exposes
    only `data-idpelajar` + `data-namapelajar` (columns `Bil / Kehadiran / Nama
-   Murid / Sebab Tidak Hadir`). With Datang IC also absent, **IC is unavailable
+   Murid / Sebab Tidak Hadir`). With Datang.my IC also absent, **IC is unavailable
    on both sides** — duplicate-name disambiguation rests entirely on the RFID tag
    over time, with the first ambiguous tap flagged for manual resolution.
 2. **Serial portal logins at scale.** `submit_all_classes` (and a batch roster

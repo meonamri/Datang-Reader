@@ -1,4 +1,4 @@
-# Datang Reader GUI Client - Python Dependencies
+# Smartt GUI Client - Python Dependencies
 # This file contains dependencies for the HOST GUI client (not for Docker container)
 
 # HTTP API Client (for communicating with Docker container)

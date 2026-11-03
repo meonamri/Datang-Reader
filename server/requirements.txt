@@ -1,4 +1,4 @@
-# Datang Reader Docker Container - Python Dependencies
+# Smartt Docker Container - Python Dependencies
 # This file contains ONLY dependencies needed for the HTTP server mode (no GUI)
 
 # HTTP API Client

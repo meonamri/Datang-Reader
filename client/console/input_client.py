@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Input Client for Datang Reader
+Input Client for Smartt
 
 Lightweight script that runs on the host to capture HID RFID reader input
-and forward it to the Datang Reader server via HTTP.
+and forward it to the Smartt server via HTTP.
 
 This script:
 1. Reads keyboard input from stdin (HID RFID reader types card ID + Enter)
@@ -65,14 +65,16 @@ def _load_env_file():
 _load_env_file()
 
 # Configuration
-DEFAULT_CONTAINER_URL = os.getenv("DATANG_CONTAINER_URL", "http://localhost:8080")
+# SMARTT_CONTAINER_URL; DATANG_CONTAINER_URL is the pre-rename name, still honoured.
+DEFAULT_CONTAINER_URL = (os.getenv("SMARTT_CONTAINER_URL")
+                         or os.getenv("DATANG_CONTAINER_URL") or "http://localhost:8080")
 MAX_RETRIES = 3
 RETRY_DELAY = 2  # seconds
 REQUEST_TIMEOUT = 5  # seconds
 
 
 class InputClient:
-    """RFID input client that forwards card scans to the Datang Reader server"""
+    """RFID input client that forwards card scans to the Smartt server"""
 
     def __init__(self, container_url: str, log_file: Optional[str] = None):
         """
@@ -260,14 +262,14 @@ class InputClient:
         and forwards valid scans to the server.
         """
         self.logger.info("="*60)
-        self.logger.info("Datang Reader - Input Client")
+        self.logger.info("Smartt - Input Client")
         self.logger.info("="*60)
         self.logger.info(f"Server URL: {self.container_url}")
 
         # Show URL source for troubleshooting
-        env_url = os.getenv("DATANG_CONTAINER_URL")
+        env_url = os.getenv("SMARTT_CONTAINER_URL") or os.getenv("DATANG_CONTAINER_URL")
         if env_url:
-            self.logger.info("(configured via DATANG_CONTAINER_URL)")
+            self.logger.info("(configured via SMARTT_CONTAINER_URL)")
         elif self.container_url != "http://localhost:8080":
             self.logger.info("(configured via --url)")
         else:
@@ -281,7 +283,7 @@ class InputClient:
             if not env_url and self.container_url == "http://localhost:8080":
                 self.logger.error("You are using the default URL (http://localhost:8080).")
                 self.logger.error("If your server is running elsewhere, configure the URL:")
-                self.logger.error("  1. Copy .env.example to .env and edit DATANG_CONTAINER_URL")
+                self.logger.error("  1. Copy .env.example to .env and edit SMARTT_CONTAINER_URL")
                 self.logger.error("  2. Or run with: ./run-console.sh --url <server-url>")
             else:
                 self.logger.error(f"Make sure the server at {self.container_url} is running.")
@@ -330,7 +332,7 @@ class InputClient:
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(
-        description='RFID Input Client for Datang Reader'
+        description='RFID Input Client for Smartt'
     )
     parser.add_argument(
         '--url',

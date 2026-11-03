@@ -1,5 +1,5 @@
 """
-IDME Form Filler for Datang-Reader
+IDME Form Filler for Smartt
 
 Manipulates the MOEIS attendance form to mark students as absent.
 Students are CHECKED (present) by default. Marking absent = UNCHECKING.

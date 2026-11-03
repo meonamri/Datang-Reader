@@ -98,7 +98,7 @@ def init_idme_module(service_manager=None):
     Sets up all IDME components and optionally starts the scheduler.
 
     Args:
-        service_manager: Existing Datang ServiceManager (for scan hook).
+        service_manager: Existing Smartt ServiceManager (for scan hook).
 
     Returns:
         IDMEOrchestrator instance.
@@ -128,7 +128,7 @@ def init_idme_module(service_manager=None):
     _scan_tracker = _orchestrator.scan_tracker
     _absence_detector = _orchestrator.absence_detector
 
-    # Hook scan tracker into existing Datang ServiceManager
+    # Hook scan tracker into existing Smartt ServiceManager
     if service_manager:
         service_manager.scan_tracker = _scan_tracker
         logger.info("IDME scan tracker hooked into ServiceManager")
@@ -239,8 +239,8 @@ def _fire_card(session, rows, onboarded):
     human headline/detail. The text is built here (not in the template or JS) so
     the server-render and the live refresh always agree."""
     statuses = [r['status'] for r in rows]
-    # A day confirmed on the portal outside Datang is done for the session
-    # verdict, the same as one Datang submitted itself.
+    # A day confirmed on the portal outside Smartt is done for the session
+    # verdict, the same as one Smartt submitted itself.
     completed = statuses.count('completed') + statuses.count('confirmed_external')
     skipped = statuses.count('skipped')
     blocked = statuses.count('blocked')

@@ -1,5 +1,5 @@
 """
-Configuration module for Datang Reader Linux Service
+Configuration module for Smartt Linux Service
 
 This file contains all configuration settings for the service.
 Fill in the values after capturing API endpoints using the network interception guide.
@@ -10,8 +10,44 @@ import json
 from typing import Dict, Any
 
 
+# ===== Smartt naming (renamed from "Datang Reader", 2026-11) =====
+# Smartt is this school-owned service; Datang.my is the vendor attendance API it
+# talks to. Settings that belong to Smartt were renamed DATANG_* -> SMARTT_* and
+# its state files ~/.datang_* -> ~/.smartt_*. The old names keep working:
+
+_SQLITE_SIDECARS = ("-wal", "-shm", "-journal")
+
+
+def env(name: str, legacy: str = None, default: str = None):
+    """os.getenv(name), falling back to the pre-rename variable `legacy`."""
+    value = os.getenv(name)
+    if value is None and legacy:
+        value = os.getenv(legacy)
+    return default if value is None else value
+
+
+def state_path(new: str, legacy: str) -> str:
+    """Path of a renamed state file, migrating the legacy file on first use.
+
+    The new path wins when it exists (or when neither exists). Otherwise the
+    legacy file is renamed to the new path. A legacy SQLite database with a
+    -wal/-shm/-journal sidecar was not closed cleanly, so it is used where it is
+    rather than split from its journal; so is any file the rename fails on.
+    """
+    new, legacy = os.path.expanduser(new), os.path.expanduser(legacy)
+    if os.path.exists(new) or not os.path.exists(legacy):
+        return new
+    if any(os.path.exists(legacy + s) for s in _SQLITE_SIDECARS):
+        return legacy
+    try:
+        os.replace(legacy, new)
+        return new
+    except OSError:
+        return legacy
+
+
 class Config:
-    """Configuration settings for Datang Reader Service"""
+    """Configuration settings for Smartt Service"""
 
     # ===== API CONFIGURATION =====
     # CAPTURED FROM LIVE TRAFFIC - See API_ENDPOINTS_CAPTURED.md for details
@@ -35,7 +71,7 @@ class Config:
     # The token is passed as a JSON field in the request body, not in Authorization header.
     # The AUTH_HEADER_* settings below are kept for potential future use but are NOT currently used.
 
-    # Reader credentials (get from Datang Dashboard)
+    # Datang.my reader credentials (get from the Datang.my dashboard)
     # Format: {organization_id}_reader{number}
     # SECURITY: These MUST be set via environment variables - no defaults provided
     # Set DATANG_READER_USERNAME and DATANG_READER_PASSWORD before running
@@ -46,7 +82,7 @@ class Config:
     DEVICE_ID = os.getenv("DATANG_DEVICE_ID", "linux-reader-001")
 
     # Token storage location
-    TOKEN_FILE = os.path.expanduser("~/.datang_reader_token")
+    TOKEN_FILE = state_path("~/.smartt_token", "~/.datang_reader_token")
 
     # Authentication header format (NOT USED - token goes in request body)
     # Kept for reference in case API changes in future
@@ -56,10 +92,10 @@ class Config:
     # ===== USB RFID READER CONFIGURATION =====
 
     # Serial port (auto-detect if empty, or specify like /dev/ttyUSB0)
-    SERIAL_PORT = os.getenv("DATANG_SERIAL_PORT", "")
+    SERIAL_PORT = env("SMARTT_SERIAL_PORT", "DATANG_SERIAL_PORT", "")
 
     # Baud rate (common: 9600, 115200)
-    SERIAL_BAUD_RATE = int(os.getenv("DATANG_SERIAL_BAUD", "9600"))
+    SERIAL_BAUD_RATE = int(env("SMARTT_SERIAL_BAUD", "DATANG_SERIAL_BAUD", "9600"))
 
     # Serial timeout in seconds
     SERIAL_TIMEOUT = 1.0
@@ -74,7 +110,7 @@ class Config:
     # ===== OFFLINE QUEUE CONFIGURATION =====
 
     # Database file for offline attendance queue
-    DATABASE_FILE = os.path.expanduser("~/.datang_reader_queue.db")
+    DATABASE_FILE = state_path("~/.smartt_queue.db", "~/.datang_reader_queue.db")
 
     # Maximum queue size
     MAX_QUEUE_SIZE = 10000
@@ -86,10 +122,10 @@ class Config:
     # ===== GUI CONFIGURATION =====
 
     # Window settings
-    WINDOW_TITLE = "Datang Reader - Attendance System"
+    WINDOW_TITLE = "Smartt - Attendance System"
     WINDOW_WIDTH = 800
     WINDOW_HEIGHT = 600
-    FULLSCREEN = os.getenv("DATANG_FULLSCREEN", "true").lower() == "true"
+    FULLSCREEN = env("SMARTT_FULLSCREEN", "DATANG_FULLSCREEN", "true").lower() == "true"
 
     # Display settings
     SHOW_CARD_ID = False  # Whether to display full card ID on screen
@@ -97,7 +133,7 @@ class Config:
     ERROR_DISPLAY_TIME = 5  # seconds to show error message
 
     # Pulse animation for ready state
-    ENABLE_PULSE_ANIMATION = os.getenv("DATANG_ENABLE_PULSE", "true").lower() == "true"
+    ENABLE_PULSE_ANIMATION = env("SMARTT_ENABLE_PULSE", "DATANG_ENABLE_PULSE", "true").lower() == "true"
     PULSE_ANIMATION_FPS = 12  # Updates per second (lower = less CPU usage)
 
     # Sound feedback
@@ -108,10 +144,10 @@ class Config:
     # ===== LOGGING CONFIGURATION =====
 
     # Log file location
-    LOG_FILE = os.path.expanduser("~/.datang_reader.log")
+    LOG_FILE = state_path("~/.smartt.log", "~/.datang_reader.log")
 
     # Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-    LOG_LEVEL = os.getenv("DATANG_LOG_LEVEL", "INFO")
+    LOG_LEVEL = env("SMARTT_LOG_LEVEL", "DATANG_LOG_LEVEL", "INFO")
 
     # Log rotation
     LOG_MAX_BYTES = 10 * 1024 * 1024  # 10 MB

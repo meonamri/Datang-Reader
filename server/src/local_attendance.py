@@ -14,7 +14,7 @@ Modes (env ATTENDANCE_MODE):
   shadow  Datang.my stays authoritative. Every tap is ALSO resolved locally and
           logged to `attendance_events` with both answers, so
           GET /attendance/compare can prove the local directory agrees with
-          Datang.my before anyone flips the switch. Successful Datang responses
+          Datang.my before anyone flips the switch. Successful Datang.my responses
           teach the local `card_directory`.
   local   This module is authoritative. The request path never contacts
           Datang.my, so a Datang.my outage cannot fail a tap. With
@@ -47,7 +47,7 @@ MODES = ("datang", "shadow", "local")
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS card_directory (
     card_id      TEXT PRIMARY KEY,          -- RFID card id, TEXT (leading zeros)
-    student_name TEXT NOT NULL,             -- uppercase, as Datang/roster spell it
+    student_name TEXT NOT NULL,             -- uppercase, as Datang.my/roster spell it
     class_name   TEXT NOT NULL,
     datang_pid   TEXT,
     source       TEXT NOT NULL,             -- 'datang' | 'history' | 'admin'
@@ -364,7 +364,7 @@ class LocalAttendanceStore:
     # ----------------------------------------------------------- shadow
     def record_shadow(self, card_id: str, scanned_at: datetime, reader_id: Optional[str],
                       datang_result: Dict[str, Any]) -> None:
-        """Log a Datang-authoritative tap next to our own answer for it."""
+        """Log a Datang.my-authoritative tap next to our own answer for it."""
         data = datang_result.get("data") or {}
         if datang_result.get("success") and datang_result.get("online") and data.get("name"):
             status = "datang_ok"
@@ -516,7 +516,7 @@ class DatangMirror:
             try:
                 self.drain_once()
             except Exception as e:  # never let the worker die
-                logger.error(f"Datang mirror pass failed: {e}")
+                logger.error(f"Datang.my mirror pass failed: {e}")
             self._stop.wait(self.interval)
 
     def drain_once(self) -> int:

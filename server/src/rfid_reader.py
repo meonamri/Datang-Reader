@@ -1,5 +1,5 @@
 """
-USB RFID Reader Module for Datang Reader Linux Service
+USB RFID Reader Module for Smartt Linux Service
 
 This module handles communication with HID keyboard-based RFID readers.
 These readers type the card ID as keyboard input when a card is scanned.

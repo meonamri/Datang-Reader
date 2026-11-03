@@ -1,5 +1,5 @@
 """
-GUI Application for Datang Reader Linux Service
+GUI Application for Smartt Linux Service
 
 PyQt5-based graphical interface for the attendance kiosk.
 """
@@ -107,7 +107,7 @@ class AttendanceApp(QMainWindow):
         layout.setContentsMargins(30, 20, 30, 20)
 
         # Title
-        title = QLabel("Datang Reader")
+        title = QLabel("Smartt")
         title.setFont(QFont("Arial", 32, QFont.Bold))
         title.setStyleSheet("color: #89b4fa;")
         layout.addWidget(title)
@@ -445,7 +445,7 @@ def run_gui(service_manager):
         service_manager: Service manager instance
     """
     app = QApplication(sys.argv)
-    app.setApplicationName("Datang Reader")
+    app.setApplicationName("Smartt")
 
     # Set application-wide font
     app.setFont(QFont("Arial", 12))

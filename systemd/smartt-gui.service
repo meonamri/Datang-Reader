@@ -1,5 +1,5 @@
 [Unit]
-Description=Datang Reader GUI Client
+Description=Smartt GUI Client
 Documentation=https://github.com/meonamri/datang-reader
 After=graphical-session.target docker.service
 Wants=graphical-session.target
@@ -23,7 +23,7 @@ Environment="PYTHONUNBUFFERED=1"
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=datang-reader-gui
+SyslogIdentifier=smartt-gui
 
 [Install]
 WantedBy=default.target

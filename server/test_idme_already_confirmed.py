@@ -1,7 +1,7 @@
 """
-Unit tests for days already confirmed on the portal outside Datang.
+Unit tests for days already confirmed on the portal outside Smartt.
 
-When a teacher confirms a day by hand (TELAH DISAHKAN) before Datang submits it,
+When a teacher confirms a day by hand (TELAH DISAHKAN) before Smartt submits it,
 login_engine raises AlreadyConfirmedError on the locked day. The orchestrator
 must record that as the terminal status 'confirmed_external' — not 'failed' —
 with nothing written, never retried, and counted as done for the day.

@@ -57,11 +57,11 @@ Rollback: set `ATTENDANCE_MODE=datang` and recreate. `attendance_events` and
 
 ## Reader outbox (client/gui/outbox.py)
 
-Every tap is saved to `~/.datang_outbox.db` on the reader before it is sent.
+Every tap is saved to `~/.smartt_outbox.db` on the reader before it is sent.
 If the server looked unreachable the kiosk shows **Saved** at once; a sync
 thread delivers saved taps oldest first (backoff up to 5 min) with their
 original `scanned_at`, `event_id` and `reader_id`. The status bar shows
-`N WAITING`; outbox counts are also in `~/.datang_stats.json`.
+`N WAITING`; outbox counts are also in `~/.smartt_stats.json`.
 
 The server makes `POST /card` idempotent on `event_id` in every mode
 (`src/request_log.py`), and advertises `capabilities: ["card_event_id", ...]`
@@ -69,11 +69,11 @@ on `/status`. Readers resend after a timeout/5xx **only** to a server that
 advertises it. Otherwise the tap is held as `uncertain`, never resent.
 
 **Deploy order: server first, then readers.** Inspect a reader's backlog:
-`sqlite3 ~/.datang_outbox.db "select status,count(*) from taps group by 1"`.
+`sqlite3 ~/.smartt_outbox.db "select status,count(*) from taps group by 1"`.
 
 Auto-reboot: the GUI runs `sudo reboot` once the server has been unreachable
 for **60 s** of wall time with no successful health check in between
-(`DATANG_REBOOT_AFTER_UNHEALTHY_S`, default 60; it was 30 polls = 2.5-5 min).
+(`SMARTT_REBOOT_AFTER_UNHEALTHY_S`, default 60; it was 30 polls = 2.5-5 min).
 Taps made meanwhile are safe in the outbox, but the kiosk takes no taps while
 it restarts. During a long server outage a reader therefore reboots about
 every 1.5-2 min (20 s unit start delay + boot + 60 s).

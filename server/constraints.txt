@@ -1,4 +1,4 @@
-# Exact versions running in production (datang-reader image, deployed 2026-11-01).
+# Exact versions running in production (smartt image, deployed 2026-11-01).
 # Applied with "pip install -r requirements.txt -c constraints.txt" in the Dockerfile so a
 # plain "docker compose build" reproduces the running image instead of silently
 # downgrading/upgrading packages. To upgrade: bump versions here (e.g. from

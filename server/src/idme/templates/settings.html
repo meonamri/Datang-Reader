@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IDME Settings - Datang Reader</title>
+    <title>IDME Settings - Smartt</title>
     <style>
         /* ============================================================
            IDME Settings - Swiss-industrial / utilitarian telemetry UI.
@@ -1009,7 +1009,7 @@
                 title = c.today_error || `${fail || 0} of ${absent || 0} absent student(s) could not be recorded`;
             } else if (s === 'confirmed_external') {
                 cls = 'done'; label = 'Confirmed by hand';
-                title = c.today_error || 'Already confirmed on MOEIS outside Datang; nothing submitted';
+                title = c.today_error || 'Already confirmed on MOEIS outside Smartt; nothing submitted';
             } else if (s === 'completed' && (absent || 0) === 0) {
                 cls = 'done'; label = 'Done'; title = 'Ran with no absences to record';
             } else {

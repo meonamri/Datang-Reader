@@ -44,17 +44,53 @@ def _load_env_file():
 _load_env_file()
 
 
+# ===== Smartt naming (renamed from "Datang Reader", 2026-11) =====
+# Smartt is this school-owned service; Datang.my is the vendor attendance API it
+# talks to. Settings that belong to Smartt were renamed DATANG_* -> SMARTT_* and
+# its state files ~/.datang_* -> ~/.smartt_*. The old names keep working:
+
+_SQLITE_SIDECARS = ("-wal", "-shm", "-journal")
+
+
+def env(name: str, legacy: str = None, default: str = None):
+    """os.getenv(name), falling back to the pre-rename variable `legacy`."""
+    value = os.getenv(name)
+    if value is None and legacy:
+        value = os.getenv(legacy)
+    return default if value is None else value
+
+
+def state_path(new: str, legacy: str) -> str:
+    """Path of a renamed state file, migrating the legacy file on first use.
+
+    The new path wins when it exists (or when neither exists). Otherwise the
+    legacy file is renamed to the new path. A legacy SQLite database with a
+    -wal/-shm/-journal sidecar was not closed cleanly, so it is used where it is
+    rather than split from its journal; so is any file the rename fails on.
+    """
+    new, legacy = os.path.expanduser(new), os.path.expanduser(legacy)
+    if os.path.exists(new) or not os.path.exists(legacy):
+        return new
+    if any(os.path.exists(legacy + s) for s in _SQLITE_SIDECARS):
+        return legacy
+    try:
+        os.replace(legacy, new)
+        return new
+    except OSError:
+        return legacy
+
+
 class Config:
     """GUI Client Configuration"""
 
     # Server connection
-    CONTAINER_URL = os.getenv("DATANG_CONTAINER_URL", "http://localhost:8080")
+    CONTAINER_URL = env("SMARTT_CONTAINER_URL", "DATANG_CONTAINER_URL", "http://localhost:8080")
 
     # Window settings
     WINDOW_WIDTH = 800
     WINDOW_HEIGHT = 600
-    FULLSCREEN = os.getenv("DATANG_FULLSCREEN", "true").lower() == "true"
+    FULLSCREEN = env("SMARTT_FULLSCREEN", "DATANG_FULLSCREEN", "true").lower() == "true"
 
     # Animation settings
-    ENABLE_PULSE_ANIMATION = os.getenv("DATANG_ENABLE_PULSE", "true").lower() == "true"
-    PULSE_ANIMATION_FPS = int(os.getenv("DATANG_PULSE_FPS", "30"))
+    ENABLE_PULSE_ANIMATION = env("SMARTT_ENABLE_PULSE", "DATANG_ENABLE_PULSE", "true").lower() == "true"
+    PULSE_ANIMATION_FPS = int(env("SMARTT_PULSE_FPS", "DATANG_PULSE_FPS", "30"))

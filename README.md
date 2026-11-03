@@ -1,6 +1,11 @@
-# Datang Reader - RFID Attendance System
+# Smartt - RFID Attendance System
 
-Split-architecture RFID attendance tracking for Datang API with Docker deployment, offline queue support, and automated IDME portal submission.
+**Smartt** (Smart Attendance Record Tracking Tajuddin) is the school-owned
+attendance service; **Datang.my** is the vendor attendance API it reports taps
+to. Smartt was called "Datang Reader" until 2026-11 — see *Naming* in
+`CLAUDE.md` for the renamed container, files and settings.
+
+Split-architecture RFID attendance tracking for Datang.my API with Docker deployment, offline queue support, and automated IDME portal submission.
 
 ## Architecture
 
@@ -19,7 +24,7 @@ Split-architecture RFID attendance tracking for Datang API with Docker deploymen
 ┌─────────────────┐       ┌──────────────────────┐
 │  Docker Server  │  ←──  │  Tailscale Serve      │
 │  - HTTP API     │       │  (optional)           │
-│  - Auth Manager │       │  datang-reader.tailnet│
+│  - Auth Manager │       │  smartt.tailnet│
 │  - Offline Queue│       │  HTTPS on your tailnet│
 │  - IDME Module  │       └──────────────────────┘
 └────────┬────────┘
@@ -51,7 +56,7 @@ nano .env  # Configure credentials
 ```
 
 **Deployed:**
-- HTTP server on port 8080 (configurable via `DATANG_HOST_PORT` in `.env`)
+- HTTP server on port 8080 (configurable via `SMARTT_HOST_PORT` in `.env`)
 - Persistent data in `docker-data/`
 - Offline queue with auto-sync
 - IDME module (disabled by default, enable via `IDME_ENABLED=true`)
@@ -96,21 +101,21 @@ If the server is running on a machine connected to [Tailscale](https://tailscale
 
 ```bash
 cd server/
-./tailscale-serve-setup.sh              # Defaults: port 8081, service name "datang-reader"
+./tailscale-serve-setup.sh              # Defaults: port 8081, service name "smartt"
 ./tailscale-serve-setup.sh 8080         # Custom port
 ./tailscale-serve-setup.sh 8081 my-reader  # Custom port and service name
 ```
 
 Once configured, the server is reachable at:
 ```
-https://datang-reader.<your-tailnet>.ts.net
+https://smartt.<your-tailnet>.ts.net
 ```
 
 This uses `tailscale serve --service` to register a **named service** with its own DNS identity, separate from the machine's hostname. Useful when hosting multiple services on the same device.
 
 ```bash
 # Test from any device on your tailnet
-curl https://datang-reader.<your-tailnet>.ts.net/health
+curl https://smartt.<your-tailnet>.ts.net/health
 
 # Remove the service
 ./tailscale-serve-setup.sh --remove
@@ -131,13 +136,13 @@ Each component has its own `.env` file:
 
 **Server** (`server/.env`):
 ```env
-# Datang API
+# Datang.my API
 DATANG_API_BASE_URL=https://datang.my/api/reader/v1
 DATANG_READER_USERNAME=your_username
 DATANG_READER_PASSWORD=your_password
 DATANG_DEVICE_ID=docker-reader-01
 DATANG_MOCK_API=false
-DATANG_HOST_PORT=8080            # Host port (container always listens on 8080 internally)
+SMARTT_HOST_PORT=8080            # Host port (container always listens on 8080 internally)
 
 # IDME Module (optional)
 IDME_ENABLED=false               # Set true to enable IDME portal automation
@@ -156,8 +161,8 @@ IDME_TELEGRAM_PROMPT_TIME_EVENING=15:00  # When the bot prompts lower-form teach
 
 **Client** (`client/.env`):
 ```env
-DATANG_FULLSCREEN=true   # GUI fullscreen mode
-DATANG_ENABLE_PULSE=true # Breathing animation
+SMARTT_FULLSCREEN=true   # GUI fullscreen mode
+SMARTT_ENABLE_PULSE=true # Breathing animation
 ```
 
 **Security:**
@@ -176,7 +181,7 @@ DATANG_ENABLE_PULSE=true # Breathing animation
 ## Directory Structure
 
 ```
-datang-reader/
+smartt/
 ├── docker-data/          # Persistent data (auto-created)
 │   ├── token             # Authentication token
 │   ├── queue.db          # Offline queue (BACKUP THIS!)
@@ -191,11 +196,11 @@ datang-reader/
 │   ├── docker-compose.yml# Docker configuration
 │   ├── tailscale-serve-setup.sh  # Expose as Tailscale service
 │   ├── requirements.txt  # Server dependencies
-│   ├── datang_reader.py  # Server entry point
+│   ├── smartt.py  # Server entry point
 │   └── src/              # Server source code
 │       ├── http_server.py      # Flask HTTP API
 │       ├── service_manager.py  # Core orchestration
-│       ├── api_client.py       # Datang API client
+│       ├── api_client.py       # Datang.my API client
 │       ├── auth_manager.py     # Authentication
 │       ├── offline_queue.py    # SQLite queue
 │       ├── rfid_reader.py      # Serial RFID support
@@ -297,7 +302,7 @@ The IDME module automates absence submission to Malaysia's IDME/MOEIS portal. It
 ### How It Works
 
 ```
-RFID Scan → Datang API (unchanged)
+RFID Scan → Datang.my API (unchanged)
                │
                └──→ scan_tracker records scan locally
 
@@ -377,7 +382,7 @@ curl -X POST http://localhost:8080/idme/submit \
 
 ### Disabling
 
-Set `IDME_ENABLED=false` in `server/.env` and restart. The Datang reader continues working normally without the IDME module.
+Set `IDME_ENABLED=false` in `server/.env` and restart. The Smartt continues working normally without the IDME module.
 
 ---
 
@@ -431,7 +436,7 @@ cd client/ && ./run-console.sh --failed
 curl http://localhost:8080/failed
 
 # Directly in the SQLite database
-sqlite3 -column -header ~/.datang_reader_queue.db \
+sqlite3 -column -header ~/.smartt_queue.db \
   "SELECT id, card_id, timestamp, retry_count, last_error FROM attendance_queue WHERE status='failed';"
 ```
 
@@ -444,13 +449,13 @@ curl -X POST http://localhost:8080/sync
 
 ```bash
 # In server/.env
-DATANG_LOG_LEVEL=DEBUG
+SMARTT_LOG_LEVEL=DEBUG
 
 # Restart server
 cd server/ && docker compose restart
 
 # View GUI logs
-tail -f ~/.datang_reader.log
+tail -f ~/.smartt.log
 ```
 
 ---
@@ -495,23 +500,23 @@ credentials, and data directory. Edit `server/docker-compose.yml`:
 
 ```yaml
 services:
-  datang-reader-01:                        # Unique service name
-    container_name: datang-reader-01       # Unique container name
+  smartt-01:                        # Unique service name
+    container_name: smartt-01       # Unique container name
     ports:
       - "8080:8080"                        # Unique host port
     volumes:
-      - ../docker-data-01/token:/root/.datang_reader_token
-      - ../docker-data-01/queue.db:/root/.datang_reader_queue.db
+      - ../docker-data-01/token:/root/.smartt_token
+      - ../docker-data-01/queue.db:/root/.smartt_queue.db
       - ../docker-data-01/logs:/data/logs
     # ... rest of config
 
-  datang-reader-02:
-    container_name: datang-reader-02
+  smartt-02:
+    container_name: smartt-02
     ports:
       - "8081:8080"
     volumes:
-      - ../docker-data-02/token:/root/.datang_reader_token
-      - ../docker-data-02/queue.db:/root/.datang_reader_queue.db
+      - ../docker-data-02/token:/root/.smartt_token
+      - ../docker-data-02/queue.db:/root/.smartt_queue.db
       - ../docker-data-02/logs:/data/logs
     environment:
       - DATANG_READER_USERNAME=30370_reader79  # Different credentials
@@ -550,7 +555,7 @@ cd client/ && ./run-gui.sh --url http://localhost:8081  # Reader 02
 cd server/ && docker compose logs -f
 
 # GUI Client
-tail -f ~/.datang_reader.log
+tail -f ~/.smartt.log
 ```
 
 **Get help:**
@@ -563,4 +568,4 @@ tail -f ~/.datang_reader.log
 
 ## License
 
-Community-developed port of Datang Reader. Use in accordance with Datang's terms of service.
+Community-developed port of Smartt. Use in accordance with Datang.my's terms of service.

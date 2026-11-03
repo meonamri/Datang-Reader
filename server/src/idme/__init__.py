@@ -1,5 +1,5 @@
 """
-IDME Module for Datang-Reader
+IDME Module for Smartt
 
 Automated IDME portal attendance submission.
 Detects absent students from RFID scans and submits to MOEIS.

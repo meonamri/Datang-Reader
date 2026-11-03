@@ -34,7 +34,7 @@ class ServiceManager:
         self.running = False
 
         # Initialize components
-        logger.info("Initializing Datang Reader service...")
+        logger.info("Initializing Smartt service...")
 
         # RFID Reader
         self.rfid_reader = RFIDReader()
@@ -87,7 +87,7 @@ class ServiceManager:
         Returns:
             True if started successfully, False otherwise
         """
-        logger.info("Starting Datang Reader service...")
+        logger.info("Starting Smartt service...")
 
         # Validate configuration
         is_valid, errors = Config.validate()
@@ -119,7 +119,7 @@ class ServiceManager:
             return True
 
         # Authenticate with API
-        logger.info("Authenticating with Datang API...")
+        logger.info("Authenticating with Datang.my API...")
         if not self.auth_manager.ensure_authenticated():
             logger.error("Failed to authenticate with API")
             logger.error("Please check READER_USERNAME and READER_PASSWORD in configuration")
@@ -153,7 +153,7 @@ class ServiceManager:
 
     def stop(self):
         """Stop the service"""
-        logger.info("Stopping Datang Reader service...")
+        logger.info("Stopping Smartt service...")
         self.running = False
 
         if self.datang_mirror:
@@ -379,7 +379,7 @@ class ServiceManager:
         """
         logger.info("Running in console mode...")
         print("\n" + "="*60)
-        print("Datang Reader - Console Mode (HID Keyboard)")
+        print("Smartt - Console Mode (HID Keyboard)")
         print("="*60)
         print("Scan RFID cards (they will type the card ID automatically)")
         print("Press Ctrl+C to quit\n")

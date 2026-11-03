@@ -1,5 +1,5 @@
 -- IDME Module Database Schema
--- Separate database: idme_data.db (does NOT touch Datang's queue database)
+-- Separate database: idme_data.db (does NOT touch Datang.my's queue database)
 
 -- Student identity registry (seeded from the MOEIS portal and/or school Excel;
 -- learns RFID tags passively from the scan stream). See
@@ -33,8 +33,8 @@ CREATE INDEX IF NOT EXISTS idx_students_name ON students(name);
 CREATE TABLE IF NOT EXISTS unmatched_scans (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     card_id      TEXT NOT NULL,
-    scan_name    TEXT NOT NULL,      -- name Datang returned
-    scan_class   TEXT,              -- section Datang returned
+    scan_name    TEXT NOT NULL,      -- name Datang.my returned
+    scan_class   TEXT,              -- section Datang.my returned
     scan_date    DATE NOT NULL,
     reason       TEXT,              -- 'no_match' | 'ambiguous'
     resolved     BOOLEAN DEFAULT 0,  -- set when an admin maps/ignores it
@@ -78,12 +78,12 @@ CREATE TABLE IF NOT EXISTS telegram_auth_attempts (
 -- Daily scan records (populated as students tap RFID cards)
 CREATE TABLE IF NOT EXISTS daily_scans (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    student_name TEXT NOT NULL,             -- Name from Datang API response
-    class_name TEXT NOT NULL,               -- Section from Datang API response
+    student_name TEXT NOT NULL,             -- Name from Datang.my API response
+    class_name TEXT NOT NULL,               -- Section from Datang.my API response
     integration_tag TEXT,                   -- RFID card ID
     scan_time TEXT NOT NULL,                -- ISO format time
     scan_date DATE NOT NULL,                -- YYYY-MM-DD
-    datang_pid TEXT,                        -- person_id from Datang API
+    datang_pid TEXT,                        -- person_id from Datang.my API
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_scans_date ON daily_scans(scan_date);

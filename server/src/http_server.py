@@ -296,7 +296,7 @@ def run_http_server(host: str = '0.0.0.0', port: int = 8080, use_mock_api: bool 
 
     logger.info("HTTP server ready to accept card scans")
     print("\n" + "="*60)
-    print("Datang Reader - HTTP Server Mode")
+    print("Smartt - HTTP Server Mode")
     print("="*60)
     print(f"Listening on http://{host}:{port}")
     print("Endpoints:")
