@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS card_directory (
     class_name   TEXT NOT NULL,
     datang_pid   TEXT,
     source       TEXT NOT NULL,             -- 'datang' | 'history' | 'admin'
+    retired      INTEGER NOT NULL DEFAULT 0, -- 1 = lost/replaced card: refused at the reader
     first_seen   TIMESTAMP NOT NULL,
     last_seen    TIMESTAMP NOT NULL,
     updated_at   TIMESTAMP NOT NULL
@@ -81,6 +82,19 @@ CREATE TABLE IF NOT EXISTS attendance_events (
 );
 CREATE INDEX IF NOT EXISTS idx_attendance_events_date ON attendance_events(scan_date);
 CREATE INDEX IF NOT EXISTS idx_attendance_events_mirror ON attendance_events(mirror_status);
+
+-- Every change made on the /cards admin screen.
+CREATE TABLE IF NOT EXISTS card_audit (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    at         TIMESTAMP NOT NULL,
+    action     TEXT NOT NULL,               -- assign | retire
+    card_id    TEXT NOT NULL,
+    old_holder TEXT,                        -- "NAME (CLASS)" before the change
+    new_holder TEXT,                        -- "NAME (CLASS)" after the change
+    actor      TEXT,                        -- Tailscale login / typed name / client IP
+    note       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_card_audit_card ON card_audit(card_id);
 """
 
 # Plausibility window for a client-supplied tap time. Anything outside is kept
@@ -133,8 +147,10 @@ class LocalAttendanceStore:
     """Card directory + authoritative tap log on top of idme_data.db."""
 
     def __init__(self, db_path: str, mode: str = "shadow"):
-        if mode not in ("shadow", "local"):
-            raise ValueError(f"LocalAttendanceStore mode must be shadow|local, got {mode!r}")
+        # mode 'datang' = registry only (the /cards admin screen); taps are
+        # still answered by Datang.my.
+        if mode not in MODES:
+            raise ValueError(f"LocalAttendanceStore mode must be one of {MODES}, got {mode!r}")
         self.db_path = Path(db_path)
         self.mode = mode
         self._ensure_db()
@@ -216,10 +232,17 @@ class LocalAttendanceStore:
             conn.close()
 
     def resolve(self, card_id: str, conn: Optional[sqlite3.Connection] = None) -> Optional[Dict[str, Any]]:
-        """card -> {name, class_name, pid, idpelajar, via} or None."""
+        """card -> {name, class_name, pid, idpelajar, via} or None.
+        A retired card resolves to {'retired': True, ...} and must be refused."""
         own = conn is None
         conn = conn or self._conn()
         try:
+            retired = conn.execute(
+                "SELECT student_name, class_name FROM card_directory WHERE card_id = ? AND retired = 1",
+                (card_id,)).fetchone()
+            if retired:
+                return {"retired": True, "name": retired["student_name"],
+                        "class_name": retired["class_name"], "via": "retired"}
             rows = conn.execute(
                 "SELECT name, class_name, idpelajar FROM students "
                 "WHERE integration_tag = ? AND enabled = 1",
@@ -271,7 +294,9 @@ class LocalAttendanceStore:
                 status, note = "quarantined", f"implausible scanned_at {ts.isoformat()}"
             else:
                 who = self.resolve(card_id, conn)
-                if who is None:
+                if who is not None and who.get("retired"):
+                    status, note, who = "retired_card", f"retired card of {who['name']} ({who['class_name']})", None
+                elif who is None:
                     status = "unknown_card"
                     conn.execute(
                         "INSERT OR IGNORE INTO unmatched_scans "
@@ -332,6 +357,8 @@ class LocalAttendanceStore:
                     "data": datang_shaped(row["student_name"], row["class_name"], None, ts)}
         if status == "unknown_card":
             return {**base, "success": False, "message": "CARD_NOT_FOUND: Kad tidak didaftarkan"}
+        if status == "retired_card":
+            return {**base, "success": False, "message": "CARD_RETIRED: Kad ini telah dibatalkan - sila ke pejabat"}
         return {**base, "success": False, "message": f"Tap time rejected ({row['note'] or status})"}
 
     # ----------------------------------------------------------- shadow
@@ -349,6 +376,8 @@ class LocalAttendanceStore:
         conn = self._conn()
         try:
             who = self.resolve(card_id, conn)
+            if who is not None and who.get("retired"):
+                who = None
             conn.execute(
                 """INSERT INTO attendance_events
                    (event_id, card_id, reader_id, scanned_at, received_at, scan_date,

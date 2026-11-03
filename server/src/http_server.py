@@ -50,6 +50,9 @@ def create_app(use_mock_api: bool = False) -> tuple[Flask, ServiceManager]:
     # Initialize service manager
     service_manager = ServiceManager(use_mock_api=use_mock_api)
 
+    from .card_admin import create_cards_blueprint
+    app.register_blueprint(create_cards_blueprint(service_manager.card_store))
+
     from .request_log import RequestLog
     from .config import Config
     request_log = RequestLog(Config.DATABASE_FILE)

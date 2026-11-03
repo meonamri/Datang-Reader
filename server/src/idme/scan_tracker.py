@@ -172,7 +172,7 @@ class ScanTracker:
         conn = self._get_conn()
         try:
             rows = conn.execute(
-                "SELECT id, name, integration_tag FROM students "
+                "SELECT id, name, integration_tag, tag_source FROM students "
                 "WHERE class_name = ? AND enabled = 1",
                 (scan_class,)
             ).fetchall()
@@ -180,7 +180,12 @@ class ScanTracker:
 
             if len(matches) == 1:
                 m = matches[0]
-                if m['integration_tag'] != card_id:  # NULL or replaced card
+                if m['integration_tag'] != card_id and m['tag_source'] == 'admin' and m['integration_tag']:
+                    # An office admin set this card on the /cards screen; a
+                    # Datang.my name match must not silently undo that.
+                    self.logger.info(
+                        f"Not re-learning tag for student id={m['id']}: admin-assigned card kept")
+                elif m['integration_tag'] != card_id:  # NULL or replaced card
                     conn.execute(
                         "UPDATE students SET integration_tag = ?, "
                         "tag_source = 'learned', tag_updated_at = ? WHERE id = ?",

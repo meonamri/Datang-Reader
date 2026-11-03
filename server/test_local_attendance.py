@@ -115,7 +115,8 @@ def test_seed_from_history_uses_latest_and_never_overrides(tmp_path):
 
 def test_admin_directory_rows_are_not_overwritten(store):
     c = sqlite3.connect(store.db_path)
-    c.execute("INSERT INTO card_directory VALUES ('0000000050','FIXED','1 UM',NULL,'admin','t','t','t')")
+    c.execute("INSERT INTO card_directory (card_id, student_name, class_name, source, first_seen, last_seen, "
+              "updated_at) VALUES ('0000000050','FIXED','1 UM','admin','t','t','t')")
     c.commit()
     store.learn_from_datang("0000000050", {"name": "WRONG", "section": "9 X"})
     assert _q(store.db_path, "SELECT student_name, class_name, source FROM card_directory "

@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RFID cards - Datang Reader</title>
+<style>
+  /* Same paper/ink system as /idme/settings. */
+  :root {
+    --paper:#f3f2ec; --surface:#fbfaf6; --surface-2:#e9e7dd; --ink:#1a1916; --ink-2:#44423a; --ink-3:#706d62;
+    --line:#d7d4c8; --line-2:#c2bfb1; --red:#b3261e; --red-bg:#f4e3e0; --green:#1d6a3a; --green-bg:#e3ece2;
+    --amber:#8a5a00; --amber-bg:#f1e9d6;
+    --sans:'Helvetica Neue',Helvetica,Arial,'Segoe UI',Roboto,system-ui,sans-serif;
+    --mono:ui-monospace,'SF Mono','Cascadia Mono','Segoe UI Mono','Roboto Mono',Menlo,Consolas,monospace;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:var(--sans); background:var(--paper); color:var(--ink); line-height:1.5; padding:0 22px 80px; -webkit-font-smoothing:antialiased; }
+  .container { max-width:1180px; margin:0 auto; }
+  a { color:var(--red); }
+  button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline:2px solid var(--red); outline-offset:2px; }
+  .label { font-size:10.5px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; color:var(--ink-3); }
+  .mono, .num { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .mast { display:flex; align-items:flex-end; gap:16px; padding:26px 0 16px; border-bottom:2px solid var(--ink); }
+  .crest { width:46px; align-self:center; }
+  .mast h1 { font-size:25px; font-weight:800; letter-spacing:-.02em; line-height:1; }
+  .mast .sub { font-size:12px; color:var(--ink-3); margin-top:4px; }
+  .mast .right { margin-left:auto; text-align:right; font-size:13px; }
+  .stats { display:grid; grid-template-columns:repeat(5,1fr); gap:1px; background:var(--line); border:1px solid var(--line); margin-top:16px; }
+  .stat { background:var(--surface); padding:14px 18px; }
+  .stat .v { font-size:28px; font-weight:700; line-height:1; margin-top:6px; font-family:var(--mono); }
+  .stat .v.red { color:var(--red); } .stat .v.green { color:var(--green); }
+  .sechead { display:flex; align-items:center; gap:12px; margin:30px 0 10px; }
+  .sechead h2 { font-size:13px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; white-space:nowrap; }
+  .sechead .rule { flex:1; height:1px; background:var(--line-2); }
+  .panel { background:var(--surface); border:1px solid var(--line); padding:16px 18px; }
+  .hint { font-size:12.5px; color:var(--ink-3); }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th { text-align:left; font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-3); background:var(--surface-2); padding:7px 10px; border-bottom:1px solid var(--line-2); }
+  td { padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  td.actions { text-align:right; white-space:nowrap; }
+  .btn { font:inherit; font-size:12.5px; font-weight:700; padding:6px 12px; border:1px solid var(--ink); background:var(--surface); color:var(--ink); cursor:pointer; }
+  .btn:hover { background:var(--surface-2); }
+  .btn-primary { background:var(--ink); color:var(--paper); }
+  .btn-primary:hover { background:var(--ink-2); }
+  .btn-danger { border-color:var(--red); color:var(--red); }
+  .btn-sm { padding:3px 9px; font-size:11.5px; }
+  .chip { display:inline-block; padding:1px 7px; font-size:10.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; border:1px solid var(--line-2); color:var(--ink-3); }
+  .chip.red { color:var(--red); border-color:var(--red); background:var(--red-bg); }
+  .chip.green { color:var(--green); border-color:var(--green); background:var(--green-bg); }
+  .chip.amber { color:var(--amber); border-color:var(--amber); background:var(--amber-bg); }
+  input[type=text], select { font:inherit; font-size:14px; padding:7px 10px; border:1px solid var(--line-2); background:#fff; width:100%; }
+  .searchrow { display:flex; gap:10px; }
+  .searchrow input { flex:1; }
+  .empty { color:var(--ink-3); font-size:13px; padding:6px 0; }
+  .toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); padding:10px 18px; background:var(--ink); color:var(--paper); font-size:13.5px; display:none; z-index:20; max-width:90vw; }
+  .toast.err { background:var(--red); }
+  dialog { margin:auto; border:2px solid var(--ink); padding:0; width:min(560px,94vw); background:var(--surface); }
+  dialog::backdrop { background:rgba(26,25,22,.45); }
+  .dlg-head { padding:14px 18px; border-bottom:1px solid var(--line-2); font-weight:800; }
+  .dlg-body { padding:16px 18px; display:grid; gap:12px; }
+  .dlg-foot { padding:12px 18px; border-top:1px solid var(--line-2); display:flex; gap:10px; justify-content:flex-end; }
+  .pick { max-height:220px; overflow:auto; border:1px solid var(--line); }
+  .pick div { padding:6px 10px; cursor:pointer; border-bottom:1px solid var(--line); font-size:13.5px; }
+  .pick div:hover, .pick div.sel { background:var(--surface-2); }
+  .warnbox { border-left:4px solid var(--red); background:var(--red-bg); padding:9px 12px; font-size:13px; display:none; }
+  .tabs { display:flex; gap:6px; }
+  .tabs button { flex:1; }
+  .tabs button.on { background:var(--ink); color:var(--paper); }
+  @media (max-width:760px) { .stats { grid-template-columns:repeat(2,1fr); } td, th { padding:6px; } }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="mast">
+    <img class="crest" src="/idme/logo" alt="" onerror="this.style.display='none'">
+    <div>
+      <h1>RFID cards</h1>
+      <div class="sub">Who each card belongs to. Changes take effect on the next tap.</div>
+    </div>
+    <div class="right"><a href="/idme/settings">&larr; IDME settings</a><br><span class="label" id="mode"></span></div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="label">Roster students with a card</div><div class="v" id="s-roster">&ndash;</div></div>
+    <div class="stat"><div class="label">Roster students without</div><div class="v" id="s-without">&ndash;</div></div>
+    <div class="stat"><div class="label">Cards outside rosters</div><div class="v" id="s-dir">&ndash;</div></div>
+    <div class="stat"><div class="label">Retired cards</div><div class="v" id="s-retired">&ndash;</div></div>
+    <div class="stat"><div class="label">Unknown cards (14 days)</div><div class="v red" id="s-unknown">&ndash;</div></div>
+  </div>
+
+  <div class="sechead"><h2>Unknown cards tapped</h2><span class="rule"></span><button class="btn btn-sm" type="button" onclick="loadUnknown()">Refresh</button></div>
+  <div class="panel">
+    <p class="hint" style="margin-bottom:10px;">Cards a reader refused in the last 14 days. Assign each one to its student; the next tap is then recorded.</p>
+    <div id="unknown"></div>
+  </div>
+
+  <div class="sechead"><h2>Find a card, student or class</h2><span class="rule"></span></div>
+  <div class="panel">
+    <form class="searchrow" onsubmit="event.preventDefault(); runSearch();">
+      <input type="text" id="q" placeholder="Card number, part of a name, or an exact class such as 4 UKM" autocomplete="off">
+      <button class="btn btn-primary" type="submit">Search</button>
+    </form>
+    <div id="results" style="margin-top:12px;"></div>
+  </div>
+
+  <div class="sechead"><h2>Roster students without a card</h2><span class="rule"></span></div>
+  <div class="panel"><div id="without"></div></div>
+
+  <div class="sechead"><h2>Recent changes</h2><span class="rule"></span></div>
+  <div class="panel"><div id="audit"></div></div>
+</div>
+
+<dialog id="dlg">
+  <div class="dlg-head" id="dlg-title">Assign card</div>
+  <div class="dlg-body">
+    <div><div class="label">Card number</div><input type="text" id="d-card" inputmode="numeric" maxlength="10" placeholder="10 digits - tap it on a reader or type it"></div>
+    <div id="d-student-block">
+      <div class="label" style="margin-bottom:4px;">Student</div>
+      <div class="tabs"><button type="button" class="btn btn-sm on" id="t-roster" onclick="setTab('roster')">Find student</button><button type="button" class="btn btn-sm" id="t-new" onclick="setTab('new')">Not in any roster</button></div>
+      <div id="p-roster" style="margin-top:8px;">
+        <input type="text" id="d-find" placeholder="Type a name or class" autocomplete="off" oninput="findPeople()">
+        <div class="pick" id="d-pick"></div>
+      </div>
+      <div id="p-new" style="margin-top:8px; display:none; gap:8px;">
+        <input type="text" id="d-name" placeholder="Full name as on the school records">
+        <select id="d-class" style="margin-top:8px;"></select>
+      </div>
+    </div>
+    <div id="d-fixed" class="hint" style="display:none;"></div>
+    <div><div class="label">Note (optional)</div><input type="text" id="d-note" placeholder="e.g. replacement card, old one lost"></div>
+    <div><div class="label">Your name</div><input type="text" id="d-by" placeholder="Recorded in Recent changes"></div>
+    <div class="warnbox" id="d-warn"></div>
+  </div>
+  <div class="dlg-foot">
+    <button class="btn" type="button" onclick="closeDlg()">Cancel</button>
+    <button class="btn btn-primary" type="button" id="d-ok" onclick="submitAssign(false)">Assign</button>
+  </div>
+</dialog>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = t => t ? esc(String(t).replace('T', ' ').slice(0, 16)) : '<span class="hint">never</span>';
+let target = null;      // {student_id} | {name, class_name} | null
+let tab = 'roster';
+let classes = [];
+// Buttons never carry data in inline JS (names contain apostrophes, e.g.
+// NUR'AIN): each one gets an index into this registry instead.
+let ACTIONS = [];
+const act = fn => { ACTIONS.push(fn); return ACTIONS.length - 1; };
+document.addEventListener('click', e => {
+  const b = e.target.closest('button[data-act]');
+  if (b) ACTIONS[Number(b.dataset.act)]();
+});
+
+async function api(path, body) {
+  const opt = body ? {method:'POST', headers:{'Content-Type':'application/json','X-Requested-With':'cards-ui'}, body:JSON.stringify(body)} : {};
+  const r = await fetch(path, opt);
+  let j = {}; try { j = await r.json(); } catch (e) {}
+  return {status:r.status, body:j};
+}
+function toast(msg, err) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast' + (err ? ' err' : ''); t.style.display = 'block';
+  clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 4500);
+}
+
+async function loadSummary() {
+  const {body:s} = await api('/cards/api/summary');
+  document.getElementById('mode').textContent = 'Attendance mode: ' + (s.mode || '?');
+  document.getElementById('s-roster').textContent = `${s.roster_with_card}/${s.roster_students}`;
+  document.getElementById('s-without').textContent = s.roster_students - s.roster_with_card;
+  document.getElementById('s-dir').textContent = s.directory_only;
+  document.getElementById('s-retired').textContent = s.retired;
+  document.getElementById('s-unknown').textContent = s.unknown_cards_14d;
+  classes = s.classes || [];
+  document.getElementById('d-class').innerHTML = '<option value="">Choose a class</option>' +
+    classes.map(c => `<option>${esc(c)}</option>`).join('');
+}
+
+async function loadUnknown() {
+  const {body} = await api('/cards/api/unknown?days=14');
+  const rows = body.cards || [];
+  const el = document.getElementById('unknown');
+  if (!rows.length) { el.innerHTML = '<div class="empty">No unknown cards. (In "datang" mode taps are not logged here; switch to shadow or local.)</div>'; return; }
+  el.innerHTML = `<table><tr><th>Card</th><th>Taps</th><th>Last tap</th><th>Reader</th><th>Why</th><th></th></tr>` +
+    rows.map(r => `<tr><td class="mono">${esc(r.card_id)}</td><td class="num">${r.taps}</td><td>${fmt(r.last_tap)}</td><td>${esc(r.readers || '')}</td>
+      <td>${r.retired_holder ? `<span class="chip red">retired</span> ${esc(r.retired_holder)}` :
+           r.status === 'datang_rejected' ? '<span class="chip amber">Datang.my refused</span>' : '<span class="chip">not registered</span>'}</td>
+      <td class="actions"><button class="btn btn-sm btn-primary" data-act="${act(() => openAssign({card:r.card_id}))}">Assign</button></td></tr>`).join('') + '</table>';
+}
+
+function personRow(p) {
+  const state = p.retired ? '<span class="chip red">retired</span>' : p.card_id ? '<span class="chip green">active</span>' : '<span class="chip amber">no card</span>';
+  const who = p.student_id ? {student_id:p.student_id} : {name:p.name, class_name:p.class_name};
+  const label = `${p.name} (${p.class_name})`;
+  let actions = `<button class="btn btn-sm" data-act="${act(() => openAssign({who, label}))}">${p.card_id && !p.retired ? 'Replace card' : 'Assign card'}</button>`;
+  if (p.card_id && !p.retired) actions += ` <button class="btn btn-sm btn-danger" data-act="${act(() => retireCard(p.card_id, label))}">Retire</button>`;
+  return `<tr><td>${esc(p.name)}</td><td>${esc(p.class_name)}</td><td class="mono">${esc(p.card_id || '')}</td>
+    <td>${state} <span class="hint">${p.kind === 'roster' ? 'roster' : 'outside roster'}</span></td><td>${fmt(p.last_seen)}</td><td class="actions">${actions}</td></tr>`;
+}
+
+async function runSearch() {
+  const q = document.getElementById('q').value.trim();
+  const el = document.getElementById('results');
+  if (!q) { el.innerHTML = ''; return; }
+  const {body} = await api('/cards/api/search?q=' + encodeURIComponent(q));
+  const rows = body.results || [];
+  el.innerHTML = rows.length ? `<table><tr><th>Name</th><th>Class</th><th>Card</th><th>State</th><th>Last tap</th><th></th></tr>${rows.map(personRow).join('')}</table>`
+    : '<div class="empty">Nothing found. A card nobody has tapped yet can still be assigned with the "Assign" button on a student.</div>';
+}
+
+async function loadWithout() {
+  const {body} = await api('/cards/api/without-card');
+  const rows = body.students || [];
+  document.getElementById('without').innerHTML = rows.length ?
+    `<table><tr><th>Name</th><th>Class</th><th></th></tr>` + rows.map(s => {
+      const label = `${s.name} (${s.class_name})`;
+      return `<tr><td>${esc(s.name)}</td><td>${esc(s.class_name)}</td><td class="actions"><button class="btn btn-sm" data-act="${act(() => openAssign({who:{student_id:s.student_id}, label}))}">Assign card</button></td></tr>`;
+    }).join('') + '</table>' : '<div class="empty">Every roster student has a card.</div>';
+}
+
+async function loadAudit() {
+  const {body} = await api('/cards/api/audit');
+  const rows = body.changes || [];
+  document.getElementById('audit').innerHTML = rows.length ?
+    `<table><tr><th>When</th><th>Action</th><th>Card</th><th>From</th><th>To</th><th>By</th><th>Note</th></tr>` +
+    rows.map(a => `<tr><td>${fmt(a.at)}</td><td><span class="chip ${a.action === 'retire' ? 'red' : 'green'}">${esc(a.action)}</span></td>
+      <td class="mono">${esc(a.card_id)}</td><td>${esc(a.old_holder || '-')}</td><td>${esc(a.new_holder || '-')}</td><td>${esc(a.actor || '')}</td><td>${esc(a.note || '')}</td></tr>`).join('') + '</table>'
+    : '<div class="empty">No changes yet.</div>';
+}
+
+// ---------------------------------------------------------------- dialog
+function setTab(t) {
+  tab = t;
+  document.getElementById('t-roster').classList.toggle('on', t === 'roster');
+  document.getElementById('t-new').classList.toggle('on', t === 'new');
+  document.getElementById('p-roster').style.display = t === 'roster' ? 'block' : 'none';
+  document.getElementById('p-new').style.display = t === 'new' ? 'grid' : 'none';
+}
+function openAssign({card, who, label}) {
+  target = who || null;
+  document.getElementById('d-card').value = card || '';
+  document.getElementById('d-card').readOnly = !!card;
+  document.getElementById('d-note').value = '';
+  document.getElementById('d-by').value = localStorage.getItem('cards-by') || '';
+  document.getElementById('d-warn').style.display = 'none';
+  document.getElementById('d-ok').textContent = 'Assign';
+  document.getElementById('d-ok').onclick = () => submitAssign(false);
+  document.getElementById('d-student-block').style.display = who ? 'none' : 'block';
+  const fixed = document.getElementById('d-fixed');
+  fixed.style.display = who ? 'block' : 'none';
+  fixed.innerHTML = who ? `Student: <strong>${esc(label)}</strong>. Their current card, if any, will be retired.` : '';
+  document.getElementById('dlg-title').textContent = card ? `Assign card ${card}` : 'Assign a card';
+  document.getElementById('d-find').value = ''; document.getElementById('d-pick').innerHTML = '';
+  document.getElementById('d-name').value = ''; document.getElementById('d-class').value = '';
+  setTab('roster');
+  document.getElementById('dlg').showModal();
+  (card ? document.getElementById('d-find') : document.getElementById('d-card')).focus();
+}
+function closeDlg() { document.getElementById('dlg').close(); }
+
+let findTimer = null;
+function findPeople() {
+  clearTimeout(findTimer);
+  findTimer = setTimeout(async () => {
+    const q = document.getElementById('d-find').value.trim();
+    const pick = document.getElementById('d-pick');
+    if (q.length < 2) { pick.innerHTML = ''; return; }
+    const {body} = await api('/cards/api/search?q=' + encodeURIComponent(q));
+    const rows = (body.results || []).filter(p => !p.retired);
+    pick.innerHTML = rows.map((p, i) => `<div data-i="${i}">${esc(p.name)} <span class="hint">${esc(p.class_name)} &middot; ${p.card_id ? 'card ' + esc(p.card_id) : 'no card'}</span></div>`).join('')
+      || '<div class="hint">No match. Use "Not in any roster" if the student has no IDME class.</div>';
+    pick.querySelectorAll('div[data-i]').forEach(d => d.onclick = () => {
+      pick.querySelectorAll('div').forEach(x => x.classList.remove('sel'));
+      d.classList.add('sel');
+      const p = rows[Number(d.dataset.i)];
+      target = p.student_id ? {student_id:p.student_id} : {name:p.name, class_name:p.class_name};
+    });
+  }, 200);
+}
+
+async function submitAssign(force) {
+  const by = document.getElementById('d-by').value.trim();
+  if (by) localStorage.setItem('cards-by', by);
+  let who = target;
+  if (document.getElementById('d-student-block').style.display !== 'none') {
+    who = tab === 'new' ? {name:document.getElementById('d-name').value.trim(), class_name:document.getElementById('d-class').value}
+                        : (document.querySelector('#d-pick .sel') ? target : null);
+  }
+  if (!who) { toast('Choose a student first', true); return; }
+  const body = {card_id:document.getElementById('d-card').value.trim(), note:document.getElementById('d-note').value.trim(), by, force, ...who};
+  const {status, body:r} = await api('/cards/api/assign', body);
+  if (status === 409 && r.conflict) {
+    const w = document.getElementById('d-warn');
+    w.innerHTML = `This card currently belongs to <strong>${esc(r.conflict.name)} (${esc(r.conflict.class_name)})</strong>. Moving it leaves them with no card.`;
+    w.style.display = 'block';
+    const ok = document.getElementById('d-ok');
+    ok.textContent = 'Move card anyway'; ok.onclick = () => submitAssign(true);
+    return;
+  }
+  if (!r.ok) { toast(r.error || 'Could not assign the card', true); return; }
+  closeDlg();
+  toast(`Card ${r.card_id} now belongs to ${r.holder}` + (r.retired_previous.length ? ` (retired ${r.retired_previous.join(', ')})` : ''));
+  refreshAll();
+}
+
+async function retireCard(card, label) {
+  const note = prompt(`Retire card ${card} of ${label}? The reader will refuse it from now on.\n\nReason (optional):`, 'lost');
+  if (note === null) return;
+  const by = localStorage.getItem('cards-by') || prompt('Your name (recorded in Recent changes):') || '';
+  const {body:r} = await api('/cards/api/retire', {card_id:card, note, by});
+  if (!r.ok) { toast(r.error || 'Could not retire the card', true); return; }
+  toast(`Card ${card} retired`);
+  refreshAll();
+}
+
+function refreshAll() { ACTIONS = []; loadSummary(); loadUnknown(); loadWithout(); loadAudit(); if (document.getElementById('q').value.trim()) runSearch(); }
+refreshAll();
+</script>
+</body>
+</html>

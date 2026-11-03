@@ -60,9 +60,9 @@ class ServiceManager:
         self.attendance_mode = mode_from_env()
         self.local_attendance: Optional[LocalAttendanceStore] = None
         self.datang_mirror: Optional[DatangMirror] = None
+        self._card_store: Optional[LocalAttendanceStore] = None
         if self.attendance_mode != "datang":
-            db_path = os.getenv("ATTENDANCE_DB_PATH") or os.getenv(
-                "IDME_DATABASE_PATH", "/data/idme/idme_data.db")
+            db_path = self._attendance_db_path()
             try:
                 self.local_attendance = LocalAttendanceStore(db_path, mode=self.attendance_mode)
                 self.local_attendance.seed_from_history()
@@ -134,6 +134,22 @@ class ServiceManager:
         self.running = True
         logger.info("Service started successfully")
         return True
+
+    @staticmethod
+    def _attendance_db_path() -> str:
+        return os.getenv("ATTENDANCE_DB_PATH") or os.getenv(
+            "IDME_DATABASE_PATH", "/data/idme/idme_data.db")
+
+    def card_store(self) -> LocalAttendanceStore:
+        """Card registry for the /cards admin screen. In 'datang' mode it is
+        built on first use and only edits cards; Datang.my still answers taps."""
+        if self.local_attendance is not None:
+            return self.local_attendance
+        if self._card_store is None:
+            store = LocalAttendanceStore(self._attendance_db_path(), mode="datang")
+            store.seed_from_history()
+            self._card_store = store
+        return self._card_store
 
     def stop(self):
         """Stop the service"""
