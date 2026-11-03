@@ -69,6 +69,9 @@
         .mast h1 { font-size: 25px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
         .mast .sub { font-size: 12px; color: var(--ink-3); margin-top: 4px; }
         .mast .right { margin-left: auto; text-align: right; }
+        .mast .cutoffs { display: flex; gap: 16px; justify-content: flex-end; margin-top: 2px; }
+        .mast .cut .num { font-size: 18px; font-weight: 700; line-height: 1.2; }
+        .mast .cut .cf { font-size: 10px; font-weight: 600; color: var(--ink-3); letter-spacing: 0.04em; margin-left: 5px; }
 
         /* ---- Mode banner (server-rendered; survives a JS failure) ---- */
         .banner {
@@ -87,26 +90,23 @@
         .banner-locked { border-left-color: var(--red); background: var(--red-bg); }
         .banner-locked .mode { color: var(--red); }
 
-        /* ---- Overview stat strip (hairline-divided cells) ---- */
+        /* ---- Today block: run cards + one stat strip ---- */
+        .today { margin-top: 18px; }
+        .today-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+        .today-head .opchip { margin-left: auto; }
         .stats {
             display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
-            background: var(--line); border: 1px solid var(--line); margin-top: 16px;
+            background: var(--line); border: 1px solid var(--line); border-top: none;
             box-shadow: 0 1px 2px rgba(48,42,30,0.04), 0 2px 8px rgba(48,42,30,0.05);
         }
-        .stat { background: var(--surface); padding: 14px 18px; }
-        .stat .v { font-size: 28px; font-weight: 700; line-height: 1; margin-top: 6px; font-family: var(--mono); font-variant-numeric: tabular-nums; }
-        .stat .v.green { color: var(--green); }
+        .runstrip[style*="none"] + .stats { border-top: 1px solid var(--line); }
+        .stat { background: var(--surface); padding: 12px 18px; }
+        .stat .v { font-size: 24px; font-weight: 700; line-height: 1; margin-top: 6px; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+        .stat .v .green { color: var(--green); }
+        .stat .v .of { font-size: 11.5px; font-weight: 500; color: var(--ink-3); margin-left: 6px; font-family: var(--sans); }
 
-        /* ---- Operational summary ---- */
-        .opsum {
-            display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-            padding: 12px 18px; border: 1px solid var(--line); border-top: none;
-            background: var(--surface); font-size: 13.5px; color: var(--ink-2);
-        }
-        .opsum strong { color: var(--ink); font-weight: 700; }
-        .opsum .sep { width: 1px; height: 15px; background: var(--line-2); }
         .opchip {
-            margin-left: auto; display: inline-flex; align-items: center; gap: 8px;
+            display: inline-flex; align-items: center; gap: 8px;
             padding: 4px 11px; font-size: 11.5px; font-weight: 700; letter-spacing: 0.03em;
             border: 1px solid var(--line-2); text-transform: uppercase;
         }
@@ -120,7 +120,6 @@
 
         /* ---- Daily-run status (per-session fire outcome, from the
            submissions log; date-scoped to today) ---- */
-        .runcap { margin: 18px 0 8px 2px; }
         .runstrip {
             display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
             gap: 1px; background: var(--line); border: 1px solid var(--line);
@@ -177,19 +176,30 @@
         .opnote .codes { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 5px; }
         .opnote code { font-family: var(--mono); background: rgba(138,90,0,0.10); color: var(--amber); padding: 1px 6px; font-size: 12px; }
 
-        /* ---- Section heading ---- */
-        .sechead { display: flex; align-items: baseline; gap: 12px; margin: 30px 0 14px; }
-        .sechead h2 { font-size: 13px; font-weight: 800; letter-spacing: 0.13em; text-transform: uppercase; }
-        .sechead .rule { flex: 1; height: 1px; background: var(--line-2); }
-
-        /* ---- View switch (segmented) ---- */
-        .switch { display: inline-flex; border: 1px solid var(--ink); margin-top: 22px; }
-        .switch button {
-            font: inherit; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
-            padding: 8px 20px; border: none; background: var(--surface); color: var(--ink); cursor: pointer;
+        /* ---- Main tab bar ---- */
+        .tabbar {
+            display: flex; gap: 2px; margin-top: 26px; border-bottom: 2px solid var(--ink);
+            overflow-x: auto; scrollbar-width: none;
         }
-        .switch button + button { border-left: 1px solid var(--ink); }
-        .switch button.on { background: var(--ink); color: var(--paper); }
+        .tabbar::-webkit-scrollbar { display: none; }
+        .tabbar button {
+            font: inherit; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+            padding: 10px 18px 9px; border: 1px solid transparent; border-bottom: none;
+            background: none; color: var(--ink-3); cursor: pointer; white-space: nowrap;
+            display: inline-flex; align-items: center; gap: 7px;
+        }
+        .tabbar button:hover { color: var(--ink); }
+        .tabbar button.on { background: var(--ink); color: var(--paper); }
+        .tabbar .tcnt { font-size: 11px; padding: 0 5px; background: var(--surface-2); color: var(--ink-3); letter-spacing: 0; }
+        .tabbar button.on .tcnt { background: rgba(255,255,255,0.18); color: var(--paper); }
+
+        /* ---- Per-view intro row: one line of help + the view's actions ---- */
+        .viewhead { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 16px 0 14px; }
+        .viewhead .hint { flex: 1; min-width: 260px; color: var(--ink-2); font-size: 12.5px; line-height: 1.55; }
+        .viewhead .vh-actions { display: flex; align-items: center; gap: 8px; }
+        .addpanel { margin-bottom: 14px; border-left: 3px solid var(--ink); }
+        .col-split { border-left: 1px solid var(--line); padding-left: 18px; }
+        .legend { margin-left: auto; font-size: 11.5px; color: var(--ink-3); }
 
         /* ---- Tabs + filters ---- */
         .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 16px 0 16px; }
@@ -211,7 +221,7 @@
         .filter.on { background: var(--red); color: #fff; border-color: var(--red); }
 
         /* ---- Class card grid ---- */
-        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+        .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
         .ccard {
             background: var(--surface); border: 1px solid var(--line-2); padding: 15px 16px;
             /* warm-tinted shadow (not pure black) so cards lift off the paper */
@@ -228,18 +238,17 @@
             .ccard { transition: none; }
             .ccard:hover { transform: none; }
         }
-        .ccard .top { display: flex; align-items: center; gap: 9px; }
+        .ccard .top { display: flex; align-items: center; gap: 9px; min-width: 0; }
+        /* Status chips (cutoff, roster sync, today's run) wrap on their own row
+           so a busy card never forces the grid wider than the page. */
+        .ccard .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
         .ccard .sdot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
         .ccard .code { font-family: var(--mono); font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
-        /* Right-aligned group holding the optional run-status chip + the
-           onboarded badge. The group is pushed right; children sit adjacent. */
-        .ccard .trgroup { margin-left: auto; display: flex; align-items: center; gap: 7px; }
-        .ccard .trgroup .badge { margin-left: 0; }
         .ccard .badge {
             margin-left: auto; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
             padding: 2px 8px; border: 1px solid var(--line-2); white-space: nowrap;
         }
-        /* Today's run outcome, to the left of the onboarded badge. */
+        /* Today's run outcome. */
         .ccard .runchip {
             font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
             padding: 2px 8px; border: 1px solid var(--line-2); white-space: nowrap;
@@ -279,7 +288,8 @@
         .firstrun h3 { font-size: 17px; font-weight: 800; margin-bottom: 8px; }
         .firstrun p { max-width: 58ch; margin: 0 auto 18px; font-size: 13.5px; color: var(--ink-2); line-height: 1.6; }
         .steps { display: inline-flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
-        .step { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; padding: 7px 13px; border: 1px solid var(--line-2); background: var(--surface); }
+        .step { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; padding: 7px 13px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); text-decoration: none; }
+        a.step:hover { border-color: var(--ink); }
         .step .n { width: 18px; height: 18px; background: var(--ink); color: var(--paper); font-family: var(--mono); font-size: 11px; display: flex; align-items: center; justify-content: center; }
 
         /* ---- Panels / cards ---- */
@@ -334,6 +344,7 @@
         .btn-danger { border-color: var(--red); color: var(--red); }
         .btn-danger:hover { background: var(--red); color: #fff; }
         .btn-sm { padding: 4px 10px; font-size: 12px; }
+        .btn-quiet { border-color: var(--line-2); }
         .chip-btn { padding: 4px 10px; font-size: 12px; font-weight: 700; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink-2); cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 6px; }
         .chip-btn.ok   { color: var(--green); border-color: var(--green); background: var(--green-bg); }
         .chip-btn.warn { color: var(--amber); border-color: var(--amber); background: var(--amber-bg); }
@@ -407,14 +418,21 @@
         .log-spin { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 13px; }
 
         .hidden { display: none; }
+        #alert-area:not(:empty) { margin-top: 16px; }
 
         @media (max-width: 820px) {
             .stats { grid-template-columns: repeat(2, 1fr); }
             .grid { grid-template-columns: 1fr 1fr; }
             .cols2 { grid-template-columns: 1fr; }
+            .col-split { border-left: none; padding-left: 0; border-top: 1px solid var(--line); padding-top: 14px; }
         }
         @media (max-width: 600px) {
             .grid { grid-template-columns: 1fr; }
+            .mast { flex-wrap: wrap; }
+            .mast .right { margin-left: 0; text-align: left; width: 100%; }
+            .mast .cutoffs { justify-content: flex-start; }
+            .tabbar button { padding: 9px 12px 8px; letter-spacing: 0.06em; }
+            .legend { margin-left: 0; }
             .edit-box .grid2 { grid-template-columns: 1fr; }
             .covrow { grid-template-columns: 1fr; gap: 4px; }
             table thead { display: none; }
@@ -436,15 +454,15 @@
             <div>
                 <div class="wordmark">SMKSAT</div>
                 <h1>IDME Settings</h1>
-                <div class="sub">MOEIS attendance &middot; teachers, roster &amp; daily run state</div>
+                <div class="sub">MOEIS attendance &middot; teachers, rosters &amp; daily run</div>
             </div>
             <div class="right">
                 <div class="label">Cutoffs</div>
+                <div class="cutoffs">
                 {% for s in sessions %}
-                <div class="num" style="font-size:18px; font-weight:700; line-height:1.3;">{{ s.cutoff }}
-                    <span style="font-size:10px; font-weight:600; color:var(--ink-3); letter-spacing:0.04em;">{{ s.forms_label }}</span>
-                </div>
+                    <div class="cut"><span class="num">{{ s.cutoff }}</span><span class="cf">{{ s.forms_label }}</span></div>
                 {% endfor %}
+                </div>
             </div>
         </header>
 
@@ -453,74 +471,63 @@
         <div class="banner banner-off">
             <div class="body">
                 <div class="mode">MODULE OFF</div>
-                <div class="desc">IDME is disabled (IDME_ENABLED=false). Nothing is submitted to MOEIS. Settings below are saved but inert until enabled.</div>
+                <div class="desc">IDME is disabled (IDME_ENABLED=false). Nothing is submitted to MOEIS; settings are saved but inert until enabled.</div>
             </div>
         </div>
         {% elif overview.config.scheduler_confirm %}
         <div class="banner banner-locked">
             <div class="body">
                 <div class="mode">AUTO-CONFIRM &middot; LOCKS RECORDS</div>
-                <div class="desc">The daily run <strong>locks records (TELAH DISAHKAN)</strong> unattended - hard to reverse. Every onboarded class is submitted and confirmed automatically at its session cutoff.</div>
+                <div class="desc">Each session cutoff submits and <strong>locks (TELAH DISAHKAN)</strong> every onboarded class unattended - hard to reverse.</div>
             </div>
-            <div class="fire" id="next-fire" data-next="{{ overview.scheduler.next_run if overview.scheduler else '' }}">cutoffs {{ sessions|map(attribute='cutoff')|join(' / ') }}</div>
+            <div class="fire" id="next-fire" data-next="{{ overview.scheduler.next_run if overview.scheduler else '' }}"></div>
         </div>
         {% else %}
         <div class="banner banner-draft">
             <div class="body">
                 <div class="mode">DRAFT &middot; LIVE</div>
-                <div class="desc">The daily run saves re-editable <strong>drafts (MENUNGGU PENGESAHAN)</strong> for a human to confirm each session. Safe default - nothing is locked automatically.</div>
+                <div class="desc">Each session cutoff saves re-editable <strong>drafts (MENUNGGU PENGESAHAN)</strong> for a human to confirm. Nothing is locked automatically.</div>
             </div>
-            <div class="fire" id="next-fire" data-next="{{ overview.scheduler.next_run if overview.scheduler else '' }}">cutoffs {{ sessions|map(attribute='cutoff')|join(' / ') }}</div>
+            <div class="fire" id="next-fire" data-next="{{ overview.scheduler.next_run if overview.scheduler else '' }}"></div>
         </div>
         {% endif %}
 
-        <!-- ===== Daily-run status (per-session fire outcome, today) =====
+        <!-- ===== Today: per-session run outcome + summary =====
              Server-rendered so it survives a JS failure; renderLastFire()
-             rebuilds the same markup on refresh. -->
-        {% if overview.last_fire %}
-        <div class="runcap-row" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-            <div class="label runcap" style="margin:0;">Daily run &middot; today</div>
-            <button class="btn btn-sm" id="submit-remaining" type="button" style="border-color:var(--line-2);"
-                    title="Log in to MOEIS now and submit every onboarded class not already recorded today. Cannot override the portal's own non-school-day verdict.">Submit remaining</button>
-        </div>
-        <div class="runstrip" id="run-strip">
-            {% for f in overview.last_fire %}
-            <div class="runcard run-{{ f.status }}"{% if f.message %} title="{{ f.message }}"{% endif %}>
-                <span class="rc-dot"></span>
-                <div class="rc-main">
-                    <div class="rc-sess">{{ f.forms_label }} &middot; {{ f.label }}</div>
-                    <div class="rc-line"><span class="rc-head">{{ f.headline }}</span><span class="rc-detail">{{ f.detail }}</span></div>
-                    {% if f.status in ('failed', 'partial') and f.message %}<div class="rc-err">{{ f.message }}</div>{% endif %}
-                </div>
-                <span class="rc-cut">{{ f.cutoff }}</span>
+             rebuilds the same run-card markup on refresh. -->
+        {% set sm = overview.summary %}
+        <div class="today">
+            <div class="today-head">
+                <span class="label">Today</span>
+                <span class="opchip {{ 'bad' if (sm.misfires or sm.unclassified) else ('warn' if (sm.no_teacher or sm.unrostered) else 'ok') }}" id="op-issue">
+                    <span class="dot"></span>
+                    <span id="op-issue-text">{% if sm.misfires %}{{ sm.misfires }} misfire{% if sm.no_teacher %} &middot; {{ sm.no_teacher }} no teacher{% endif %}{% elif sm.unclassified %}{{ sm.unclassified }} no session{% elif sm.no_teacher %}{{ sm.no_teacher }} need a teacher{% elif sm.unrostered %}{{ sm.unrostered }} unrostered{% else %}all aligned{% endif %}</span>
+                </span>
+                <button class="btn btn-sm btn-quiet" id="submit-remaining" type="button"
+                        title="Log in to MOEIS now and submit every onboarded class not already recorded today. Cannot override the portal's own non-school-day verdict.">Submit remaining</button>
             </div>
-            {% endfor %}
-        </div>
-        {% endif %}
-
-        <!-- ===== Overview stat strip ===== -->
-        <div class="stats">
-            <div class="stat"><div class="label">Teachers</div><div class="v" id="stat-teachers">{{ teachers|length }}</div></div>
-            <div class="stat"><div class="label">Students</div><div class="v" id="stat-students">{{ total_students }}</div></div>
-            <div class="stat"><div class="label">Classes</div><div class="v" id="stat-classes">{{ total_classes }}</div></div>
-            <div class="stat"><div class="label">Onboarded</div><div class="v green" id="stat-onboarded">{{ overview.summary.onboarded }}</div></div>
-            <div class="stat"><div class="label">Roster current</div><div class="v green" id="stat-roster-current">{{ overview.summary.roster_sync_current }}</div></div>
-        </div>
-
-        <!-- ===== Operational summary ===== -->
-        <div class="opsum" id="op-summary">
-            <span class="label">At cutoffs {{ sessions|map(attribute='cutoff')|join(' / ') }}</span>
-            <span><strong class="num" id="op-absent">{{ overview.summary.absent_today }}</strong> marked absent across <strong class="num" id="op-sending">{{ overview.summary.onboarded }}</strong> submitting classes</span>
-            <span class="sep"></span>
-            <span><strong class="num" id="op-coverage">{{ overview.summary.coverage_pct }}%</strong> tag coverage</span>
-            {% set sm = overview.summary %}
-            <span class="opchip {{ 'bad' if (sm.misfires or sm.unclassified) else ('warn' if (sm.no_teacher or sm.unrostered) else 'ok') }}" id="op-issue">
-                <span class="dot"></span>
-                <span id="op-issue-text">{% if sm.misfires %}{{ sm.misfires }} misfire{% if sm.no_teacher %} &middot; {{ sm.no_teacher }} no teacher{% endif %}{% elif sm.unclassified %}{{ sm.unclassified }} no session{% elif sm.no_teacher %}{{ sm.no_teacher }} need a teacher{% elif sm.unrostered %}{{ sm.unrostered }} unrostered{% else %}all aligned{% endif %}</span>
-            </span>
+            <div class="runstrip" id="run-strip"{% if not overview.last_fire %} style="display:none;"{% endif %}>
+                {% for f in overview.last_fire %}
+                <div class="runcard run-{{ f.status }}"{% if f.message %} title="{{ f.message }}"{% endif %}>
+                    <span class="rc-dot"></span>
+                    <div class="rc-main">
+                        <div class="rc-sess">{{ f.forms_label }} &middot; {{ f.label }}</div>
+                        <div class="rc-line"><span class="rc-head">{{ f.headline }}</span><span class="rc-detail">{{ f.detail }}</span></div>
+                        {% if f.status in ('failed', 'partial') and f.message %}<div class="rc-err">{{ f.message }}</div>{% endif %}
+                    </div>
+                    <span class="rc-cut">{{ f.cutoff }}</span>
+                </div>
+                {% endfor %}
+            </div>
+            <div class="stats">
+                <div class="stat"><div class="label">Onboarded</div><div class="v"><span class="green" id="stat-onboarded">{{ sm.onboarded }}</span><span class="of">/ <span id="stat-classes">{{ total_classes }}</span> classes</span></div></div>
+                <div class="stat"><div class="label">Absent today</div><div class="v" id="op-absent">{{ sm.absent_today }}</div></div>
+                <div class="stat"><div class="label">Roster current</div><div class="v"><span class="green" id="stat-roster-current">{{ sm.roster_sync_current }}</span><span class="of">classes</span></div></div>
+                <div class="stat"><div class="label">Tag coverage</div><div class="v"><span id="op-coverage">{{ sm.coverage_pct }}%</span><span class="of"><span id="stat-students">{{ total_students }}</span> students</span></div></div>
+            </div>
         </div>
 
-        <!-- ===== Misfire alert: the genuine silent-misfire surface ===== -->
+        <!-- ===== Attention: only rendered when something needs fixing ===== -->
         {% if overview.orphan_teachers %}
         <div class="misfire">
             <span class="hz">&#9650; MISFIRE</span>
@@ -529,8 +536,6 @@
                 Fix the class string to exactly match a roster class, or initialise that roster.</div>
         </div>
         {% endif %}
-
-        <!-- ===== Unclassified: onboarded but maps to no session (never submitted) ===== -->
         {% if overview.unclassified_classes %}
         <div class="misfire">
             <span class="hz">&#9650; NO SESSION</span>
@@ -539,50 +544,85 @@
                 Check the class string starts with the form number.</div>
         </div>
         {% endif %}
-
-        <!-- ===== Unrostered scans: expected during gradual onboarding ===== -->
         {% if overview.orphan_sections %}
         <div class="opnote">
             <span class="lbl">Unrostered</span>
-            <div class="txt"><strong>{{ overview.orphan_sections|length }} section(s)</strong> are scanning with no imported roster yet - those taps count toward no class. Expected during gradual onboarding; initialise their rosters below to start submitting them.
+            <div class="txt"><strong>{{ overview.orphan_sections|length }} section(s)</strong> are scanning with no imported roster yet - those taps count toward no class. Expected during gradual onboarding; initialise them from the <a href="#rosters" class="js-goto" data-view="rosters">Rosters</a> tab.
                 <div class="codes">{% for s in overview.orphan_sections %}<code>{{ s }}</code>{% endfor %}</div>
             </div>
         </div>
         {% endif %}
 
-        <!-- ===== Alert area (transient JS alerts) ===== -->
-        <div id="alert-area" style="margin-top:16px;"></div>
+        <!-- ===== Transient JS alerts ===== -->
+        <div id="alert-area"></div>
 
-        <!-- ===== View switch ===== -->
-        <div class="switch" role="tablist">
-            <button id="view-classes-btn" class="on" type="button">Classes</button>
-            <button id="view-teachers-btn" type="button">Teachers</button>
-        </div>
+        <!-- ===== Tabs ===== -->
+        <nav class="tabbar" role="tablist">
+            <button id="view-classes-btn" class="on" type="button" data-view="classes" role="tab">Classes</button>
+            <button id="view-teachers-btn" type="button" data-view="teachers" role="tab">Teachers <span class="tcnt num" id="stat-teachers">{{ teachers|length }}</span></button>
+            <button id="view-rosters-btn" type="button" data-view="rosters" role="tab">Rosters</button>
+            <button id="view-cards-btn" type="button" data-view="cards" role="tab">Cards</button>
+            <button id="view-history-btn" type="button" data-view="history" role="tab">History</button>
+        </nav>
 
-        <!-- =========================================================
-             CLASSES VIEW
-             ========================================================= -->
-        <section id="view-classes">
+        <!-- ===== CLASSES ===== -->
+        <section id="view-classes" class="view">
             <div class="controls" id="class-controls">
                 <div class="tabs" id="form-tabs"></div>
                 <button class="filter" id="issues-toggle" type="button">&#9650; Issues only</button>
-                <button class="btn btn-sm" id="refresh-overview" type="button" style="border-color:var(--line-2);">Refresh</button>
+                <button class="btn btn-sm btn-quiet" id="refresh-overview" type="button">Refresh</button>
             </div>
             <div id="class-grid" class="grid"><div class="empty">Loading classes&hellip;</div></div>
         </section>
 
-        <!-- =========================================================
-             TEACHERS VIEW
-             ========================================================= -->
-        <section id="view-teachers" class="hidden">
+        <!-- ===== TEACHERS ===== -->
+        <section id="view-teachers" class="view hidden">
+            <div class="viewhead">
+                <p class="hint">A class is onboarded once it has an enabled teacher whose class string exactly matches a roster class. A verified login is trusted for 12 hours, then shows <strong>Re-test</strong>.</p>
+                <button class="btn btn-sm btn-primary" id="add-toggle" type="button" aria-expanded="false">+ Add teachers</button>
+            </div>
+
+            <div class="panel addpanel hidden" id="add-panel">
+                <div class="cols2">
+                    <div>
+                        <h3>Add one teacher</h3>
+                        <form id="add-teacher-form" style="margin-top:12px;">
+                            <div class="row">
+                                <div class="field"><label>Full name</label><input type="text" id="teacher-name" required placeholder="CIKGU AHMAD BIN ALI"></div>
+                                <div class="field" style="flex:0 0 130px;"><label>Class</label><input type="text" id="teacher-class" class="mono" required placeholder="5 UKM"><div class="fhint" id="class-hint"></div></div>
+                            </div>
+                            <div class="row">
+                                <div class="field"><label>IC number (12 digits)</label><input type="text" id="teacher-ic" class="mono" required pattern="\d{12}" placeholder="980331026309" maxlength="12" inputmode="numeric"><div class="fhint" id="ic-hint"></div></div>
+                                <div class="field">
+                                    <label>MOEIS password</label>
+                                    <div class="pw-wrap">
+                                        <input type="password" id="teacher-password" required placeholder="Portal password" style="padding-right:50px;">
+                                        <button type="button" class="pw-toggle" data-target="teacher-password">Show</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary" id="add-teacher-btn">Add teacher</button>
+                            <div class="lock-note"><span style="color:var(--red);">&#128274;</span> Stored Fernet-encrypted &middot; used only to log in to MOEIS at cutoff.</div>
+                        </form>
+                    </div>
+                    <div class="col-split">
+                        <h3>Import from Google Form</h3>
+                        <form id="bulk-teacher-form" style="margin-top:12px;">
+                            <div class="field"><label>Responses sheet (.xlsx)</label><input type="file" id="bulk-teacher-file" accept=".xlsx,.xls" required></div>
+                            <p class="hint">The downloaded <span class="mono">Password &amp; Username IDME (Responses)</span> sheet; columns are matched by header (<span class="mono">Nama Penuh</span>, <span class="mono">Kelas</span>, <span class="mono">Nombor IC</span>, <span class="mono">Password IDME</span>). ICs already on file are skipped, so re-uploading only adds new teachers.</p>
+                            <button type="submit" class="btn" id="bulk-teacher-btn" style="margin-top:12px;">Upload &amp; add all</button>
+                            <div id="bulk-teacher-result" style="margin-top:14px;"></div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
             {% if teachers %}
             <div class="panel">
                 <div class="panel-head">
-                    <h3>Teachers</h3>
-                    <span class="pill grey num">{{ teachers|length }}</span>
-                    <input type="text" id="teacher-search" placeholder="Search name or class&hellip;" style="margin-left:auto; width:240px; max-width:50vw;">
+                    <input type="text" id="teacher-search" placeholder="Search name or class&hellip;" style="width:260px; max-width:100%;">
+                    <span class="legend">Class in <span class="mono" style="color:var(--red);">red</span> = no roster match, submits nothing</span>
                 </div>
-                <div class="hint" style="margin-bottom:12px;">A verified login is trusted for 12 hours, then shows <strong>Re-test</strong> and must be probed again. A class string in <span class="mono" style="color:var(--red);">red</span> matches no roster - that teacher submits nothing.</div>
                 <table>
                     <thead>
                         <tr>
@@ -627,89 +667,72 @@
             {% else %}
             <div class="firstrun">
                 <h3>No teachers yet</h3>
-                <p>Add your first teacher below. Each one needs their MOEIS IC and password so IDME can log in and submit their class at cutoff.</p>
+                <p>Each class needs a teacher's MOEIS IC and password so IDME can log in and submit it at cutoff. Use <strong>+ Add teachers</strong> above.</p>
             </div>
             {% endif %}
         </section>
 
-        <!-- ===== Secondary tools ===== -->
-        <div class="sechead"><h2>Onboarding tools</h2><span class="rule"></span></div>
-        <div class="cols2">
-            <!-- Add teacher -->
-            <div class="panel">
-                <h3>Add a teacher</h3>
-                <p class="hint">Onboard a class by giving it an enabled teacher. The class string must exactly match a roster class.</p>
-                <form id="add-teacher-form" style="margin-top:14px;">
-                    <div class="row">
-                        <div class="field"><label>Full name</label><input type="text" id="teacher-name" required placeholder="CIKGU AHMAD BIN ALI"></div>
-                        <div class="field" style="flex:0 0 130px;"><label>Class</label><input type="text" id="teacher-class" class="mono" required placeholder="5 UKM"><div class="fhint" id="class-hint"></div></div>
-                    </div>
-                    <div class="row">
-                        <div class="field"><label>IC number (12 digits)</label><input type="text" id="teacher-ic" class="mono" required pattern="\d{12}" placeholder="980331026309" maxlength="12" inputmode="numeric"><div class="fhint" id="ic-hint"></div></div>
-                        <div class="field">
-                            <label>MOEIS password</label>
-                            <div class="pw-wrap">
-                                <input type="password" id="teacher-password" required placeholder="Portal password" style="padding-right:50px;">
-                                <button type="button" class="pw-toggle" data-target="teacher-password">Show</button>
+        <!-- ===== ROSTERS ===== -->
+        <section id="view-rosters" class="view hidden">
+            <div class="viewhead">
+                <p class="hint">The portal is authoritative for name, class and student id; learned RFID tags are kept across re-reads and imports.</p>
+                <a class="btn btn-sm btn-quiet" href="/idme/roster/template">Excel template &darr;</a>
+            </div>
+            <div class="cols2">
+                <div class="panel">
+                    <h3>Read from MOEIS portal</h3>
+                    <p class="hint">Read-only login with the class's configured teacher.</p>
+                    <form id="roster-init-form" style="margin-top:14px;">
+                        <div class="field"><label>Class</label>
+                            <div class="row" style="gap:8px;">
+                                <input type="text" id="roster-init-class" class="mono" placeholder="5 UKM" required style="flex:1;">
+                                <button type="submit" class="btn" id="roster-init-btn" style="white-space:nowrap;">Read portal</button>
                             </div>
                         </div>
-                    </div>
-                    <button type="submit" class="btn btn-primary" id="add-teacher-btn">Add teacher</button>
-                    <div class="lock-note"><span style="color:var(--red);">&#128274;</span> Stored Fernet-encrypted &middot; used only to log in to MOEIS at cutoff.</div>
-                </form>
-
-                <form id="bulk-teacher-form" style="margin-top:4px; border-top:1px solid var(--line); padding-top:14px;">
-                    <div class="field"><label>Or import the Google Form responses (.xlsx)</label><input type="file" id="bulk-teacher-file" accept=".xlsx,.xls" required></div>
-                    <p class="hint" style="margin-top:8px;">Upload the downloaded <span class="mono">Password &amp; Username IDME (Responses)</span> sheet. Columns are matched by header (<span class="mono">Nama Penuh</span>, <span class="mono">Kelas</span>, <span class="mono">Nombor IC</span>, <span class="mono">Password IDME</span>). Rows with an IC already on file are skipped, so re-uploading a growing form only adds new teachers.</p>
-                    <button type="submit" class="btn" id="bulk-teacher-btn" style="margin-top:12px;">Upload &amp; add all</button>
-                    <div id="bulk-teacher-result" style="margin-top:14px;"></div>
-                </form>
-            </div>
-
-            <!-- Roster source -->
-            <div class="panel">
-                <div class="panel-head" style="justify-content:space-between;">
-                    <h3>Roster source</h3>
-                    <a href="/idme/roster/template">Excel template &darr;</a>
+                    </form>
                 </div>
-                <p class="hint">Seed a class from the MOEIS portal (read-only login), or import a school Excel roster. The portal becomes authoritative for name + class + student id; learned RFID tags are preserved.</p>
-
-                <form id="roster-init-form" style="margin-top:14px;">
-                    <div class="field"><label>Initialise from portal (class must have a configured teacher)</label>
-                        <div class="row" style="gap:8px;">
-                            <input type="text" id="roster-init-class" class="mono" placeholder="5 UKM" required style="flex:1;">
-                            <button type="submit" class="btn" id="roster-init-btn" style="white-space:nowrap;">Read portal</button>
+                <div class="panel">
+                    <h3>Import Excel roster</h3>
+                    <p class="hint">A school roster in the template's layout.</p>
+                    <form id="roster-form" style="margin-top:14px;">
+                        <div class="field"><label>Roster file (.xlsx)</label><input type="file" id="roster-file" accept=".xlsx,.xls" required></div>
+                        <div class="checkrow" style="margin-bottom:12px;">
+                            <input type="checkbox" id="roster-replace">
+                            <label for="roster-replace" style="margin:0; font-size:12px;">Replace existing roster (clears all current students first - avoids duplicates)</label>
                         </div>
-                    </div>
-                </form>
-
-                <form id="roster-form" style="margin-top:4px; border-top:1px solid var(--line); padding-top:14px;">
-                    <div class="field"><label>Import Excel roster (.xlsx)</label><input type="file" id="roster-file" accept=".xlsx,.xls" required></div>
-                    <div class="checkrow" style="margin-bottom:12px;">
-                        <input type="checkbox" id="roster-replace">
-                        <label for="roster-replace" style="margin:0; font-size:12px;">Replace existing roster (clears all current students first - avoids duplicates)</label>
-                    </div>
-                    <button type="submit" class="btn btn-primary" id="roster-btn">Upload &amp; import</button>
-                </form>
+                        <button type="submit" class="btn btn-primary" id="roster-btn">Upload &amp; import</button>
+                    </form>
+                </div>
             </div>
-        </div>
+        </section>
 
-        <!-- ===== RFID tag coverage detail ===== -->
-        <div class="sechead"><h2>RFID tag coverage</h2><span class="rule"></span><a class="btn btn-sm" href="/cards" style="border-color:var(--line-2); text-decoration:none;">Manage cards &rarr;</a><button class="btn btn-sm" id="refresh-coverage" type="button" style="border-color:var(--line-2);">Refresh</button></div>
-        <div class="panel">
-            <p class="hint" style="margin-bottom:12px;">Cards are learned automatically as students tap. During warm-up, un-mapped students are still matched by name; tag-based (name-free) detection is fully trustworthy once a class reaches 100%. Only classes below 100% are listed.</p>
-            <div id="coverage-content" style="color:var(--ink-3); font-size:13px;">Loading coverage&hellip;</div>
-        </div>
+        <!-- ===== CARDS (RFID tag coverage) ===== -->
+        <section id="view-cards" class="view hidden">
+            <div class="viewhead">
+                <p class="hint">Cards are learned as students tap; until a class reaches 100%, un-mapped students are matched by name. Only classes below 100% are listed.</p>
+                <div class="vh-actions">
+                    <button class="btn btn-sm btn-quiet" id="refresh-coverage" type="button">Refresh</button>
+                    <a class="btn btn-sm" href="/cards">Manage cards &rarr;</a>
+                </div>
+            </div>
+            <div class="panel">
+                <div id="coverage-content" style="color:var(--ink-3); font-size:13px;">Loading coverage&hellip;</div>
+            </div>
+        </section>
 
-        <!-- ===== Submission history (durable log, newest first) ===== -->
-        <div class="sechead"><h2>Submission history</h2><span class="rule"></span>
-            <input type="text" id="hist-filter" class="mono" placeholder="Filter class&hellip;" style="width:150px; padding:5px 9px; font-size:12px;">
-            <button class="btn btn-sm" id="refresh-history" type="button" style="border-color:var(--line-2);">Refresh</button>
-        </div>
-        <div class="panel">
-            <p class="hint" style="margin-bottom:12px;">The last 50 runs from the durable submissions log, newest first - scheduled fires, manual submits and automatic retries all appear here (a retry writes its own row). Use it to review past fires without reading container logs.</p>
-            <div id="history-content" style="color:var(--ink-3); font-size:13px;">Loading history&hellip;</div>
-        </div>
+        <!-- ===== HISTORY (durable log, newest first) ===== -->
+        <section id="view-history" class="view hidden">
+            <div class="viewhead">
+                <p class="hint">Last 50 runs, newest first - scheduled fires, manual submits and retries (each retry is its own row).</p>
+                <div class="vh-actions">
+                    <input type="text" id="hist-filter" class="mono" placeholder="Filter class&hellip;" style="width:150px; padding:5px 9px; font-size:12px;">
+                    <button class="btn btn-sm btn-quiet" id="refresh-history" type="button">Refresh</button>
+                </div>
+            </div>
+            <div class="panel">
+                <div id="history-content" style="color:var(--ink-3); font-size:13px;">Loading history&hellip;</div>
+            </div>
+        </section>
     </div>
 
     <!-- ===== Live progress console (Test login / Initialise from portal) ===== -->
@@ -838,16 +861,45 @@
             el.textContent = `next run in ${hrs > 0 ? hrs + 'h ' + mins + 'm' : mins + 'm'}`;
         }
 
-        // ---- View switch ----
-        function setView(view) {
+        // ---- Tabs ----
+        // The active tab lives in the URL hash so a reload (every add/edit/
+        // import does one) lands back on the tab the operator was using.
+        const VIEWS = ['classes', 'teachers', 'rosters', 'cards', 'history'];
+        function setView(view, push) {
+            if (!VIEWS.includes(view)) view = 'classes';
             viewState.view = view;
-            document.getElementById('view-classes').classList.toggle('hidden', view !== 'classes');
-            document.getElementById('view-teachers').classList.toggle('hidden', view !== 'teachers');
-            document.getElementById('view-classes-btn').classList.toggle('on', view === 'classes');
-            document.getElementById('view-teachers-btn').classList.toggle('on', view === 'teachers');
+            VIEWS.forEach(v => {
+                document.getElementById('view-' + v).classList.toggle('hidden', v !== view);
+                const b = document.getElementById('view-' + v + '-btn');
+                b.classList.toggle('on', v === view);
+                b.setAttribute('aria-selected', v === view ? 'true' : 'false');
+            });
+            if (push) history.replaceState(null, '', view === 'classes' ? location.pathname + location.search : '#' + view);
         }
-        document.getElementById('view-classes-btn').addEventListener('click', () => setView('classes'));
-        document.getElementById('view-teachers-btn').addEventListener('click', () => setView('teachers'));
+        document.querySelectorAll('.tabbar button[data-view]').forEach(b =>
+            b.addEventListener('click', () => setView(b.dataset.view, true)));
+        // In-page links to a tab (alert notes, first-run steps); delegated so
+        // markup rendered later by JS works too.
+        document.addEventListener('click', (e) => {
+            const a = e.target.closest('.js-goto'); if (!a) return;
+            e.preventDefault();
+            setView(a.dataset.view, true);
+            if (a.dataset.open === 'add') setAddPanel(true);
+            document.querySelector('.tabbar').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+        window.addEventListener('hashchange', () => setView(location.hash.slice(1)));
+
+        // ---- Add-teachers panel (collapsed until needed) ----
+        function setAddPanel(open, noFocus) {
+            document.getElementById('add-panel').classList.toggle('hidden', !open);
+            const t = document.getElementById('add-toggle');
+            t.setAttribute('aria-expanded', open ? 'true' : 'false');
+            t.textContent = open ? 'Close' : '+ Add teachers';
+            t.classList.toggle('btn-primary', !open);
+            if (open && !noFocus) document.getElementById('teacher-name').focus({ preventScroll: true });
+        }
+        document.getElementById('add-toggle').addEventListener('click', () =>
+            setAddPanel(document.getElementById('add-panel').classList.contains('hidden')));
 
         // ---- Class classification / form derivation ----
         function classifyClass(c) {
@@ -876,7 +928,7 @@
             const strip = document.getElementById('run-strip');
             if (!strip) return;
             const fires = ov.last_fire || [];
-            if (!fires.length) { strip.style.display = 'none'; return; }
+            if (!fires.length) { strip.style.display = 'none'; updateSubmitRemaining(ov); return; }
             strip.style.display = '';
             strip.innerHTML = fires.map(f => {
                 const title = f.message ? ` title="${escapeHtml(f.message)}"` : '';
@@ -939,7 +991,6 @@
             const s = ov.summary || {};
             const setNum = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
             setNum('op-absent', s.absent_today);
-            setNum('op-sending', s.onboarded);
             setNum('op-coverage', (s.coverage_pct || 0) + '%');
             setNum('stat-teachers', s.teachers);
             setNum('stat-students', s.students);
@@ -1027,8 +1078,8 @@
             if (!classes.length) {
                 grid.className = '';
                 grid.innerHTML = `<div class="firstrun"><h3>No classes set up yet</h3>`
-                    + `<p>IDME submits attendance for any class that has an enabled teacher and an imported roster. Add a teacher, then initialise that class&rsquo;s roster - both tools are below.</p>`
-                    + `<div class="steps"><span class="step"><span class="n">1</span> Add a teacher</span><span class="step"><span class="n">2</span> Initialise roster</span></div></div>`;
+                    + `<p>IDME submits attendance for any class that has an enabled teacher and an imported roster. Add a teacher, then initialise that class&rsquo;s roster.</p>`
+                    + `<div class="steps"><a href="#teachers" class="step js-goto" data-view="teachers" data-open="add"><span class="n">1</span> Add a teacher</a><a href="#rosters" class="step js-goto" data-view="rosters"><span class="n">2</span> Initialise roster</a></div></div>`;
                 return;
             }
 
@@ -1104,10 +1155,9 @@
                     <div class="top">
                         <span class="sdot" style="background:${meta.dot};"></span>
                         <span class="code">${escapeHtml(c.class_name)}</span>
-                        ${sessChip}
-                        ${syncChip}
-                        <span class="trgroup">${runChip(c)}<span class="badge" style="color:${meta.dot === 'var(--green)' ? green : (st === 'noteacher' ? amber : off)};border-color:${meta.dot === 'var(--green)' ? green : (st === 'noteacher' ? amber : line)};">${meta.badge}</span></span>
+                        <span class="badge" style="color:${meta.dot === 'var(--green)' ? green : (st === 'noteacher' ? amber : off)};border-color:${meta.dot === 'var(--green)' ? green : (st === 'noteacher' ? amber : line)};">${meta.badge}</span>
                     </div>
+                    <div class="chips">${runChip(c)}${sessChip}${syncChip}</div>
                     <div class="teacher">${c.teacher_name ? escapeHtml(c.teacher_name) : 'No teacher assigned'}</div>
                     <div class="chain">
                         ${chainLeg('Roster', '✓', green)}${seg1}${chainLeg('Section', sMark, sColor)}${seg2}${chainLeg(tLabel, tMark, tColor)}
@@ -1557,7 +1607,10 @@
         });
 
         // ---- Boot ----
+        setView(location.hash.slice(1));
+        if (!document.getElementById('teacher-tbody')) setAddPanel(true, true);
         formatFire();
+        updateSubmitRemaining(INITIAL_OVERVIEW);
         paintLoginCells();
         renderOpSummary(INITIAL_OVERVIEW);
         renderLastFire(INITIAL_OVERVIEW);
