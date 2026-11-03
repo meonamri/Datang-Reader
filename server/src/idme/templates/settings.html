@@ -71,6 +71,8 @@
         .mast .right { margin-left: auto; text-align: right; }
         .mast .cutoffs { display: flex; gap: 16px; justify-content: flex-end; margin-top: 2px; }
         .mast .cut .num { font-size: 18px; font-weight: 700; line-height: 1.2; }
+        .mast .cut .dim { color: var(--ink-3); font-weight: 600; }
+        .mast .cut .arrow { color: var(--ink-3); font-size: 12px; margin: 0 5px; }
         .mast .cut .cf { font-size: 10px; font-weight: 600; color: var(--ink-3); letter-spacing: 0.04em; margin-left: 5px; }
 
         /* ---- Mode banner (server-rendered; survives a JS failure) ---- */
@@ -94,6 +96,7 @@
         .today { margin-top: 18px; }
         .today-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
         .today-head .opchip { margin-left: auto; }
+        .today-note { font-size: 11.5px; color: var(--ink-3); }
         .stats {
             display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
             background: var(--line); border: 1px solid var(--line); border-top: none;
@@ -456,11 +459,15 @@
                 <h1>IDME Settings</h1>
                 <div class="sub">MOEIS attendance &middot; teachers, rosters &amp; daily run</div>
             </div>
+            {# With the Telegram bot on, classes submit as soon as their absentees are
+               answered (all-present classes at prompt time); the cutoff is only the
+               final sweep. Without it, the cutoff is when everything submits. #}
+            {% set early = telegram_enabled %}
             <div class="right">
-                <div class="label">Cutoffs</div>
+                <div class="label">{{ 'Ask teachers &rarr; final sweep'|safe if early else 'Cutoffs' }}</div>
                 <div class="cutoffs">
                 {% for s in sessions %}
-                    <div class="cut"><span class="num">{{ s.cutoff }}</span><span class="cf">{{ s.forms_label }}</span></div>
+                    <div class="cut">{% if early and s.prompt_time %}<span class="num dim">{{ s.prompt_time }}</span><span class="arrow">&rarr;</span>{% endif %}<span class="num">{{ s.cutoff }}</span><span class="cf">{{ s.forms_label }}</span></div>
                 {% endfor %}
                 </div>
             </div>
@@ -478,17 +485,17 @@
         <div class="banner banner-locked">
             <div class="body">
                 <div class="mode">AUTO-CONFIRM &middot; LOCKS RECORDS</div>
-                <div class="desc">Each session cutoff submits and <strong>locks (TELAH DISAHKAN)</strong> every onboarded class unattended - hard to reverse.</div>
+                <div class="desc">{% if early %}Each class is submitted and <strong>locked (TELAH DISAHKAN)</strong> unattended as soon as every absent student has a reason; the cutoff sweeps up the rest. Hard to reverse.{% else %}Each session cutoff submits and <strong>locks (TELAH DISAHKAN)</strong> every onboarded class unattended - hard to reverse.{% endif %}</div>
             </div>
-            <div class="fire" id="next-fire" data-next="{{ overview.scheduler.next_run if overview.scheduler else '' }}"></div>
+            <div class="fire" id="next-fire" data-word="{{ 'final sweep' if early else 'cutoff' }}" data-next="{{ overview.scheduler.next_run if overview.scheduler else '' }}"></div>
         </div>
         {% else %}
         <div class="banner banner-draft">
             <div class="body">
                 <div class="mode">DRAFT &middot; LIVE</div>
-                <div class="desc">Each session cutoff saves re-editable <strong>drafts (MENUNGGU PENGESAHAN)</strong> for a human to confirm. Nothing is locked automatically.</div>
+                <div class="desc">{% if early %}Each class is saved as a re-editable <strong>draft (MENUNGGU PENGESAHAN)</strong> as soon as every absent student has a reason; the cutoff sweeps up the rest. Nothing is locked automatically.{% else %}Each session cutoff saves re-editable <strong>drafts (MENUNGGU PENGESAHAN)</strong> for a human to confirm. Nothing is locked automatically.{% endif %}</div>
             </div>
-            <div class="fire" id="next-fire" data-next="{{ overview.scheduler.next_run if overview.scheduler else '' }}"></div>
+            <div class="fire" id="next-fire" data-word="{{ 'final sweep' if early else 'cutoff' }}" data-next="{{ overview.scheduler.next_run if overview.scheduler else '' }}"></div>
         </div>
         {% endif %}
 
@@ -499,6 +506,7 @@
         <div class="today">
             <div class="today-head">
                 <span class="label">Today</span>
+                {% if early %}<span class="today-note">classes submit when their absentees are answered &middot; cutoff = final sweep + reminder</span>{% endif %}
                 <span class="opchip {{ 'bad' if (sm.misfires or sm.unclassified) else ('warn' if (sm.no_teacher or sm.unrostered) else 'ok') }}" id="op-issue">
                     <span class="dot"></span>
                     <span id="op-issue-text">{% if sm.misfires %}{{ sm.misfires }} misfire{% if sm.no_teacher %} &middot; {{ sm.no_teacher }} no teacher{% endif %}{% elif sm.unclassified %}{{ sm.unclassified }} no session{% elif sm.no_teacher %}{{ sm.no_teacher }} need a teacher{% elif sm.unrostered %}{{ sm.unrostered }} unrostered{% else %}all aligned{% endif %}</span>
@@ -515,7 +523,7 @@
                         <div class="rc-line"><span class="rc-head">{{ f.headline }}</span><span class="rc-detail">{{ f.detail }}</span></div>
                         {% if f.status in ('failed', 'partial') and f.message %}<div class="rc-err">{{ f.message }}</div>{% endif %}
                     </div>
-                    <span class="rc-cut">{{ f.cutoff }}</span>
+                    <span class="rc-cut">{{ 'sweep ' if early }}{{ f.cutoff }}</span>
                 </div>
                 {% endfor %}
             </div>
@@ -858,7 +866,7 @@
             const next = new Date(iso); if (isNaN(next)) return;
             const diffMs = next - new Date(); if (diffMs <= 0) return;
             const hrs = Math.floor(diffMs / 3600000), mins = Math.floor((diffMs % 3600000) / 60000);
-            el.textContent = `next run in ${hrs > 0 ? hrs + 'h ' + mins + 'm' : mins + 'm'}`;
+            el.textContent = `next ${el.dataset.word || 'run'} in ${hrs > 0 ? hrs + 'h ' + mins + 'm' : mins + 'm'}`;
         }
 
         // ---- Tabs ----
@@ -942,7 +950,7 @@
                     + `<span class="rc-detail">${escapeHtml(f.detail || '')}</span></div>`
                     + err
                     + `</div>`
-                    + `<span class="rc-cut">${escapeHtml(f.cutoff || '')}</span>`
+                    + `<span class="rc-cut">${TELEGRAM_ENABLED ? 'sweep ' : ''}${escapeHtml(f.cutoff || '')}</span>`
                     + `</div>`;
             }).join('');
             updateSubmitRemaining(ov);
