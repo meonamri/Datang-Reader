@@ -379,15 +379,17 @@ class AttendanceApp(QMainWindow):
         self.consecutive_unhealthy = 0
         self.health_thread = None
 
+        self._fullscreen_screen = None
+        self._fullscreen_timer = QTimer(self)
+        self._fullscreen_timer.setSingleShot(True)
+        self._fullscreen_timer.timeout.connect(self._fit_fullscreen_to_screen)
+
         self.init_ui()
         self.start_background_tasks()
 
     def init_ui(self):
         self.setWindowTitle("SMK Sultan Ahmad Tajuddin — Datang Reader")
         self.setGeometry(100, 100, Config.WINDOW_WIDTH, Config.WINDOW_HEIGHT)
-        if Config.FULLSCREEN:
-            self.showFullScreen()
-
         self.setStyleSheet(f"""
             QMainWindow, QWidget {{
                 background-color: {COLORS['bg_0']};
@@ -677,12 +679,46 @@ class AttendanceApp(QMainWindow):
             px -= 2
         self.headline_label.setStyleSheet(self._headline_qss(color, px))
 
+    def _queue_fullscreen_fit(self, *_):
+        if Config.FULLSCREEN and self.isFullScreen():
+            self._fullscreen_timer.start(0)
+
+    def _fit_fullscreen_to_screen(self):
+        """Keep the kiosk inside the monitor after layout/display changes."""
+        if not Config.FULLSCREEN or not self.isFullScreen():
+            return
+        handle = self.windowHandle()
+        screen = handle.screen() if handle else QApplication.primaryScreen()
+        if screen is None:
+            return
+        if screen is not self._fullscreen_screen:
+            if self._fullscreen_screen is not None:
+                self._fullscreen_screen.geometryChanged.disconnect(self._queue_fullscreen_fit)
+            self._fullscreen_screen = screen
+            screen.geometryChanged.connect(self._queue_fullscreen_fit)
+        bounds = screen.geometry()
+        # A fullscreen window can retain an oversized layout after HDMI or
+        # startup geometry changes. Cap it before restoring the screen bounds.
+        if self.maximumSize() != bounds.size():
+            self.setMaximumSize(bounds.size())
+        if self.geometry() != bounds:
+            self.setGeometry(bounds)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        handle = self.windowHandle()
+        if handle is not None and not getattr(self, '_fullscreen_handle_connected', False):
+            handle.screenChanged.connect(self._queue_fullscreen_fit)
+            self._fullscreen_handle_connected = True
+        self._queue_fullscreen_fit()
+
     def resizeEvent(self, event):
         # Re-fit the headline whenever the panel size changes (e.g. the
         # switch to fullscreen after show, or a resolution change).
         super().resizeEvent(event)
         if getattr(self, "_headline_text", None) is not None:
             self._apply_headline(self._headline_text, self._headline_color)
+        self._queue_fullscreen_fit()
 
     # ------------------------------------------------------------- statusbar
     def _build_statusbar(self) -> QWidget:
@@ -1067,7 +1103,11 @@ def main():
     timer.timeout.connect(lambda: None)
 
     window = AttendanceApp(args.url)
-    window.show()
+    # Enter fullscreen only after the complete widget tree has been built.
+    if Config.FULLSCREEN:
+        window.showFullScreen()
+    else:
+        window.show()
 
     sys.exit(app.exec_())
 
