@@ -71,9 +71,12 @@ advertises it. Otherwise the tap is held as `uncertain`, never resent.
 **Deploy order: server first, then readers.** Inspect a reader's backlog:
 `sqlite3 ~/.datang_outbox.db "select status,count(*) from taps group by 1"`.
 
-Known interaction: the GUI still runs `sudo reboot` after ~30 failed health
-polls (about 2.5 min). With the outbox, taps made during a server outage are
-safe, but the kiosk is unavailable while it reboots.
+Auto-reboot: the GUI runs `sudo reboot` once the server has been unreachable
+for **60 s** of wall time with no successful health check in between
+(`DATANG_REBOOT_AFTER_UNHEALTHY_S`, default 60; it was 30 polls = 2.5-5 min).
+Taps made meanwhile are safe in the outbox, but the kiosk takes no taps while
+it restarts. During a long server outage a reader therefore reboots about
+every 1.5-2 min (20 s unit start delay + boot + 60 s).
 
 ## Card screen (GET /cards)
 
