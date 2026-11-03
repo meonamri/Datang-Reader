@@ -248,3 +248,84 @@ def test_teacher_messages_name_the_day():
     from src.idme.telegram_bot import _for_day
     assert _for_day({'date': '2026-11-01'}) == ' bagi 01/11/2026'
     assert _for_day({}) == '' and _for_day(None) == ''
+
+
+# ---- unlinked teachers are never submitted automatically ---------------------
+# With the Telegram bot on, only classes whose teacher is linked are submitted
+# by an automatic path; unlinked classes wait for "Submit remaining" / manual.
+
+def test_prompt_time_leaves_unlinked_classes_for_manual_submit(orch, monkeypatch):
+    monkeypatch.setattr(IDMEConfig, 'TELEGRAM_ENABLED', True)
+    monkeypatch.setattr(IDMEConfig, 'form_of', classmethod(lambda cls, c: int(c[0])))
+    orch.teacher_manager.get_all_teachers = lambda: [
+        {'id': 1, 'class_name': '1 UKM', 'telegram_chat_id': 111},   # linked
+        {'id': 2, 'class_name': '1 UM', 'telegram_chat_id': None},   # unlinked
+    ]
+    orch._latest_submission = lambda c, d: None
+    orch.absence_detector.get_attendance_summary = lambda c, d: {'roster_count': 25}
+    orch._unanswered_absences = lambda c, d, a=None: []
+    started = []
+    orch._resume_sequential = lambda pending: started.extend(pending)
+    orch.submit_ready_classes({'name': 'evening', 'forms': [1, 2]}, iso(0))
+    time.sleep(0.3)
+    assert started == [('1 UKM', iso(0))]
+
+
+def test_ready_check_never_auto_submits_an_unlinked_class(orch, monkeypatch):
+    monkeypatch.setattr(IDMEConfig, 'TELEGRAM_ENABLED', True)
+    calls = []
+    orch._latest_submission = lambda c, d: {'status': 'blocked'}
+    orch._unanswered_absences = lambda c, d, a=None: []
+    orch.teacher_manager.get_teacher_for_class = lambda c: {'id': 7, 'telegram_chat_id': None}
+    orch.submit_class = lambda *a, **k: calls.append(a) or {}
+    orch._auto_submit_if_ready('1 UKM', iso(0))   # e.g. restart resume
+    assert calls == []
+    assert ('1 UKM', iso(0)) not in {(c, d) for d, c in orch._auto_retry_inflight}
+
+
+def _cutoff_setup(orch, monkeypatch, telegram):
+    monkeypatch.setattr(IDMEConfig, 'TELEGRAM_ENABLED', telegram)
+    orch.teacher_manager.get_all_teachers = lambda: [
+        {'id': 1, 'name': 'A', 'class_name': '3 UKM', 'telegram_chat_id': 111},
+        {'id': 2, 'name': 'B', 'class_name': '3 UM', 'telegram_chat_id': None},
+    ]
+    submitted = []
+    orch.submit_class = lambda tid, c, d, confirm: (
+        submitted.append(c) or {'class_name': c, 'status': 'completed'})
+    return submitted
+
+
+def test_cutoff_skips_unlinked_classes_but_manual_submit_does_not(orch, monkeypatch):
+    submitted = _cutoff_setup(orch, monkeypatch, telegram=True)
+    orch.submit_all_classes(submission_date=iso(0), linked_only=True)
+    assert submitted == ['3 UKM']
+    submitted.clear()
+    orch.submit_all_classes(submission_date=iso(0))          # Submit remaining / manual
+    assert submitted == ['3 UKM', '3 UM']
+
+
+def test_without_telegram_the_cutoff_still_submits_every_class(orch, monkeypatch):
+    submitted = _cutoff_setup(orch, monkeypatch, telegram=False)
+    orch.submit_all_classes(submission_date=iso(0), linked_only=True)
+    assert submitted == ['3 UKM', '3 UM']
+
+
+def test_scheduled_cutoff_asks_for_linked_only():
+    from src.idme.scheduler import IDMEScheduler
+
+    class Orch:
+        def __init__(self):
+            self.kwargs = None
+
+        def classes_completed_on(self, day):
+            return set()
+
+        def submit_all_classes(self, **kwargs):
+            self.kwargs = kwargs
+            return []
+
+    o = Orch()
+    s = IDMEScheduler(o, [{'name': 'morning', 'label': 'M', 'cutoff': '11:30', 'forms': [3]}])
+    s.running = False
+    s._execute(s.sessions[0])
+    assert o.kwargs['linked_only'] is True

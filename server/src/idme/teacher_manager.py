@@ -307,7 +307,8 @@ class TeacherManager:
         conn = self._get_conn()
         try:
             row = conn.execute(
-                "SELECT id, name, ic_number, class_name, enabled, created_at, updated_at "
+                "SELECT id, name, ic_number, class_name, enabled, telegram_chat_id, "
+                "created_at, updated_at "
                 "FROM teachers WHERE class_name = ? AND enabled = 1",
                 (class_name,)
             ).fetchone()
