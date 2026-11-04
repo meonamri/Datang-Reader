@@ -180,7 +180,9 @@ class ScanTracker:
 
             if len(matches) == 1:
                 m = matches[0]
-                if m['integration_tag'] != card_id and m['tag_source'] == 'admin' and m['integration_tag']:
+                admin_kept = (m['integration_tag'] != card_id and m['tag_source'] == 'admin'
+                              and m['integration_tag'])
+                if admin_kept:
                     # An office admin set this card on the /cards screen; a
                     # Datang.my name match must not silently undo that.
                     self.logger.info(
@@ -196,6 +198,10 @@ class ScanTracker:
                     self.logger.info(
                         f"Tag {action} for student id={m['id']} in '{scan_class}'"
                     )
+                if not admin_kept:
+                    # The card now belongs to a student: its earlier
+                    # 'no_match'/'ambiguous' alerts are settled.
+                    self._resolve_unmatched(conn, card_id)
             elif not matches:
                 self._record_unmatched(
                     conn, card_id, scan_name, scan_class, scan_date, 'no_match'
@@ -206,6 +212,17 @@ class ScanTracker:
                 )
         finally:
             conn.close()
+
+    @staticmethod
+    def _resolve_unmatched(conn, card_id) -> None:
+        """Mark every pending alert for a card that is now mapped as resolved."""
+        cur = conn.execute(
+            "UPDATE unmatched_scans SET resolved = 1 "
+            "WHERE card_id = ? AND resolved = 0",
+            (card_id,)
+        )
+        if cur.rowcount:
+            conn.commit()
 
     def _record_unmatched(
         self, conn, card_id, scan_name, scan_class, scan_date, reason
@@ -351,17 +368,32 @@ class ScanTracker:
         """
         conn = self._get_conn()
         try:
+            # Count CARDS, not rows: a row is written per card per day, so one
+            # unmapped card adds a row every school day. Cards that have since
+            # been mapped to an enabled student (learned, roster import, or the
+            # /cards screen) no longer need attention even if their old rows
+            # were never marked resolved.
             rows = conn.execute(
-                "SELECT reason, COUNT(*) AS c FROM unmatched_scans "
-                "WHERE resolved = 0 GROUP BY reason"
+                "SELECT reason, COUNT(DISTINCT card_id) AS c, COUNT(*) AS n "
+                "FROM unmatched_scans WHERE resolved = 0 AND card_id NOT IN ("
+                "  SELECT integration_tag FROM students "
+                "  WHERE integration_tag IS NOT NULL AND enabled = 1) "
+                "GROUP BY reason"
             ).fetchall()
+            total = conn.execute(
+                "SELECT COUNT(DISTINCT card_id) FROM unmatched_scans "
+                "WHERE resolved = 0 AND card_id NOT IN ("
+                "  SELECT integration_tag FROM students "
+                "  WHERE integration_tag IS NOT NULL AND enabled = 1)"
+            ).fetchone()[0]
         finally:
             conn.close()
         counts = {(r['reason'] or 'unknown'): r['c'] for r in rows}
         return {
             'no_match': counts.get('no_match', 0),
             'ambiguous': counts.get('ambiguous', 0),
-            'total': sum(counts.values()),
+            'total': total,
+            'rows': sum(r['n'] for r in rows),
         }
 
     def cleanup_old_scans(self, days: int = 30) -> int:

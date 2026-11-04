@@ -1285,7 +1285,7 @@
                 const pct = c.total ? Math.round((c.mapped / c.total) * 100) : 0;
                 const um = c.unmatched || { no_match: 0, ambiguous: 0 };
                 let head = `<div style="margin-bottom:12px; color:var(--ink);"><strong class="num">${c.mapped} / ${c.total}</strong> cards mapped school-wide (<span class="num">${pct}%</span>)`;
-                if (um.no_match || um.ambiguous) head += ` &middot; <span style="color:var(--amber);">${um.no_match} unmatched, ${um.ambiguous} ambiguous scan(s) need attention</span>`;
+                if (um.no_match || um.ambiguous) head += ` &middot; <span style="color:var(--amber);">${um.no_match} unmatched, ${um.ambiguous} ambiguous card(s) need attention</span>`;
                 head += `</div>`;
                 const partial = c.classes.filter(cl => !cl.total || cl.mapped < cl.total);
                 if (!partial.length) { el.innerHTML = head + `<div style="color:var(--green);">&#10003; Every class is fully tagged.</div>`; return; }
