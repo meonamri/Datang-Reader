@@ -17,6 +17,7 @@ This module is OFF unless IDME_TELEGRAM_ENABLED=true and a bot token is set.
 import hmac
 import json
 import logging
+import random
 import secrets
 import sqlite3
 import threading
@@ -46,6 +47,7 @@ def _for_day(result) -> str:
         return ''
 _POLL_TIMEOUT = 30          # long-poll seconds passed to getUpdates
 _HTTP_TIMEOUT = _POLL_TIMEOUT + 10
+_POLL_BACKOFF_MAX = 60      # ceiling, seconds, for our own getUpdates backoff
 _MAX_BTN_LABEL = 40         # truncate long Malay reason labels on buttons
 
 # Self-link passphrase brute-force guard: after this many wrong tries a chat is
@@ -134,6 +136,27 @@ class TelegramAuthGuard:
             conn.close()
 
 
+class TelegramAPIError(Exception):
+    """A Bot API call failed: transport error, bad JSON, or an ok=false reply.
+
+    `retry_after` carries Telegram's requested wait, in seconds, on a 429.
+    """
+
+    def __init__(self, message: str, retry_after: Optional[int] = None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+def _poll_delay(failures: int, retry_after: Optional[int] = None) -> float:
+    """Seconds to wait before the next getUpdates after `failures` in a row.
+
+    Doubles from 1s up to _POLL_BACKOFF_MAX, and is never shorter than the wait
+    Telegram asked for. The jitter stops retries landing in lockstep.
+    """
+    backoff = min(_POLL_BACKOFF_MAX, 2 ** (min(failures, 10) - 1))
+    return max(backoff, retry_after or 0) + random.uniform(0, 1)
+
+
 class TelegramClient:
     """Thin requests wrapper over the Telegram Bot API methods this bot needs."""
 
@@ -142,29 +165,45 @@ class TelegramClient:
         self.logger = logging.getLogger(__name__)
         self._session = requests.Session()
 
-    def _call(self, method: str, *, timeout: int = _HTTP_TIMEOUT, **params) -> Optional[dict]:
-        """POST a Bot API method, returning the 'result' payload or None on error."""
+    def _post(self, method: str, params: dict) -> Any:
+        """POST a Bot API method and return its 'result'; raise TelegramAPIError.
+
+        `params` is the Bot API body, so a `timeout` key there is Telegram's
+        long-poll wait. The HTTP timeout is separate and must outlast it.
+        """
         url = _API_BASE.format(token=self.token, method=method)
         try:
-            resp = self._session.post(url, json=params, timeout=timeout)
+            resp = self._session.post(url, json=params, timeout=_HTTP_TIMEOUT)
             data = resp.json()
         except (requests.RequestException, ValueError) as e:
-            self.logger.warning(f"Telegram {method} call failed: {e}")
-            return None
+            # Connection errors quote the request URL, which contains the token.
+            detail = str(e).replace(self.token, '***')
+            raise TelegramAPIError(f"call failed: {detail}") from None
         if not data.get('ok'):
-            self.logger.warning(f"Telegram {method} returned error: {data.get('description')}")
-            return None
+            raise TelegramAPIError(
+                f"returned error: {data.get('description')}",
+                retry_after=(data.get('parameters') or {}).get('retry_after'),
+            )
         return data.get('result')
 
+    def _call(self, method: str, **params) -> Optional[dict]:
+        """POST a Bot API method, returning the 'result' payload or None on error."""
+        try:
+            return self._post(method, params)
+        except TelegramAPIError as e:
+            self.logger.warning(f"Telegram {method} {e}")
+            return None
+
     def get_me(self) -> Optional[dict]:
-        return self._call('getMe', timeout=_HTTP_TIMEOUT)
+        return self._call('getMe')
 
     def get_updates(self, offset: Optional[int]) -> List[dict]:
-        result = self._call(
-            'getUpdates', offset=offset, timeout=_POLL_TIMEOUT,
-            allowed_updates=['message', 'callback_query'],
-        )
-        return result or []
+        """Long-poll for updates. Raises TelegramAPIError so the loop can back off."""
+        return self._post('getUpdates', {
+            'offset': offset,
+            'timeout': _POLL_TIMEOUT,
+            'allowed_updates': ['message', 'callback_query'],
+        }) or []
 
     def send_message(self, chat_id, text, reply_markup=None) -> Optional[dict]:
         params = {'chat_id': chat_id, 'text': text}
@@ -215,6 +254,7 @@ class IDMETelegramBot:
         self.logger = logging.getLogger(__name__)
 
         self.running = False
+        self._stop_event = threading.Event()   # wakes the poll loop out of a backoff
         self._thread: Optional[threading.Thread] = None
         self._offset: Optional[int] = None
         self.bot_username: Optional[str] = None
@@ -245,6 +285,7 @@ class IDMETelegramBot:
             {'command': 'kehadiran', 'description': 'Hantar senarai tidak hadir hari ini'},
         ])
         self.running = True
+        self._stop_event.clear()
         self._thread = threading.Thread(target=self._poll_loop, daemon=True)
         self._thread.start()
         self.logger.info(f"Telegram bot started as @{self.bot_username}")
@@ -252,11 +293,16 @@ class IDMETelegramBot:
 
     def stop(self):
         self.running = False
+        self._stop_event.set()
 
     def _poll_loop(self):
+        failures = 0
         while self.running:
             try:
                 updates = self.client.get_updates(self._offset)
+                if failures:
+                    self.logger.info(f"Telegram polling recovered after {failures} failure(s)")
+                    failures = 0
                 for update in updates:
                     self._offset = update['update_id'] + 1
                     try:
@@ -264,9 +310,11 @@ class IDMETelegramBot:
                     except Exception as e:
                         self.logger.error(f"Error handling Telegram update: {e}")
             except Exception as e:
-                # Never let the loop die — back off briefly and retry.
-                self.logger.warning(f"Telegram poll error: {e}")
-                time.sleep(3)
+                # Never let the loop die — back off and retry.
+                failures += 1
+                delay = _poll_delay(failures, getattr(e, 'retry_after', None))
+                self.logger.warning(f"Telegram getUpdates {e} (retry in {delay:.1f}s)")
+                self._stop_event.wait(delay)
 
     # ---- update dispatch -------------------------------------------------
 
