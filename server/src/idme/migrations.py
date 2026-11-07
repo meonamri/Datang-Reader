@@ -37,6 +37,15 @@ _TEACHER_COLUMNS = {
 _SUBMISSION_COLUMNS = {
     "unanswered_count": "INTEGER NOT NULL DEFAULT 0",
     "requested_confirm": "INTEGER",
+    "portal_status": "TEXT",            # status text read from the portal after submit
+    "form_submitted": "INTEGER",        # 1 if the submit step reported a portal status
+    "write_attempted": "INTEGER",       # 1 if the submit click fired
+}
+
+# When Telegram accepted each student's prompt. NULL means it did not confirm the
+# send, or the prompt predates this column.
+_PROMPT_ENTRY_COLUMNS = {
+    "sent_at": "TIMESTAMP",
 }
 
 
@@ -92,4 +101,5 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_tg_prompt_entries_date
             ON telegram_prompt_entries(scan_date);
     """)
+    _add_missing_columns(conn, "telegram_prompt_entries", _PROMPT_ENTRY_COLUMNS)
     conn.commit()

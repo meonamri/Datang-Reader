@@ -4,7 +4,7 @@ Telegram bot for IDME per-student absence-reason collection.
 Before each session's cutoff the bot DMs every linked class teacher their current
 absentee list and lets them tap a reason per student. The chosen reason is stored
 in `absence_reasons` (via AbsenceReasonStore); the existing cutoff submission then
-picks it up — students left untouched keep the default reason (MALAS KE SEKOLAH).
+picks it up — a class with any student left unanswered is blocked, not submitted.
 
 Design: a minimal requests-based Bot API client using long-polling (getUpdates) in
 a daemon thread. This matches the module's existing threading.Timer/daemon-thread
@@ -140,11 +140,14 @@ class TelegramAPIError(Exception):
     """A Bot API call failed: transport error, bad JSON, or an ok=false reply.
 
     `retry_after` carries Telegram's requested wait, in seconds, on a 429.
+    `error_code` is Telegram's own code; None when no reply was understood.
     """
 
-    def __init__(self, message: str, retry_after: Optional[int] = None):
+    def __init__(self, message: str, retry_after: Optional[int] = None,
+                 error_code: Optional[int] = None):
         super().__init__(message)
         self.retry_after = retry_after
+        self.error_code = error_code
 
 
 def _poll_delay(failures: int, retry_after: Optional[int] = None) -> float:
@@ -183,6 +186,7 @@ class TelegramClient:
             raise TelegramAPIError(
                 f"returned error: {data.get('description')}",
                 retry_after=(data.get('parameters') or {}).get('retry_after'),
+                error_code=data.get('error_code'),
             )
         return data.get('result')
 
@@ -194,8 +198,10 @@ class TelegramClient:
             self.logger.warning(f"Telegram {method} {e}")
             return None
 
-    def get_me(self) -> Optional[dict]:
-        return self._call('getMe')
+    def get_me(self) -> dict:
+        """Return the bot's identity. Raises TelegramAPIError so a caller can tell
+        a rejected token from a passing failure."""
+        return self._post('getMe', {}) or {}
 
     def get_updates(self, offset: Optional[int]) -> List[dict]:
         """Long-poll for updates. Raises TelegramAPIError so the loop can back off."""
@@ -273,12 +279,19 @@ class IDMETelegramBot:
     # ---- lifecycle -------------------------------------------------------
 
     def start(self) -> bool:
-        """Verify the token (getMe) and start the poll loop. Returns success."""
-        me = self.client.get_me()
-        if not me:
-            self.logger.error("Telegram bot disabled: getMe failed (bad token or no network)")
-            return False
-        self.bot_username = me.get('username')
+        """Check the token (getMe) and start the poll loop. Returns success.
+
+        Only a definite token rejection disables the bot. Any other getMe failure
+        is treated as passing: the poll loop backs off until Telegram answers, so
+        a brief outage during a restart can't silently turn teacher prompts off.
+        """
+        try:
+            self.bot_username = self.client.get_me().get('username')
+        except TelegramAPIError as e:
+            if e.error_code in (401, 404):
+                self.logger.error(f"Telegram bot disabled: token rejected ({e})")
+                return False
+            self.logger.warning(f"Telegram getMe {e}; starting anyway, polling will retry")
         # Advertise the slash commands so teachers see them in the bot's menu.
         self.client.set_my_commands([
             {'command': 'start', 'description': 'Hubungkan atau semak status akaun'},
@@ -288,7 +301,7 @@ class IDMETelegramBot:
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._poll_loop, daemon=True)
         self._thread.start()
-        self.logger.info(f"Telegram bot started as @{self.bot_username}")
+        self.logger.info(f"Telegram bot started as @{self.bot_username or 'unverified'}")
         return True
 
     def stop(self):
@@ -807,12 +820,12 @@ class IDMETelegramBot:
 
     def prompt_session(self, session: dict, scan_date: Optional[str] = None) -> int:
         """DM every linked teacher in this session's forms their current absentee
-        list. Returns the number of prompt messages sent."""
+        list. Returns the number of prompt messages Telegram accepted."""
         from .idme_config import IDMEConfig
         if scan_date is None:
             scan_date = date.today().isoformat()
         forms = set(session['forms'])
-        sent = 0
+        sent = failed = 0
 
         for teacher in self.teacher_manager.get_all_teachers():
             if IDMEConfig.form_of(teacher['class_name']) not in forms:
@@ -825,13 +838,15 @@ class IDMETelegramBot:
                 )
                 continue
             try:
-                sent += self._prompt_teacher(teacher, chat_id, scan_date)
+                accepted, rejected = self._prompt_teacher(teacher, chat_id, scan_date)
+                sent += accepted
+                failed += rejected
             except Exception as e:
                 self.logger.error(f"Failed to prompt {teacher['name']}: {e}")
 
         self.logger.info(
             f"Telegram prompt for {session['name']} session ({scan_date}): "
-            f"{sent} messages sent"
+            f"{sent} messages sent, {failed} failed"
         )
         return sent
 
@@ -853,23 +868,30 @@ class IDMETelegramBot:
             return {'ok': False,
                     'error': f"{teacher['name']} has not linked their Telegram yet"}
         try:
-            sent = self._prompt_teacher(full, chat_id, scan_date)
+            sent, failed = self._prompt_teacher(full, chat_id, scan_date)
         except Exception as e:
             self.logger.error(f"Manual prompt for {class_name} failed: {e}")
             return {'ok': False, 'error': str(e)}
-        self.logger.info(f"Manual Telegram prompt for {class_name}: {sent} message(s)")
+        self.logger.info(
+            f"Manual Telegram prompt for {class_name}: {sent} message(s), {failed} failed")
+        if failed and not sent:
+            return {'ok': False, 'error': 'Telegram did not accept the prompt'}
         return {'ok': True, 'sent': sent, 'teacher': teacher['name']}
 
-    def _prompt_teacher(self, teacher, chat_id, scan_date) -> int:
+    def _prompt_teacher(self, teacher, chat_id, scan_date) -> Tuple[int, int]:
+        """Send one class's prompts. Returns (accepted, failed) message counts.
+
+        A failure is not resent: a lost reply can hide a message that did arrive.
+        """
         class_name = teacher['class_name']
         absences = self.absence_detector.detect_absences(class_name, scan_date)
         if not absences:
-            self.client.send_message(
+            accepted = self.client.send_message(
                 chat_id,
                 f"✅ {class_name} ({scan_date}): semua pelajar hadir setakat ini. "
                 "Tiada sebab perlu direkod.",
             )
-            return 1
+            return (1, 0) if accepted else (0, 1)
 
         hadir_hint = (
             " Jika pelajar sebenarnya hadir tetapi lupa kad, tekan "
@@ -879,22 +901,32 @@ class IDMETelegramBot:
         self.client.send_message(
             chat_id,
             f"📋 {class_name} — {len(absences)} pelajar belum hadir ({scan_date}).\n"
-            "Pilih sebab bagi setiap pelajar di bawah. Yang tidak dipilih akan "
-            "direkod sebagai PONTENG (MALAS KE SEKOLAH)." + hadir_hint,
+            "Pilih sebab bagi setiap pelajar di bawah. Semua pelajar perlu dijawab "
+            "sebelum kehadiran dihantar ke IDME." + hadir_hint,
         )
+        sent = failed = 0
         for s in absences:
             entry_id = self._register_entry(teacher, s, scan_date)
-            self.client.send_message(
+            accepted = self.client.send_message(
                 chat_id, self._prompt_text(self._entries[entry_id]),
                 reply_markup=self._quickpick_keyboard(entry_id),
             )
-        return len(absences)
+            if accepted:
+                self._mark_entry_sent(entry_id)
+                sent += 1
+            else:
+                failed += 1
+        if failed:
+            self.logger.warning(
+                f"Telegram prompt for {class_name}: {failed} of {len(absences)} not accepted")
+        return sent, failed
 
     _ENTRIES_DDL = (
         "CREATE TABLE IF NOT EXISTS telegram_prompt_entries ("
         " entry_id TEXT PRIMARY KEY, teacher_id INTEGER NOT NULL,"
         " class_name TEXT NOT NULL, student_name TEXT NOT NULL, idpelajar TEXT,"
-        " scan_date DATE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+        " scan_date DATE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+        " sent_at TIMESTAMP)"
     )
 
     def _entries_conn(self) -> sqlite3.Connection:
@@ -902,6 +934,20 @@ class IDMETelegramBot:
         conn.row_factory = sqlite3.Row
         conn.execute(self._ENTRIES_DDL)  # idempotent; migrations also create it
         return conn
+
+    def _mark_entry_sent(self, entry_id: str) -> None:
+        """Record that Telegram accepted this prompt. Best-effort, like the entry."""
+        try:
+            conn = self._entries_conn()
+            try:
+                conn.execute(
+                    "UPDATE telegram_prompt_entries SET sent_at = ? WHERE entry_id = ?",
+                    (datetime.now().isoformat(), entry_id))
+                conn.commit()
+            finally:
+                conn.close()
+        except sqlite3.Error as e:
+            self.logger.warning(f"Could not record prompt send: {e}")
 
     def _register_entry(self, teacher, absence, scan_date) -> str:
         entry_id = secrets.token_urlsafe(5)

@@ -514,10 +514,21 @@ class IDMEOrchestrator:
                     'write_attempted', True
                 )
 
+                portal_status = fill_result.get('status') or None
+                write_attempted = fill_result.get('write_attempted')
+                if status == 'completed' and confirm and portal_status != 'TELAH DISAHKAN':
+                    self.logger.warning(
+                        f"{class_name} on {submission_date}: confirmation requested "
+                        f"but portal status is {portal_status!r}")
+
                 self._update_submission(
                     submission_id, status=status,
                     successful=recorded_count, failed=failed_count,
-                    duration=duration, error=error_msg
+                    duration=duration, error=error_msg,
+                    portal_status=portal_status,
+                    form_submitted=int(bool(form_submitted)),
+                    write_attempted=(
+                        None if write_attempted is None else int(bool(write_attempted))),
                 )
 
                 result = {
@@ -1560,7 +1571,9 @@ class IDMEOrchestrator:
         total_roster: int = None, total_scanned: int = None,
         total_absent: int = None, successful: int = None,
         failed: int = None, unanswered_count: int = None,
-        duration: float = None, error: str = None
+        duration: float = None, error: str = None,
+        portal_status: str = None, form_submitted: int = None,
+        write_attempted: int = None
     ):
         """Update a submission record."""
         if not submission_id:
@@ -1596,6 +1609,15 @@ class IDMEOrchestrator:
         if error:
             updates.append("error_message = ?")
             params.append(error)
+        if portal_status is not None:
+            updates.append("portal_status = ?")
+            params.append(portal_status)
+        if form_submitted is not None:
+            updates.append("form_submitted = ?")
+            params.append(form_submitted)
+        if write_attempted is not None:
+            updates.append("write_attempted = ?")
+            params.append(write_attempted)
         if status in ('completed', 'failed', 'skipped', 'blocked',
                       self.CONFIRMED_EXTERNAL):
             updates.append("completed_at = ?")

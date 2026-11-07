@@ -151,6 +151,9 @@ CREATE TABLE IF NOT EXISTS idme_submissions (
     failed INTEGER DEFAULT 0,
     unanswered_count INTEGER NOT NULL DEFAULT 0,
     requested_confirm INTEGER,
+    portal_status TEXT,                     -- status text read from the portal after submit
+    form_submitted INTEGER,                 -- 1 if the submit step reported a portal status
+    write_attempted INTEGER,                -- 1 if the submit click fired
     status TEXT DEFAULT 'pending',          -- pending, running, completed, failed, blocked
     error_message TEXT,
     duration_seconds REAL,
