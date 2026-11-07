@@ -88,6 +88,10 @@ services:
       # IDME data (database, screenshots)
       - ../docker-data/idme:/data/idme
 
+    # Log to the bind mount so history survives a container recreate. Rotation is
+    # built in (Config.LOG_MAX_BYTES x LOG_BACKUP_COUNT: 6 files, 60 MB at most).
+    command: ["python", "smartt.py", "--http-server", "--log-file", "/data/logs/smartt.log"]
+
     # Restart policy
     restart: unless-stopped
 
